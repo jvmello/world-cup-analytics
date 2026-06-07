@@ -1,0 +1,11 @@
+pandas
+pyarrow
+statsbombpy
+jupyterlab
+streamlit
+matplotlib
+plotly
+sqlalchemy
+psycopg2-binary
+boto3
+python-dotenv

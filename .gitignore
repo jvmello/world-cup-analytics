@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.ipynb_checkpoints/
+data/bronze/
+data/silver/
+data/gold/
+*.db
+*.sqlite
+*.log
+postgres_data/
+minio_data/
+.DS_Store
+.vscode/
+.idea/
