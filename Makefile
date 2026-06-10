@@ -19,6 +19,9 @@ silver:
 gold:
 	docker compose run --rm app python src/build_gold_world_cup.py
 
+tournament_structure:
+	docker compose run --rm app python src/build_gold_tournament_structure.py
+
 validate:
 	docker compose run --rm app python src/validate_world_cup_data.py
 
@@ -30,3 +33,9 @@ pipeline:
 
 streamlit:
 	docker compose up streamlit
+
+player_offensive:
+	docker compose run --rm app python src/build_gold_player_offensive.py
+
+dim_player:
+	docker compose run --rm app python src/silver_players.py

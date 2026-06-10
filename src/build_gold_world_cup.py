@@ -222,6 +222,124 @@ def build_gold_xg_timeline() -> pd.DataFrame:
 
     return gold
 
+def build_gold_player_shot_time_bins(player_shots: pd.DataFrame) -> pd.DataFrame:
+    shots = player_shots.copy()
+
+    shots["minute_bin_start"] = (shots["minute"] // 5) * 5
+    shots["minute_bin_end"] = shots["minute_bin_start"] + 5
+
+    gold = (
+        shots.groupby(
+            [
+                "edition_year",
+                "team_name",
+                "player_name",
+                "player_display_name",
+                "minute_bin_start",
+                "minute_bin_end",
+            ],
+            as_index=False,
+        )
+        .agg(
+            shots=("shot_id", "count"),
+            goals=("is_goal", "sum"),
+            xg=("statsbomb_xg", "sum"),
+        )
+    )
+
+    gold["xg"] = gold["xg"].round(3)
+
+    write_gold(gold, "gold_player_shot_time_bins")
+
+    return gold
+
+def build_gold_player_body_part_summary(player_shots: pd.DataFrame) -> pd.DataFrame:
+    shots = player_shots.copy()
+
+    gold = (
+        shots.groupby(
+            [
+                "edition_year",
+                "team_name",
+                "player_name",
+                "player_display_name",
+                "body_part",
+            ],
+            as_index=False,
+        )
+        .agg(
+            shots=("shot_id", "count"),
+            goals=("is_goal", "sum"),
+            xg=("statsbomb_xg", "sum"),
+        )
+    )
+
+    gold["xg"] = gold["xg"].round(3)
+
+    write_gold(gold, "gold_player_body_part_summary")
+
+    return gold
+
+def add_percentile(df: pd.DataFrame, group_columns: list[str], metric: str) -> pd.Series:
+    return (
+        df.groupby(group_columns)[metric]
+        .rank(pct=True)
+        .mul(100)
+        .round(0)
+    )
+
+
+def build_gold_player_percentiles(player_summary: pd.DataFrame) -> pd.DataFrame:
+    df = player_summary.copy()
+
+    df["conversion_rate"] = (df["goals"] / df["shots"]).fillna(0)
+    df["shot_accuracy"] = df["shot_accuracy"].fillna(0)
+
+    # Fallback enquanto a posição ainda não estiver perfeita.
+    # Depois podemos trocar para primary_position.
+    if "position_name" not in df.columns:
+        df["position_group"] = "All players"
+    else:
+        df["position_group"] = df["position_name"].fillna("Unknown")
+
+    group_columns = ["edition_year", "position_group"]
+
+    metrics = {
+        "shots_percentile": "shots",
+        "goals_percentile": "goals",
+        "xg_percentile": "xg",
+        "xg_per_shot_percentile": "avg_xg_per_shot",
+        "shot_accuracy_percentile": "shot_accuracy",
+        "conversion_percentile": "conversion_rate",
+    }
+
+    for percentile_column, metric_column in metrics.items():
+        df[percentile_column] = add_percentile(
+            df,
+            group_columns,
+            metric_column,
+        )
+
+    selected_columns = [
+        "edition_year",
+        "team_name",
+        "player_name",
+        "player_display_name",
+        "position_group",
+        "shots_percentile",
+        "goals_percentile",
+        "xg_percentile",
+        "xg_per_shot_percentile",
+        "shot_accuracy_percentile",
+        "conversion_percentile",
+    ]
+
+    gold = df[selected_columns].copy()
+
+    write_gold(gold, "gold_player_percentiles")
+
+    return gold
+
 
 def main() -> None:
     match_summary = build_gold_match_summary()

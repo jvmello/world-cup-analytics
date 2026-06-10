@@ -5,6 +5,10 @@ import pandas as pd
 
 from config import WORLD_CUP_SEASONS
 
+from typing import Any
+
+import numpy as np
+
 
 BRONZE_BASE_PATH = Path("data/bronze/statsbomb/world_cup")
 SILVER_BASE_PATH = Path("data/silver/world_cup")
@@ -18,8 +22,25 @@ def read_parquet_if_exists(path: Path) -> pd.DataFrame:
 
 
 def get_list_value(value: Any, index: int) -> float | None:
-    if isinstance(value, list) and len(value) > index:
-        return value[index]
+    if value is None:
+        return None
+
+    if isinstance(value, float) and pd.isna(value):
+        return None
+
+    if isinstance(value, str):
+        try:
+            value = ast.literal_eval(value)
+        except (ValueError, SyntaxError):
+            return None
+
+    if isinstance(value, (list, tuple, np.ndarray)) and len(value) > index:
+        item = value[index]
+
+        if item is None:
+            return None
+
+        return float(item)
 
     return None
 
@@ -61,6 +82,8 @@ def build_silver_matches_for_edition(edition_year: int) -> pd.DataFrame:
         "data_version",
         "shot_fidelity_version",
         "xy_fidelity_version",
+        "player_id",
+        "team_id",
     ]
 
     existing_columns = [column for column in selected_columns if column in matches.columns]
@@ -68,6 +91,8 @@ def build_silver_matches_for_edition(edition_year: int) -> pd.DataFrame:
 
     silver["has_match_data"] = True
     silver["data_granularity"] = "match"
+    silver["player_id"] = column_or_none(silver, "player_id")
+    silver["team_id"] = column_or_none(silver, "team_id")
 
     return silver
 
@@ -156,8 +181,13 @@ def build_silver_shots_for_edition(edition_year: int) -> pd.DataFrame:
     silver["shot_id"] = column_or_none(silver, "id")
     silver["edition_year"] = edition_year
 
+    silver["team_id"] = column_or_none(silver, "team_id")
     silver["team_name"] = column_or_none(silver, "team")
+
+    silver["player_id"] = column_or_none(silver, "player_id")
     silver["player_name"] = column_or_none(silver, "player")
+
+    silver["position_id"] = column_or_none(silver, "position_id")
     silver["position_name"] = column_or_none(silver, "position")
 
     silver["x"] = column_or_none(silver, "location").apply(lambda value: get_list_value(value, 0))
@@ -205,6 +235,9 @@ def build_silver_shots_for_edition(edition_year: int) -> pd.DataFrame:
         "shot_id",
         "match_id",
         "edition_year",
+        "team_id",
+        "player_id",
+        "position_id",
         "match_date",
         "kick_off",
         "competition_stage",
