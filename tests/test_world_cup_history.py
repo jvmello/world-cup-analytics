@@ -11,6 +11,7 @@ from world_cup_history import (  # noqa: E402
     build_champions,
     build_competition_group_tables,
     build_competition_knockouts,
+    build_group_fixtures,
     build_group_table,
     build_knockout_matches,
     build_scheduled_group_tables,
@@ -188,6 +189,34 @@ class WorldCupHistoryTest(unittest.TestCase):
 
         self.assertEqual(table.iloc[0]["competition_stage"], "Round of 32")
         self.assertEqual(table.iloc[0]["winner"], "TBD")
+
+    def test_group_fixtures_infers_group_name(self) -> None:
+        fixtures = build_group_fixtures(self.matches, 2022)
+
+        self.assertEqual(fixtures.iloc[0]["group_name"], "A")
+        self.assertEqual(fixtures.iloc[0]["score"], "2 x 1")
+
+    def test_group_fixtures_prefers_scheduled_fixture_gold(self) -> None:
+        scheduled = pd.DataFrame(
+            [
+                {
+                    "edition_year": 2026,
+                    "stage": "Group Stage",
+                    "group_name": "A",
+                    "round_number": 1,
+                    "match_number": 1,
+                    "home_team": "Mexico",
+                    "away_team": "South Africa",
+                    "home_score": pd.NA,
+                    "away_score": pd.NA,
+                }
+            ]
+        )
+
+        fixtures = build_group_fixtures(self.matches, 2026, scheduled)
+
+        self.assertEqual(fixtures.iloc[0]["group_name"], "A")
+        self.assertEqual(fixtures.iloc[0]["score"], "x")
 
 
 if __name__ == "__main__":

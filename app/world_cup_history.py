@@ -6,6 +6,7 @@ import pandas as pd
 
 
 GROUP_STAGES = {"Group Stage", "1st Group Stage", "2nd Group Stage"}
+GROUP_LETTERS = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
 STAGE_ORDER = {
     "Group Stage": 10,
@@ -244,6 +245,66 @@ def build_group_table(matches: pd.DataFrame, edition_year: int) -> pd.DataFrame:
     ).reset_index(drop=True)
 
 
+def infer_group_assignments(matches: pd.DataFrame, edition_year: int) -> pd.DataFrame:
+    data = prepare_matches(matches)
+    group_matches = data[
+        data["edition_year"].eq(edition_year)
+        & data["competition_stage"].isin(GROUP_STAGES)
+    ].copy()
+
+    if group_matches.empty:
+        return pd.DataFrame(columns=["team_name", "group_name"])
+
+    adjacency: dict[str, set[str]] = {}
+    first_date: dict[str, pd.Timestamp] = {}
+
+    for match in group_matches.itertuples(index=False):
+        home_team = str(match.home_team)
+        away_team = str(match.away_team)
+        adjacency.setdefault(home_team, set()).add(away_team)
+        adjacency.setdefault(away_team, set()).add(home_team)
+        match_date = match.match_date
+        for team in [home_team, away_team]:
+            if team not in first_date or match_date < first_date[team]:
+                first_date[team] = match_date
+
+    components = []
+    seen: set[str] = set()
+
+    for team in sorted(adjacency):
+        if team in seen:
+            continue
+
+        stack = [team]
+        component = set()
+
+        while stack:
+            current = stack.pop()
+            if current in component:
+                continue
+            component.add(current)
+            stack.extend(adjacency[current] - component)
+
+        seen.update(component)
+        components.append(component)
+
+    components = sorted(
+        components,
+        key=lambda component: (
+            min(first_date[team] for team in component),
+            sorted(component)[0],
+        ),
+    )
+
+    rows = []
+    for index, component in enumerate(components):
+        group_name = GROUP_LETTERS[index]
+        for team in sorted(component):
+            rows.append({"team_name": team, "group_name": group_name})
+
+    return pd.DataFrame(rows)
+
+
 def build_scheduled_group_tables(groups: pd.DataFrame) -> pd.DataFrame:
     if groups.empty:
         return pd.DataFrame()
@@ -292,7 +353,9 @@ def build_competition_group_tables(
     if historical.empty:
         return historical
 
-    historical = historical.rename(columns={"stage": "group_name"})
+    assignments = infer_group_assignments(matches, edition_year)
+    historical = historical.merge(assignments, on="team_name", how="left")
+    historical["group_name"] = historical["group_name"].fillna(historical["stage"])
     historical["edition_year"] = edition_year
     historical["position"] = (
         historical.groupby("group_name")
@@ -316,6 +379,58 @@ def build_competition_group_tables(
             "points",
         ]
     ]
+
+
+def build_group_fixtures(
+    matches: pd.DataFrame,
+    edition_year: int,
+    scheduled_fixtures: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    if scheduled_fixtures is not None and not scheduled_fixtures.empty:
+        scheduled = scheduled_fixtures[
+            scheduled_fixtures["edition_year"].eq(edition_year)
+            & scheduled_fixtures["stage"].eq("Group Stage")
+        ].copy()
+
+        if not scheduled.empty:
+            scheduled["competition_stage"] = scheduled["stage"]
+            scheduled["score"] = "x"
+            scheduled["match_label_date"] = "A definir"
+            scheduled["stadium"] = pd.NA
+            return scheduled.sort_values(
+                ["group_name", "round_number", "match_number"]
+            ).reset_index(drop=True)
+
+    data = prepare_matches(matches)
+    group_matches = data[
+        data["edition_year"].eq(edition_year)
+        & data["competition_stage"].isin(GROUP_STAGES)
+    ].copy()
+
+    if group_matches.empty:
+        return group_matches
+
+    assignments = infer_group_assignments(matches, edition_year)
+    group_matches = group_matches.merge(
+        assignments.rename(columns={"team_name": "home_team", "group_name": "home_group"}),
+        on="home_team",
+        how="left",
+    )
+    group_matches = group_matches.merge(
+        assignments.rename(columns={"team_name": "away_team", "group_name": "away_group"}),
+        on="away_team",
+        how="left",
+    )
+    group_matches["group_name"] = group_matches["home_group"].fillna(
+        group_matches["away_group"]
+    )
+    group_matches["match_label_date"] = group_matches["match_date"].dt.strftime(
+        "%d/%m/%Y"
+    )
+
+    return group_matches.sort_values(
+        ["group_name", "match_date", "match_id"]
+    ).reset_index(drop=True)
 
 
 def build_knockout_matches(

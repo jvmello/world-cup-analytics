@@ -1,4 +1,5 @@
 from pathlib import Path
+from html import escape
 
 import pandas as pd
 import plotly.express as px
@@ -11,6 +12,7 @@ from world_cup_history import (
     build_competition_group_tables,
     build_competition_knockouts,
     build_edition_overview,
+    build_group_fixtures,
     build_top_scorers,
 )
 
@@ -80,6 +82,188 @@ st.markdown(
             text-transform: uppercase;
             font-size: 13px;
             margin-top: 10px;
+        }
+
+        .group-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+            gap: 18px;
+            margin-top: 16px;
+        }
+
+        .group-card {
+            border: 1px solid #1d2518;
+            border-radius: 8px;
+            background: #080d08;
+            overflow: hidden;
+        }
+
+        .group-title {
+            padding: 14px 16px 10px;
+            font-size: 18px;
+            font-weight: 800;
+            color: #f2f2f2;
+            border-bottom: 1px solid #1d2518;
+        }
+
+        .group-table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+            font-size: 13px;
+        }
+
+        .group-table th {
+            color: #a0a0a0;
+            background: #0d130d;
+            border-bottom: 1px solid #243319;
+            padding: 8px 6px;
+            text-align: right;
+        }
+
+        .group-table th.team-col,
+        .group-table td.team-col {
+            text-align: left;
+            width: 34%;
+        }
+
+        .group-table th.status-col,
+        .group-table td.status-col {
+            width: 24%;
+        }
+
+        .group-table td {
+            border-bottom: 1px solid #172017;
+            padding: 8px 6px;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .group-table tr.qualified td {
+            background: rgba(156, 255, 0, 0.16);
+        }
+
+        .group-table tr.possible td {
+            background: rgba(0, 229, 255, 0.12);
+        }
+
+        .group-table tr.eliminated td {
+            background: rgba(255, 77, 77, 0.16);
+        }
+
+        .group-table tr.pending td {
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .team-name {
+            color: #f2f2f2;
+            font-weight: 700;
+        }
+
+        .points-cell {
+            color: #9cff00;
+            font-weight: 900;
+        }
+
+        .fixtures-list {
+            padding: 12px 16px 16px;
+        }
+
+        .fixture-row {
+            display: grid;
+            grid-template-columns: 86px 1fr 54px 1fr;
+            gap: 10px;
+            align-items: center;
+            padding: 7px 0;
+            border-bottom: 1px solid #172017;
+            font-size: 13px;
+        }
+
+        .fixture-row:last-child {
+            border-bottom: 0;
+        }
+
+        .fixture-date {
+            color: #a0a0a0;
+            font-size: 12px;
+        }
+
+        .fixture-team {
+            color: #f2f2f2;
+            font-weight: 700;
+        }
+
+        .fixture-score {
+            color: #f2f2f2;
+            font-weight: 900;
+            text-align: center;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .bracket-scroll {
+            overflow-x: auto;
+            padding-bottom: 10px;
+        }
+
+        .bracket-grid {
+            display: grid;
+            grid-auto-flow: column;
+            grid-auto-columns: minmax(230px, 1fr);
+            gap: 14px;
+            min-width: 980px;
+            margin-top: 16px;
+        }
+
+        .bracket-round-title {
+            border: 1px solid #1d2518;
+            border-radius: 8px;
+            background: #0d130d;
+            color: #9cff00;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            padding: 10px;
+            text-align: center;
+            margin-bottom: 12px;
+        }
+
+        .match-box {
+            border: 1px solid #243319;
+            border-radius: 8px;
+            background: #080d08;
+            margin-bottom: 12px;
+            overflow: hidden;
+        }
+
+        .match-meta {
+            color: #a0a0a0;
+            font-size: 12px;
+            padding: 8px 10px;
+            border-bottom: 1px solid #172017;
+        }
+
+        .match-team-row {
+            display: grid;
+            grid-template-columns: 1fr 46px;
+            gap: 10px;
+            padding: 8px 10px;
+            border-bottom: 1px solid #172017;
+            align-items: center;
+        }
+
+        .match-team-row:last-child {
+            border-bottom: 0;
+        }
+
+        .match-team-name {
+            color: #f2f2f2;
+            font-weight: 800;
+        }
+
+        .match-team-score {
+            color: #9cff00;
+            font-weight: 900;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
         }
     </style>
     """,
@@ -291,45 +475,113 @@ def render_group_stage(group_table: pd.DataFrame) -> None:
         st.info("Não há partidas de fase de grupos para a edição selecionada.")
         return
 
+    st.markdown(
+        render_group_cards(group_table, pd.DataFrame()),
+        unsafe_allow_html=True,
+    )
+
+
+def score_text(home_score: object, away_score: object) -> str:
+    if pd.isna(home_score) or pd.isna(away_score):
+        return "x"
+
+    return f"{int(home_score)} - {int(away_score)}"
+
+
+def group_status(position: int, played: int) -> tuple[str, str]:
+    if played == 0:
+        if position <= 2:
+            return "pending", "Zona direta"
+        if position == 3:
+            return "possible", "Possível 3º"
+        return "pending", "A disputar"
+
+    if position <= 2:
+        return "qualified", "Classificado"
+
+    return "eliminated", "Eliminado"
+
+
+def render_group_cards(group_table: pd.DataFrame, group_fixtures: pd.DataFrame) -> str:
+    cards = []
     groups = group_table["group_name"].dropna().unique().tolist()
 
-    for index in range(0, len(groups), 3):
-        columns = st.columns(3)
-        for column, group_name in zip(columns, groups[index:index + 3]):
-            data = group_table[group_table["group_name"].eq(group_name)].copy()
-            with column:
-                st.markdown(f"#### Grupo {group_name}")
-                st.dataframe(
-                    data[
-                        [
-                            "position",
-                            "team_name",
-                            "played",
-                            "wins",
-                            "draws",
-                            "losses",
-                            "goals_for",
-                            "goals_against",
-                            "goal_difference",
-                            "points",
-                        ]
-                    ].rename(
-                        columns={
-                            "position": "#",
-                            "team_name": "Seleção",
-                            "played": "J",
-                            "wins": "V",
-                            "draws": "E",
-                            "losses": "D",
-                            "goals_for": "GP",
-                            "goals_against": "GC",
-                            "goal_difference": "SG",
-                            "points": "Pts",
-                        }
-                    ),
-                    use_container_width=True,
-                    hide_index=True,
+    for group_name in groups:
+        table = group_table[group_table["group_name"].eq(group_name)].copy()
+        fixtures = group_fixtures[
+            group_fixtures.get("group_name", pd.Series(dtype=object)).eq(group_name)
+        ].copy()
+
+        rows = []
+        total_played = int(table["played"].sum())
+
+        for row in table.itertuples(index=False):
+            css_class, status = group_status(int(row.position), total_played)
+            rows.append(
+                (
+                    f'<tr class="{css_class}">'
+                    f"<td>{int(row.position)}</td>"
+                    f'<td class="team-col"><span class="team-name">{escape(str(row.team_name))}</span></td>'
+                    f'<td class="points-cell">{int(row.points)}</td>'
+                    f"<td>{int(row.played)}</td>"
+                    f"<td>{int(row.wins)}</td>"
+                    f"<td>{int(row.draws)}</td>"
+                    f"<td>{int(row.losses)}</td>"
+                    f"<td>{int(row.goals_for)}</td>"
+                    f"<td>{int(row.goals_against)}</td>"
+                    f"<td>{int(row.goal_difference):+d}</td>"
+                    f'<td class="status-col">{status}</td>'
+                    "</tr>"
                 )
+            )
+
+        fixture_rows = []
+        for fixture in fixtures.itertuples(index=False):
+            date_label = getattr(fixture, "match_label_date", None)
+            if pd.isna(date_label) or date_label is None:
+                date_label = "A definir"
+            fixture_rows.append(
+                (
+                    '<div class="fixture-row">'
+                    f'<div class="fixture-date">{escape(str(date_label))}</div>'
+                    f'<div class="fixture-team">{escape(str(fixture.home_team))}</div>'
+                    f'<div class="fixture-score">{escape(score_text(fixture.home_score, fixture.away_score))}</div>'
+                    f'<div class="fixture-team">{escape(str(fixture.away_team))}</div>'
+                    "</div>"
+                )
+            )
+
+        if not fixture_rows:
+            fixture_rows.append(
+                '<div class="fixture-row"><div class="fixture-date">-</div><div class="fixture-team">Sem jogos detalhados</div><div></div><div></div></div>'
+            )
+
+        cards.append(
+            (
+                '<section class="group-card">'
+                f'<div class="group-title">Grupo {escape(str(group_name))}</div>'
+                '<table class="group-table">'
+                "<thead><tr>"
+                "<th>Pos</th>"
+                '<th class="team-col">Equipe</th>'
+                "<th>Pts</th>"
+                "<th>J</th>"
+                "<th>V</th>"
+                "<th>E</th>"
+                "<th>D</th>"
+                "<th>GP</th>"
+                "<th>GC</th>"
+                "<th>SG</th>"
+                '<th class="status-col">Status</th>'
+                "</tr></thead>"
+                f'<tbody>{"".join(rows)}</tbody>'
+                "</table>"
+                f'<div class="fixtures-list">{"".join(fixture_rows)}</div>'
+                "</section>"
+            )
+        )
+
+    return f'<div class="group-grid">{"".join(cards)}</div>'
 
 
 def render_knockouts(knockouts: pd.DataFrame) -> None:
@@ -339,34 +591,85 @@ def render_knockouts(knockouts: pd.DataFrame) -> None:
         st.info("Não há mata-mata para a edição selecionada.")
         return
 
-    visible_columns = [
-        "edition_year",
-        "competition_stage",
-        "match_date",
-        "home_team",
-        "score",
-        "away_team",
-        "winner",
-        "penalty_score",
-        "stadium",
-    ]
-    existing_columns = [column for column in visible_columns if column in knockouts.columns]
-
-    table = knockouts[existing_columns].rename(
-        columns={
-            "edition_year": "Edição",
-            "competition_stage": "Fase",
-            "match_date": "Data",
-            "home_team": "Mandante",
-            "score": "Placar",
-            "away_team": "Visitante",
-            "winner": "Vencedor",
-            "penalty_score": "Pênaltis",
-            "stadium": "Estádio",
-        }
+    st.markdown(
+        render_knockout_bracket(knockouts),
+        unsafe_allow_html=True,
     )
 
-    st.dataframe(table, use_container_width=True, hide_index=True)
+
+def format_match_date(value: object) -> str:
+    if pd.isna(value):
+        return "A definir"
+
+    parsed = pd.to_datetime(value, errors="coerce")
+    if pd.isna(parsed):
+        return str(value)
+
+    return parsed.strftime("%d/%m/%Y")
+
+
+def team_score(value: object) -> str:
+    if pd.isna(value):
+        return "-"
+
+    try:
+        return str(int(value))
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def render_knockout_bracket(knockouts: pd.DataFrame) -> str:
+    stage_order = [
+        "Round of 32",
+        "Round of 16",
+        "Quarter-finals",
+        "Semi-finals",
+        "3rd Place Final",
+        "Final",
+    ]
+    stages = [
+        stage for stage in stage_order
+        if stage in knockouts["competition_stage"].dropna().unique().tolist()
+    ]
+
+    columns = []
+    for stage in stages:
+        matches = knockouts[knockouts["competition_stage"].eq(stage)].copy()
+        boxes = []
+
+        for match in matches.itertuples(index=False):
+            match_date = format_match_date(getattr(match, "match_date", None))
+            stadium = getattr(match, "stadium", None)
+            meta = match_date
+            if stadium is not None and not pd.isna(stadium):
+                meta = f"{meta} - {stadium}"
+
+            boxes.append(
+                (
+                    '<div class="match-box">'
+                    f'<div class="match-meta">{escape(str(meta))}</div>'
+                    '<div class="match-team-row">'
+                    f'<div class="match-team-name">{escape(str(match.home_team))}</div>'
+                    f'<div class="match-team-score">{escape(team_score(getattr(match, "home_score", None)))}</div>'
+                    "</div>"
+                    '<div class="match-team-row">'
+                    f'<div class="match-team-name">{escape(str(match.away_team))}</div>'
+                    f'<div class="match-team-score">{escape(team_score(getattr(match, "away_score", None)))}</div>'
+                    "</div>"
+                    "</div>"
+                )
+            )
+
+        columns.append(
+            (
+                '<section class="bracket-round">'
+                f'<div class="bracket-round-title">{escape(stage)}</div>'
+                f'{"".join(boxes)}'
+                "</section>"
+            )
+        )
+
+    return f'<div class="bracket-scroll"><div class="bracket-grid">{"".join(columns)}</div></div>'
 
 
 def render_next_world_cup_plan() -> None:
@@ -439,13 +742,24 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
 )
 
 with tab1:
-    render_group_stage(
-        build_competition_group_tables(
-            matches_df,
-            int(selected_edition),
-            tournament_groups_df,
-        )
+    group_tables_df = build_competition_group_tables(
+        matches_df,
+        int(selected_edition),
+        tournament_groups_df,
     )
+    group_fixtures_df = build_group_fixtures(
+        matches_df,
+        int(selected_edition),
+        tournament_fixtures_df,
+    )
+    st.markdown('<div class="section-label">Classificação em grupos</div>', unsafe_allow_html=True)
+    if group_tables_df.empty:
+        st.info("Não há partidas de fase de grupos para a edição selecionada.")
+    else:
+        st.markdown(
+            render_group_cards(group_tables_df, group_fixtures_df),
+            unsafe_allow_html=True,
+        )
     st.divider()
     render_knockouts(
         build_competition_knockouts(
