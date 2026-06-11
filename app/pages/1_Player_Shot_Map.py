@@ -14,12 +14,6 @@ PLAYER_SUMMARY_PATH = Path(
 )
 
 
-st.set_page_config(
-    page_title="Player Shot Map",
-    layout="wide",
-)
-
-
 def draw_pitch(fig: go.Figure) -> go.Figure:
     fig.update_xaxes(range=[0, 120], visible=False)
     fig.update_yaxes(range=[0, 80], visible=False, scaleanchor="x", scaleratio=1)

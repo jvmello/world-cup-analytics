@@ -28,12 +28,6 @@ DANGER_COLOR = "#ff4d4d"
 GRID_COLOR = "#1d2518"
 
 
-st.set_page_config(
-    page_title="Player Rankings",
-    layout="wide",
-)
-
-
 st.markdown(
     """
     <style>
@@ -84,7 +78,7 @@ def load_summary() -> pd.DataFrame:
 
 def render_metric_context(metric_label: str) -> None:
     metric = next(item for item in RANKING_METRICS if item.label == metric_label)
-    st.sidebar.caption(metric.description)
+    st.caption(metric.description)
 
 
 def render_leaderboard_chart(
@@ -289,21 +283,35 @@ editions = ["Todas"] + sorted(
     summary_df["edition_year"].dropna().unique().tolist(),
     reverse=True,
 )
-selected_edition = st.sidebar.selectbox("Edição", editions)
+
+filter_col1, filter_col2, filter_col3, filter_col4, filter_col5 = st.columns(
+    [1, 1.4, 1.3, 1.2, 1.1]
+)
+
+with filter_col1:
+    selected_edition = st.selectbox("Edição", editions)
 
 edition_scope = summary_df
 if selected_edition != "Todas":
     edition_scope = summary_df[summary_df["edition_year"].eq(selected_edition)]
 
 teams = ["Todas"] + sorted(edition_scope["team_name"].dropna().unique().tolist())
-selected_team = st.sidebar.selectbox("Seleção", teams)
 
-metric_label = st.sidebar.selectbox("Métrica", metric_options())
-render_metric_context(metric_label)
+with filter_col2:
+    selected_team = st.selectbox("Seleção", teams)
+
+with filter_col3:
+    metric_label = st.selectbox("Métrica", metric_options())
 
 max_shots = int(max(summary_df["shots"].max(), 1))
-min_shots = st.sidebar.slider("Mínimo de finalizações", 1, max_shots, 3)
-limit = st.sidebar.slider("Jogadores no ranking", 5, 50, 20, step=5)
+
+with filter_col4:
+    min_shots = st.slider("Mínimo de finalizações", 1, max_shots, 3)
+
+with filter_col5:
+    limit = st.selectbox("Jogadores no ranking", [10, 20, 30, 50], index=1)
+
+render_metric_context(metric_label)
 
 leaderboard_df = build_leaderboard(
     summary_df,

@@ -23,12 +23,6 @@ PITCH_COLOR = "#071207"
 GRID_COLOR = "#243319"
 
 
-st.set_page_config(
-    page_title="Player Analytics",
-    layout="wide",
-)
-
-
 st.markdown(
     """
     <style>
@@ -66,6 +60,26 @@ st.markdown(
             text-transform: uppercase;
             font-size: 13px;
             margin-top: 10px;
+        }
+
+        div[role="radiogroup"] {
+            background: #050805;
+            border: 1px solid #1d2518;
+            border-radius: 8px;
+            padding: 6px;
+            gap: 4px;
+            margin-bottom: 14px;
+        }
+
+        div[role="radiogroup"] label {
+            border-radius: 6px;
+            padding: 8px 12px;
+        }
+
+        div[role="radiogroup"] label:has(input:checked) {
+            background: #9cff00;
+            color: #050805;
+            box-shadow: 0 0 18px rgba(156, 255, 0, 0.28);
         }
     </style>
     """,
@@ -176,15 +190,19 @@ def get_player_context(
     shots: pd.DataFrame,
     summary: pd.DataFrame,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series]:
-    st.sidebar.title("Player Analytics")
-
     editions = sorted(shots["edition_year"].dropna().unique(), reverse=True)
-    selected_edition = st.sidebar.selectbox("Edition", editions)
+
+    filter_col1, filter_col2, filter_col3 = st.columns([1, 1.4, 2])
+
+    with filter_col1:
+        selected_edition = st.selectbox("Edição", editions)
 
     edition_shots = shots[shots["edition_year"] == selected_edition].copy()
 
     teams = sorted(edition_shots["team_name"].dropna().unique())
-    selected_team = st.sidebar.selectbox("Team", teams)
+
+    with filter_col2:
+        selected_team = st.selectbox("Time", teams)
 
     team_shots = edition_shots[edition_shots["team_name"] == selected_team].copy()
 
@@ -198,10 +216,11 @@ def get_player_context(
         .sort_values(["xg", "goals", "shots"], ascending=False)
     )
 
-    selected_display_name = st.sidebar.selectbox(
-        "Player",
-        players_rank["player_display_name"].tolist(),
-    )
+    with filter_col3:
+        selected_display_name = st.selectbox(
+            "Jogador",
+            players_rank["player_display_name"].tolist(),
+        )
 
     selected_player_name = players_rank.loc[
         players_rank["player_display_name"] == selected_display_name,
@@ -226,8 +245,6 @@ def get_player_context(
 
 
 def render_header(player_summary: pd.Series) -> None:
-    st.title("Jogadores")
-
     player_name = player_summary["player_display_name"]
     team_name = player_summary["team_name"]
     edition_year = player_summary["edition_year"]
@@ -740,6 +757,12 @@ if not PLAYER_SHOTS_PATH.exists() or not PLAYER_SUMMARY_PATH.exists():
 
 shots_df, summary_df = load_data()
 
+st.title("Jogadores")
+st.markdown(
+    '<div class="small-caption">Análise ofensiva por jogador, edição e seleção.</div>',
+    unsafe_allow_html=True,
+)
+
 player_shots_df, team_shots_df, player_summary_row = get_player_context(
     shots_df,
     summary_df,
@@ -747,7 +770,7 @@ player_shots_df, team_shots_df, player_summary_row = get_player_context(
 
 render_header(player_summary_row)
 
-view = st.sidebar.radio(
+view = st.radio(
     "View",
     [
         "Radar do jogador",
@@ -760,6 +783,8 @@ view = st.sidebar.radio(
         "Percentis vs edição",
         "Tabela de chutes",
     ],
+    horizontal=True,
+    label_visibility="collapsed",
 )
 
 st.divider()

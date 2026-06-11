@@ -32,8 +32,6 @@ SECONDARY_COLOR = "#00e5ff"
 DANGER_COLOR = "#ff4d4d"
 
 
-st.set_page_config(page_title="Team Analytics", layout="wide")
-
 st.markdown(
     """
     <style>
@@ -70,6 +68,26 @@ st.markdown(
             text-transform: uppercase;
             font-size: 13px;
             margin-top: 10px;
+        }
+
+        div[role="radiogroup"] {
+            background: #050805;
+            border: 1px solid #1d2518;
+            border-radius: 8px;
+            padding: 6px;
+            gap: 4px;
+            margin-bottom: 14px;
+        }
+
+        div[role="radiogroup"] label {
+            border-radius: 6px;
+            padding: 8px 12px;
+        }
+
+        div[role="radiogroup"] label:has(input:checked) {
+            background: #9cff00;
+            color: #050805;
+            box-shadow: 0 0 18px rgba(156, 255, 0, 0.28);
         }
 
         .team-hero {
@@ -344,15 +362,23 @@ st.markdown(
 )
 
 editions = sorted(team_summary_df["edition_year"].dropna().unique().tolist(), reverse=True)
-selected_edition = st.sidebar.selectbox("Edição", editions)
+
+filter_col1, filter_col2 = st.columns([1, 2])
+
+with filter_col1:
+    selected_edition = st.selectbox("Edição", editions)
+
 edition_teams = sorted(
     team_summary_df[team_summary_df["edition_year"].eq(selected_edition)]["team_name"]
     .dropna()
     .unique()
     .tolist()
 )
-selected_team = st.sidebar.selectbox("Time", edition_teams)
-mode = st.sidebar.radio(
+
+with filter_col2:
+    selected_team = st.selectbox("Time", edition_teams)
+
+mode = st.radio(
     "Menu",
     [
         "Vitrine do time",
@@ -364,6 +390,8 @@ mode = st.sidebar.radio(
         "Mapa de calor",
         "Finalizações por tipo",
     ],
+    horizontal=True,
+    label_visibility="collapsed",
 )
 
 team_row = get_team_row(team_summary_df, selected_edition, selected_team)

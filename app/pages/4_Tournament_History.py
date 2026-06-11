@@ -40,12 +40,6 @@ SECONDARY_COLOR = "#00e5ff"
 GRID_COLOR = "#1d2518"
 
 
-st.set_page_config(
-    page_title="Tournament History",
-    layout="wide",
-)
-
-
 st.markdown(
     """
     <style>
@@ -82,6 +76,25 @@ st.markdown(
             text-transform: uppercase;
             font-size: 13px;
             margin-top: 10px;
+        }
+
+        div[role="radiogroup"] {
+            background: #050805;
+            border: 1px solid #1d2518;
+            border-radius: 8px;
+            padding: 6px;
+            gap: 4px;
+        }
+
+        div[role="radiogroup"] label {
+            border-radius: 6px;
+            padding: 8px 12px;
+        }
+
+        div[role="radiogroup"] label:has(input:checked) {
+            background: #9cff00;
+            color: #050805;
+            box-shadow: 0 0 18px rgba(156, 255, 0, 0.28);
         }
 
         .group-grid {
@@ -714,8 +727,22 @@ if missing_paths:
 
 
 matches_df, player_summary_df, player_shots_df, tournament_groups_df, tournament_fixtures_df = load_data()
-overview_df = build_edition_overview(matches_df, player_summary_df, player_shots_df)
-champions_df = build_champions(matches_df, player_shots_df)
+
+competition_sources = []
+if "competition" in matches_df.columns:
+    competition_sources.extend(matches_df["competition"].dropna().unique().tolist())
+if "competition" in tournament_groups_df.columns:
+    competition_sources.extend(tournament_groups_df["competition"].dropna().unique().tolist())
+if "competition" in tournament_fixtures_df.columns:
+    competition_sources.extend(tournament_fixtures_df["competition"].dropna().unique().tolist())
+
+competition_values = sorted(set(competition_sources)) or ["FIFA World Cup"]
+selected_competition = st.session_state.get(
+    "selected_competition",
+    competition_values[0],
+)
+if selected_competition not in competition_values:
+    selected_competition = competition_values[0]
 
 st.title("Copa do Mundo")
 st.markdown(
@@ -727,21 +754,45 @@ historical_editions = matches_df["edition_year"].dropna().unique().tolist()
 scheduled_editions = tournament_groups_df["edition_year"].dropna().unique().tolist()
 edition_values = sorted(set(historical_editions + scheduled_editions), reverse=True)
 default_index = edition_values.index(2026) if 2026 in edition_values else 0
-selected_edition = st.sidebar.selectbox("Edição", edition_values, index=default_index)
-top_limit = st.sidebar.slider("Linhas dos rankings", 5, 50, 20, step=5)
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+control_col1, control_col2 = st.columns([1, 1])
+
+with control_col1:
+    selected_edition = st.selectbox("Edição", edition_values, index=default_index)
+
+with control_col2:
+    top_limit = st.selectbox("Linhas dos rankings", [10, 20, 30, 50], index=1)
+
+if "competition" in tournament_groups_df.columns:
+    tournament_groups_df = tournament_groups_df[
+        tournament_groups_df["competition"].eq(selected_competition)
+    ].copy()
+if "competition" in tournament_fixtures_df.columns:
+    tournament_fixtures_df = tournament_fixtures_df[
+        tournament_fixtures_df["competition"].eq(selected_competition)
+    ].copy()
+if "competition" in matches_df.columns:
+    matches_df = matches_df[matches_df["competition"].eq(selected_competition)].copy()
+
+overview_df = build_edition_overview(matches_df, player_summary_df, player_shots_df)
+champions_df = build_champions(matches_df, player_shots_df)
+
+selected_section = st.radio(
+    "Seção",
     [
+        "Classificação",
         "Competição",
         "Resumo histórico",
         "Campeãs",
         "Artilheiros",
         "Assistentes",
         "Próxima Copa",
-    ]
+    ],
+    horizontal=True,
+    label_visibility="collapsed",
 )
 
-with tab1:
+if selected_section in ("Classificação", "Competição"):
     group_tables_df = build_competition_group_tables(
         matches_df,
         int(selected_edition),
@@ -770,13 +821,13 @@ with tab1:
         )
     )
 
-with tab2:
+elif selected_section == "Resumo histórico":
     render_overview(overview_df)
 
-with tab3:
+elif selected_section == "Campeãs":
     render_champions(champions_df)
 
-with tab4:
+elif selected_section == "Artilheiros":
     render_top_scorers(
         build_top_scorers(
             player_summary_df,
@@ -785,8 +836,8 @@ with tab4:
         )
     )
 
-with tab5:
+elif selected_section == "Assistentes":
     render_assists()
 
-with tab6:
+elif selected_section == "Próxima Copa":
     render_next_world_cup_plan()
