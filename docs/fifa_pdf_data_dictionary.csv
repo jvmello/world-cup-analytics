@@ -1,0 +1,64 @@
+dataset,layer,grain,key_field,field,type,nullable,description,example
+*,all,todas as linhas,false,document_id,string,false,SHA-256 e identidade estável do PDF,9eecf6ac406cdf38836a855d3d0ef2885afe5ec7cf9d140a5f5c60d229adc42f
+*,all,todas as linhas,false,match_id,string,true,Identificador canônico da partida,2026-match-7-brazil-morocco
+*,all,todas as linhas,false,source_file,string,false,Nome do PDF de origem,PMSR-M07-BRA-V-MAR.pdf
+*,all,todas as linhas,false,page_number,integer,false,Página física de origem; zero representa o documento,1
+*,all,todas as linhas,false,confidence,number,false,Confiança do registro entre zero e um,0.98
+documents,bronze,um documento,true,sha256,string,false,Hash SHA-256 do conteúdo do PDF,9eecf6ac406cdf38836a855d3d0ef2885afe5ec7cf9d140a5f5c60d229adc42f
+documents,bronze,um documento,false,source_path,string,false,Caminho usado na execução,data/pdf/PMSR-M07-BRA-V-MAR.pdf
+documents,bronze,um documento,false,edition,integer,false,Edição da Copa,2026
+documents,bronze,um documento,false,parser_version,string,false,Versão semântica do parser,1.0.0
+documents,bronze,um documento,false,status,string,false,Status de processamento,processed
+documents,bronze,um documento,false,page_count,integer,false,Número de páginas do PDF,52
+documents,bronze,um documento,false,metadata_json,json,true,Metadados PDF serializados em JSON,"{""Creator"":""Chromium""}"
+pages,bronze,uma página,true,domain,string,false,Domínio atribuído pelo classificador,cover
+pages,bronze,uma página,false,width,number,false,Largura da página em pontos PDF,960.0
+pages,bronze,uma página,false,height,number,false,Altura da página em pontos PDF,540.0
+pages,bronze,uma página,false,raw_text,string,true,Texto integral extraído da página,Brazil 1 - 1 Morocco
+raw_tables,bronze,uma célula de tabela,true,table_number,integer,false,Índice base zero da tabela na página,0
+raw_tables,bronze,uma célula de tabela,true,row_number,integer,false,Índice base zero da linha,0
+raw_tables,bronze,uma célula de tabela,true,column_number,integer,false,Índice base zero da coluna,0
+raw_tables,bronze,uma célula de tabela,false,raw_value,string,true,Conteúdo original da célula,Brazil 1 - 1 Morocco
+match_summary,silver,uma partida por documento,false,edition,integer,false,Edição da Copa,2026
+match_summary,silver,uma partida por documento,false,group_name,string,true,Grupo da competição,C
+match_summary,silver,uma partida por documento,false,match_number,integer,false,Número oficial da partida,7
+match_summary,silver,uma partida por documento,false,match_date,date,false,Data no padrão ISO,2026-06-13
+match_summary,silver,uma partida por documento,false,kickoff_time,time,true,Horário local informado no relatório,18:00
+match_summary,silver,uma partida por documento,false,stadium,string,true,Estádio da partida,New York/New Jersey Stadium
+match_summary,silver,uma partida por documento,false,home_team,string,false,Seleção mandante,Brazil
+match_summary,silver,uma partida por documento,false,away_team,string,false,Seleção visitante,Morocco
+match_summary,silver,uma partida por documento,false,home_score,integer,false,Gols da seleção mandante,1
+match_summary,silver,uma partida por documento,false,away_score,integer,false,Gols da seleção visitante,1
+match_summary,silver,uma partida por documento,false,data_coverage_level,string,false,Nível de cobertura da fonte,fifa_pdf
+team_key_statistics,silver,uma métrica por partida e seleção,true,team_name,string,false,Seleção associada à métrica,Brazil
+team_key_statistics,silver,uma métrica por partida e seleção,true,metric_name,string,false,Nome canônico da métrica,attempts_at_goal
+team_key_statistics,silver,uma métrica por partida e seleção,false,value,number,true,Valor normalizado,12
+team_key_statistics,silver,uma métrica por partida e seleção,false,unit,string,false,Unidade do valor,count
+team_key_statistics,silver,uma métrica por partida e seleção,false,raw_value,string,true,Valor preservado da fonte,12
+phases_of_play,silver,uma fase por estado de posse e seleção,true,team_name,string,false,Seleção associada à fase,Brazil
+phases_of_play,silver,uma fase por estado de posse e seleção,true,possession_state,string,false,Estado de posse,in_possession
+phases_of_play,silver,uma fase por estado de posse e seleção,true,phase_name,string,false,Nome canônico da fase,attacking_transition
+phases_of_play,silver,uma fase por estado de posse e seleção,false,percentage,number,true,Percentual normalizado,11
+phases_of_play,silver,uma fase por estado de posse e seleção,false,raw_value,string,true,Percentual preservado da fonte,11%
+attempts_at_goal,silver,uma tentativa interpretada,true,attempt_id,string,false,Identificador determinístico da tentativa,2026-match-7-brazil-morocco|Brazil|15|10|45|8
+attempts_at_goal,silver,uma tentativa interpretada,false,team_name,string,true,Seleção do jogador,Brazil
+attempts_at_goal,silver,uma tentativa interpretada,false,minute,integer,true,Minuto da tentativa,45
+attempts_at_goal,silver,uma tentativa interpretada,false,shirt_number,integer,true,Número da camisa,8
+attempts_at_goal,silver,uma tentativa interpretada,false,player_name,string,true,Nome do jogador,BRUNO GUIMARAES
+attempts_at_goal,silver,uma tentativa interpretada,false,outcome,string,true,Desfecho descrito no relatório,Incomplete - Player On Ball Error
+attempts_at_goal,silver,uma tentativa interpretada,false,body_part,string,true,Parte do corpo usada,Right Foot
+attempts_at_goal,silver,uma tentativa interpretada,false,delivery_type,string,true,Origem ou tipo da entrega,Loose Ball
+attempts_at_goal,silver,uma tentativa interpretada,false,raw_value,string,true,Linha original da tentativa,45 8 BRUNO GUIMARAES Incomplete - Player On Ball Error Right Foot Loose Ball
+player_metrics,silver,uma métrica por jogador e grupo,true,team_name,string,false,Seleção do jogador,Brazil
+player_metrics,silver,uma métrica por jogador e grupo,true,shirt_number,integer,false,Número da camisa,1
+player_metrics,silver,uma métrica por jogador e grupo,false,player_name,string,false,Nome do jogador,ALISSON
+player_metrics,silver,uma métrica por jogador e grupo,true,metric_group,string,false,Grupo semântico da métrica,in_possession_distribution
+player_metrics,silver,uma métrica por jogador e grupo,true,metric_name,string,false,Nome canônico da métrica,attempts_at_goal
+player_metrics,silver,uma métrica por jogador e grupo,false,value,number,true,Valor normalizado,0
+player_metrics,silver,uma métrica por jogador e grupo,false,unit,string,false,Unidade do valor,count
+player_metrics,silver,uma métrica por jogador e grupo,false,raw_value,string,true,Valor preservado da fonte,0
+extraction_issues,silver,um problema de extração,true,issue_id,string,false,Identificador determinístico da issue,9eec...|10|unsupported_domain|page-preserve
+extraction_issues,silver,um problema de extração,false,severity,string,false,Severidade informativa ou de aviso,info
+extraction_issues,silver,um problema de extração,false,issue_type,string,false,Tipo canônico do problema,unsupported_domain
+extraction_issues,silver,um problema de extração,false,message,string,false,Descrição legível do problema,Page preserved as raw data without a domain parser
+extraction_issues,silver,um problema de extração,false,raw_value,string,true,Fragmento bruto relacionado ao problema,Line Breaks Brazil

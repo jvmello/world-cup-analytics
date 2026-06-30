@@ -39,3 +39,64 @@ player_offensive:
 
 dim_player:
 	docker compose run --rm app python src/silver_players.py
+
+fifa_pdf:
+	docker compose run --rm --no-deps app python -m fifa_pdf.cli --input-dir data/pdf/inbox --edition 2026
+	docker compose run --rm --no-deps app python -m fifa_pdf.publication --input-dir data/pdf/inbox --edition 2026
+
+fifa_pdf_file:
+	docker compose run --rm --no-deps app python -m fifa_pdf.cli --file data/pdf/PMSR-M07-BRA-V-MAR.pdf --edition 2026
+	docker compose run --rm --no-deps app python -m fifa_pdf.publication --file data/pdf/PMSR-M07-BRA-V-MAR.pdf --edition 2026
+
+fifa_pdf_snapshot:
+	docker compose run --rm --no-deps app python -m fifa_pdf.snapshot --file data/pdf/PMSR-M07-BRA-V-MAR.pdf --edition 2026
+
+fifa_match_products:
+	docker compose run --rm --no-deps app python -m fifa_pdf.publication --input-dir data/pdf/inbox --edition 2026
+
+fifa_match_products_file:
+	docker compose run --rm --no-deps app python -m fifa_pdf.publication --file data/pdf/PMSR-M07-BRA-V-MAR.pdf --edition 2026
+
+thestatsapi-fixtures:
+	docker compose run --rm app python -m thestatsapi.fixtures
+
+thestatsapi-fixtures-force:
+	docker compose run --rm app python -m thestatsapi.fixtures --force
+
+thestatsapi-match:
+	@test -n "$(MATCH_ID)" || (echo "Usage: make thestatsapi-match MATCH_ID=<match_id>" && exit 1)
+	docker compose run --rm app python -m thestatsapi.match_bundle --match-id "$(MATCH_ID)"
+
+thestatsapi-match-force:
+	@test -n "$(MATCH_ID)" || (echo "Usage: make thestatsapi-match-force MATCH_ID=<match_id>" && exit 1)
+	docker compose run --rm app python -m thestatsapi.match_bundle --match-id "$(MATCH_ID)" --force
+
+thestatsapi-opening-match:
+	docker compose run --rm app python -m thestatsapi.opening_match_smoke
+
+thestatsapi-opening-match-force:
+	docker compose run --rm app python -m thestatsapi.opening_match_smoke --force
+
+thestatsapi-silver:
+	docker compose run --rm --no-deps app python -m thestatsapi.silver
+
+thestatsapi-gold:
+	docker compose run --rm --no-deps app python -m thestatsapi.gold
+
+test:
+	docker compose run --rm --no-deps app python -m unittest discover -s tests -v
+
+web_build:
+	docker compose build web
+
+web:
+	docker compose up web
+
+web_up:
+	docker compose up -d web
+
+web_down:
+	docker compose stop web
+
+web_test:
+	docker compose run --rm --no-deps web python -m pytest tests/test_web_api.py -q

@@ -4,6 +4,9 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from edition_context import get_selected_edition
+from fifa_pdf_ui import render_fifa_2026_page
+
 
 SILVER_SHOTS_PATH = Path(
     "data/silver/world_cup/shots/silver_world_cup_shots.parquet"
@@ -12,6 +15,11 @@ SILVER_SHOTS_PATH = Path(
 AVAILABILITY_PATH = Path(
     "data/silver/world_cup/metadata/world_cup_data_availability.parquet"
 )
+
+
+if get_selected_edition(st.session_state) == 2026:
+    render_fifa_2026_page("match_overview", "World Cup Analytics")
+    st.stop()
 
 
 st.title("World Cup Analytics")

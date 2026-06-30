@@ -6,6 +6,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+from edition_context import get_selected_edition
+
 from world_cup_history import (
     build_assist_leaderboard,
     build_champions,
@@ -753,13 +755,13 @@ st.markdown(
 historical_editions = matches_df["edition_year"].dropna().unique().tolist()
 scheduled_editions = tournament_groups_df["edition_year"].dropna().unique().tolist()
 edition_values = sorted(set(historical_editions + scheduled_editions), reverse=True)
-default_index = edition_values.index(2026) if 2026 in edition_values else 0
+selected_edition = get_selected_edition(st.session_state)
+if selected_edition not in edition_values:
+    selected_edition = edition_values[0]
 
 control_col1, control_col2 = st.columns([1, 1])
-
 with control_col1:
-    selected_edition = st.selectbox("Edição", edition_values, index=default_index)
-
+    st.metric("Edição", selected_edition)
 with control_col2:
     top_limit = st.selectbox("Linhas dos rankings", [10, 20, 30, 50], index=1)
 

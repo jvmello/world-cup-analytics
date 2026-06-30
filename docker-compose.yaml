@@ -91,6 +91,20 @@ services:
       - postgres
       - minio
 
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: worldcup_web
+    volumes:
+      - .:/app
+    working_dir: /app
+    ports:
+      - "${WEB_PORT:-8010}:8000"
+    command: uvicorn webapp.main:app --host=0.0.0.0 --port=8000 --reload
+    networks:
+      - worldcup_network
+
 volumes:
   postgres_data:
   minio_data:

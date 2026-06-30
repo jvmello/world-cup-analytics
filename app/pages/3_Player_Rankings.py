@@ -5,6 +5,9 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+from edition_context import get_selected_edition
+from fifa_pdf_ui import render_fifa_2026_page
+
 from player_rankings import (
     RANKING_METRICS,
     build_leaderboard,
@@ -264,6 +267,11 @@ def render_table(leaderboard: pd.DataFrame) -> None:
             "Conversão": st.column_config.NumberColumn(format="%.1f%%"),
         },
     )
+
+
+if get_selected_edition(st.session_state) == 2026:
+    render_fifa_2026_page("player_rankings", "Rankings ofensivos")
+    st.stop()
 
 
 if not PLAYER_SUMMARY_PATH.exists():

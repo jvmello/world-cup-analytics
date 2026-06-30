@@ -5,6 +5,9 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+from edition_context import get_selected_edition
+from fifa_pdf_ui import render_fifa_2026_page
+
 from team_analytics import (
     build_team_match_log,
     build_team_rankings,
@@ -340,6 +343,11 @@ def render_shot_breakdown(team_shots: pd.DataFrame) -> None:
         fig = px.pie(shot_type, names="shot_type", values="shots", hole=0.55)
         fig.update_layout(height=440, paper_bgcolor=BACKGROUND_COLOR, font=dict(color="#f2f2f2"))
         st.plotly_chart(fig, use_container_width=True)
+
+
+if get_selected_edition(st.session_state) == 2026:
+    render_fifa_2026_page("team_analytics", "Times")
+    st.stop()
 
 
 missing_paths = [

@@ -2,6 +2,13 @@ from pathlib import Path
 
 import streamlit as st
 
+from edition_context import (
+    get_data_coverage,
+    render_coverage_notice,
+    render_edition_selector,
+)
+from fifa_pdf_data import FifaPdfData
+
 
 APP_DIR = Path(__file__).parent
 PAGES_DIR = APP_DIR / "pages"
@@ -52,6 +59,18 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+
+control_col, source_col = st.columns([1, 4])
+with control_col:
+    selected_edition = render_edition_selector(st)
+with source_col:
+    fifa_data = FifaPdfData.load() if selected_edition == 2026 else None
+    coverage = get_data_coverage(
+        selected_edition,
+        fifa_data_available=bool(fifa_data and fifa_data.available),
+    )
+    render_coverage_notice(st, coverage)
 
 
 navigation = st.navigation(

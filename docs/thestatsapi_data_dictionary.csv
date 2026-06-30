@@ -1,0 +1,197 @@
+dataset,layer,grain,field_path,type,nullable,description,example
+metadata,bronze,one request metadata,source,string,no,External data source identifier,thestatsapi
+metadata,bronze,one request metadata,edition_year,integer,no,World Cup edition year,2026
+metadata,bronze,one request metadata,endpoint_name,string,no,Logical endpoint name in the project,shotmap
+metadata,bronze,one request metadata,fetch_stage,string,no,Ingestion stage,match_bundle
+metadata,bronze,one request metadata,fetch_status,string,no,Operational fetch status,success
+metadata,bronze,one request metadata,request_url,string,no,Requested URL without API key,https://api.thestatsapi.com/api/football/matches/mt_153637999/shotmap
+metadata,bronze,one request metadata,fetched_at,string,no,UTC fetch timestamp,2026-06-24T04:21:02+00:00
+metadata,bronze,one request metadata,http_status,integer,no,HTTP status code,200
+metadata,bronze,one request metadata,response_hash,string,no,SHA-256 hash of canonical JSON response,3973dc46aab3548ea6369e25d385659d321055bd5cddf99aad70e93a79ff3f5b
+metadata,bronze,fixtures request metadata,page,integer,yes,Fixture page number,1
+metadata,bronze,match bundle request metadata,match_id,string,yes,TheStatsAPI match identifier,mt_153637999
+standings,bronze,one team group standing,team.id,string,yes,TheStatsAPI team identifier,tm_28735
+standings,bronze,one team group standing,team.name,string,no,Team display name,Mexico
+standings,bronze,one team group standing,group_label,string,yes,World Cup group label,A
+standings,bronze,one team group standing,position,integer,yes,Official group position,1
+standings,bronze,one team group standing,matches_played,integer,no,Matches played,3
+standings,bronze,one team group standing,wins,integer,no,Wins,2
+standings,bronze,one team group standing,draws,integer,no,Draws,1
+standings,bronze,one team group standing,losses,integer,no,Losses,0
+standings,bronze,one team group standing,goals_for,integer,no,Goals scored,6
+standings,bronze,one team group standing,goals_against,integer,no,Goals conceded,2
+standings,bronze,one team group standing,goal_difference,integer,no,Goal difference,4
+standings,bronze,one team group standing,points,integer,no,Official points,7
+fixtures,bronze,one match,id,string,no,TheStatsAPI match identifier,mt_153637999
+fixtures,bronze,one match,competition_id,string,no,TheStatsAPI competition identifier,comp_6107
+fixtures,bronze,one match,season_id,string,no,TheStatsAPI season identifier,sn_118868
+fixtures,bronze,one match,utc_date,string,yes,UTC kickoff timestamp,2026-06-11T19:00:00.000Z
+fixtures,bronze,one match,status,string,no,Match status,finished
+fixtures,bronze,one match,home_team.id,string,yes,Home team identifier,tm_28735
+fixtures,bronze,one match,home_team.name,string,yes,Home team display name,Mexico
+fixtures,bronze,one match,away_team.id,string,yes,Away team identifier,tm_65332
+fixtures,bronze,one match,away_team.name,string,yes,Away team display name,South Africa
+fixtures,bronze,one match,score.home,number,yes,Home score when available,2
+fixtures,bronze,one match,score.away,number,yes,Away score when available,0
+fixtures,bronze,one match,score.final_score,string,yes,Provider final score field when available,
+fixtures,bronze,one match,group_label,string,yes,Group label,A
+fixtures,bronze,one match,stage_name,string,yes,Tournament stage name,round_of_16
+fixtures,bronze,one match,matchday,integer,yes,Matchday or ordering number,1
+fixtures,bronze,one match,xg_available,boolean,no,Whether xG is available for the match,true
+fixtures,bronze,one match,odds_available,boolean,no,Whether odds are available,true
+fixtures,bronze,one match,live_odds_available,boolean,no,Whether live odds are available,false
+lineups,bronze,one match,lineups.match_id,string,no,TheStatsAPI match identifier,mt_153637999
+lineups,bronze,one match,lineups.confirmed,boolean,yes,Whether lineup is confirmed,true
+lineups,bronze,one team lineup,home.id,string,yes,Home team identifier,tm_28735
+lineups,bronze,one team lineup,home.name,string,yes,Home team name,Mexico
+lineups,bronze,one team lineup,home.formation,string,yes,Home formation,4-1-4-1
+lineups,bronze,one team lineup,away.id,string,yes,Away team identifier,tm_65332
+lineups,bronze,one team lineup,away.name,string,yes,Away team name,South Africa
+lineups,bronze,one team lineup,away.formation,string,yes,Away formation,5-3-2
+lineups,bronze,one lineup player,home.starting_xi[].id,string,no,Starter player identifier,pl_84768039
+lineups,bronze,one lineup player,home.starting_xi[].jersey_number,integer,yes,Starter shirt number,1
+lineups,bronze,one lineup player,home.starting_xi[].name,string,no,Starter display name,Raúl Rangel
+lineups,bronze,one lineup player,home.starting_xi[].position,string,yes,Starter short position,G
+lineups,bronze,one lineup player,home.substitutes[].id,string,no,Substitute player identifier,pl_72541761
+lineups,bronze,one lineup player,home.substitutes[].jersey_number,integer,yes,Substitute shirt number,1
+lineups,bronze,one lineup player,home.substitutes[].name,string,no,Substitute display name,Carlos Acevedo
+lineups,bronze,one lineup player,home.substitutes[].position,string,yes,Substitute short position,G
+lineups,bronze,one lineup player,away.starting_xi[].id,string,no,Starter player identifier,pl_96067109
+lineups,bronze,one lineup player,away.starting_xi[].jersey_number,integer,yes,Starter shirt number,30
+lineups,bronze,one lineup player,away.starting_xi[].name,string,no,Starter display name,Ronwen Williams
+lineups,bronze,one lineup player,away.starting_xi[].position,string,yes,Starter short position,G
+lineups,bronze,one lineup player,away.substitutes[].id,string,no,Substitute player identifier,pl_72634257
+lineups,bronze,one lineup player,away.substitutes[].jersey_number,integer,yes,Substitute shirt number,20
+lineups,bronze,one lineup player,away.substitutes[].name,string,no,Substitute display name,Ricardo Goss
+lineups,bronze,one lineup player,away.substitutes[].position,string,yes,Substitute short position,G
+match_stats,bronze,one match,match_id,string,no,TheStatsAPI match identifier,mt_153637999
+match_stats,bronze,one metric by side and period,<domain>.<metric>.all.home,number,yes,Home value for the full match,1.46
+match_stats,bronze,one metric by side and period,<domain>.<metric>.all.away,number,yes,Away value for the full match,0.07
+match_stats,bronze,one metric by side and period,<domain>.<metric>.first_half.home,number,yes,Home first-half value,0.69
+match_stats,bronze,one metric by side and period,<domain>.<metric>.first_half.away,number,yes,Away first-half value,0.06
+match_stats,bronze,one metric by side and period,<domain>.<metric>.second_half.home,number,yes,Home second-half value,0.77
+match_stats,bronze,one metric by side and period,<domain>.<metric>.second_half.away,number,yes,Away second-half value,0.02
+match_stats,bronze,one match,overview,object,yes,Overview metrics group,
+match_stats,bronze,one match,shots,object,yes,Shooting metrics group,
+match_stats,bronze,one match,passes,object,yes,Passing metrics group,
+match_stats,bronze,one match,attack,object,yes,Attacking metrics group,
+match_stats,bronze,one match,defending,object,yes,Defensive metrics group,
+match_stats,bronze,one match,duels,object,yes,Duel metrics group,
+match_stats,bronze,one match,goalkeeping,object,yes,Goalkeeping metrics group,
+match_stats,bronze,one match,np_expected_goals,object,yes,Non-penalty xG by side and period,
+player_stats,bronze,one player match row,player_id,string,no,TheStatsAPI player identifier,pl_72707667
+player_stats,bronze,one player match row,player_name,string,no,Player display name,Jayden Adams
+player_stats,bronze,one player match row,team_id,string,no,Team identifier,tm_65332
+player_stats,bronze,one player match row,club_team_id,string,yes,Club team identifier,tm_455781
+player_stats,bronze,one player match row,position,string,yes,Short position,M
+player_stats,bronze,one player match row,started,boolean,yes,Whether player started,true
+player_stats,bronze,one player match row,played,boolean,yes,Whether player played,true
+player_stats,bronze,one player match row,minutes_played,integer,yes,Minutes played,61
+player_stats,bronze,one player match row,rating,number,yes,Provider player rating,6.84
+player_stats,bronze,one player match row,general.touches,integer,yes,Touches,25
+player_stats,bronze,one player match row,general.fouls,integer,yes,Fouls committed,0
+player_stats,bronze,one player match row,general.was_fouled,integer,yes,Fouls won,0
+player_stats,bronze,one player match row,general.offsides,integer,yes,Offsides,0
+player_stats,bronze,one player match row,general.possession_lost,integer,yes,Possession losses,4
+player_stats,bronze,one player match row,general.yellow_cards,integer,yes,Yellow cards,0
+player_stats,bronze,one player match row,general.red_cards,integer,yes,Red cards,0
+player_stats,bronze,one player match row,general.player_subbed_on,string,yes,Player id subbed on for this player,pl_08741448
+player_stats,bronze,one player match row,general.player_subbed_off,string,yes,Player id subbed off for this player,
+player_stats,bronze,one player match row,shooting.goals,integer,yes,Goals,0
+player_stats,bronze,one player match row,shooting.total_shots,integer,yes,Total shots,0
+player_stats,bronze,one player match row,shooting.shots_on_target,integer,yes,Shots on target,0
+player_stats,bronze,one player match row,shooting.shots_off_target,integer,yes,Shots off target,0
+player_stats,bronze,one player match row,shooting.blocked_shots,integer,yes,Blocked shots,0
+player_stats,bronze,one player match row,shooting.expected_goals,number,yes,Expected goals,0
+player_stats,bronze,one player match row,shooting.np_expected_goals,number,yes,Non-penalty expected goals,0
+player_stats,bronze,one player match row,shooting.expected_assists,number,yes,Expected assists,0.06
+player_stats,bronze,one player match row,shooting.big_chances_created,integer,yes,Big chances created,0
+player_stats,bronze,one player match row,passing.total_passes,integer,yes,Total passes,20
+player_stats,bronze,one player match row,passing.accurate_passes,integer,yes,Accurate passes,16
+player_stats,bronze,one player match row,passing.total_long_balls,integer,yes,Total long balls,2
+player_stats,bronze,one player match row,passing.accurate_long_balls,integer,yes,Accurate long balls,1
+player_stats,bronze,one player match row,passing.total_crosses,integer,yes,Total crosses,0
+player_stats,bronze,one player match row,passing.accurate_crosses,integer,yes,Accurate crosses,0
+player_stats,bronze,one player match row,passing.assists,integer,yes,Assists,0
+player_stats,bronze,one player match row,passing.key_passes,integer,yes,Key passes,0
+player_stats,bronze,one player match row,duels.duel_won,integer,yes,Duels won,1
+player_stats,bronze,one player match row,duels.duel_lost,integer,yes,Duels lost,1
+player_stats,bronze,one player match row,duels.aerial_won,integer,yes,Aerial duels won,0
+player_stats,bronze,one player match row,duels.challenge_lost,integer,yes,Challenges lost,0
+player_stats,bronze,one player match row,duels.dispossessed,integer,yes,Dispossessed,0
+player_stats,bronze,one player match row,duels.won_contest,integer,yes,Won contests,1
+player_stats,bronze,one player match row,defending.clearances,integer,yes,Clearances,0
+player_stats,bronze,one player match row,defending.interceptions,integer,yes,Interceptions,0
+player_stats,bronze,one player match row,defending.tackles,integer,yes,Tackles,0
+player_stats,bronze,one player match row,goalkeeping.saves,integer,yes,Saves,0
+events,bronze,one match timeline,match_id,string,no,TheStatsAPI match identifier,mt_153637999
+events,bronze,one match timeline,coverage,string,yes,Timeline coverage level,full
+events,bronze,one timeline event,events[].sequence,integer,no,Event sequence order,1
+events,bronze,one timeline event,events[].minute,integer,no,Regulation minute,9
+events,bronze,one timeline event,events[].extra_time,integer,yes,Added-time minute component,0
+events,bronze,one timeline event,events[].period,string,yes,Match period,first_half
+events,bronze,one timeline event,events[].type,string,no,Event type,goal
+events,bronze,one timeline event,events[].team.id,string,yes,Team identifier,tm_28735
+events,bronze,one timeline event,events[].team.name,string,yes,Team name,Mexico
+events,bronze,one timeline event,events[].team.slug,string,yes,Team slug,mexico
+events,bronze,one timeline event,events[].player.id,string,yes,Player identifier,pl_08314452
+events,bronze,one timeline event,events[].player.name,string,yes,Player name,Julián Quiñones
+events,bronze,one timeline event,events[].player.slug,string,yes,Player slug,julian-quinones
+shotmap,bronze,one shot,id,string,no,Shot identifier,sh_573253961
+shotmap,bronze,one shot,team_id,string,no,Team identifier,tm_28735
+shotmap,bronze,one shot,team_name,string,no,Team name,Mexico
+shotmap,bronze,one shot,player_id,string,no,Player identifier,pl_84838965
+shotmap,bronze,one shot,player_name,string,no,Player name,Brian Gutiérrez
+shotmap,bronze,one shot,minute,integer,no,Shot minute,4
+shotmap,bronze,one shot,x,number,yes,TheStatsAPI shot x coordinate,33.2
+shotmap,bronze,one shot,y,number,yes,TheStatsAPI shot y coordinate,76
+shotmap,bronze,one shot,expected_goals,number,yes,Shot xG,0.03
+shotmap,bronze,one shot,result,string,yes,Shot result,block
+shotmap,bronze,one shot,situation,string,yes,Shot situation,free-kick
+shotmap,bronze,one shot,body_part,string,yes,Body part,right-foot
+shotmap,bronze,one shot,goal_type,string,yes,Goal type when applicable,
+shotmap,bronze,one shot,is_goal,boolean,no,Whether shot became a goal,false
+shotmap,bronze,one shot,is_on_target,boolean,no,Whether shot was on target,false
+shotmap,bronze,one shot,is_blocked_shot,boolean,no,Whether shot was blocked,true
+shotmap,bronze,one shot,is_headed,boolean,no,Whether shot was headed,false
+shotmap,bronze,one shot,is_outside_box,boolean,no,Whether shot was outside the box,true
+shotmap,bronze,one shot,is_penalty,boolean,no,Whether shot was a penalty,false
+shotmap,bronze,one shot,goalkeeper.id,string,yes,Goalkeeper identifier,pl_96067109
+shotmap,bronze,one shot,goalkeeper.name,string,yes,Goalkeeper name,Ronwen Williams
+shotmap,bronze,one shot,goal_mouth_coordinates.x,number,yes,Goal mouth x coordinate,0
+shotmap,bronze,one shot,goal_mouth_coordinates.y,number,yes,Goal mouth y coordinate,50.9
+shotmap,bronze,one shot,goal_mouth_coordinates.z,number,yes,Goal mouth z coordinate,19
+shotmap,bronze,one shot,goal_mouth_location,string,yes,Goal mouth zone,low-centre
+shotmap,bronze,one shot,block_coordinates.x,number,yes,Block x coordinate,22.3
+shotmap,bronze,one shot,block_coordinates.y,number,yes,Block y coordinate,67.1
+shotmap,bronze,one shot,block_coordinates.z,number,yes,Block z coordinate,0
+shotmap,bronze,one shot,blocked_by_player_id,string,yes,Player id that blocked the shot,
+match_referee,bronze,one match referee,match_id,string,no,TheStatsAPI match identifier,mt_153637999
+match_referee,bronze,one match referee,referee,object,yes,Assigned referee object,
+match_referee,bronze,one match referee,referee.id,string,yes,Referee identifier,
+match_referee,bronze,one match referee,referee.name,string,yes,Referee display name,Wilton Pereira Sampaio
+match_referee,bronze,one match referee,referee.slug,string,yes,Referee slug,
+match_referee,bronze,one match referee,referee.country,string,yes,Referee country,
+match_referee,bronze,one match referee,referee.country_code,string,yes,Referee country code,
+match_referee,bronze,one match referee,referee.country_slug,string,yes,Referee country slug,
+match_referee,bronze,one match referee,referee.career.games,integer,yes,Career matches,
+match_referee,bronze,one match referee,referee.career.yellow_cards,integer,yes,Career yellow cards,
+match_referee,bronze,one match referee,referee.career.red_cards,integer,yes,Career red cards,
+match_referee,bronze,one match referee,referee.career.yellow_red_cards,integer,yes,Career second-yellow red cards,
+match_officials,web adapter,one match,referee,string,yes,Referee name normalized for public UI,
+match_officials,web adapter,one match,main_referee,string,yes,Nullable main referee alias,
+match_officials,web adapter,one match,officials,array,yes,Nullable officials list,
+match_officials,web adapter,one match,assistant_referees,array,yes,Nullable assistant referees list,
+match_officials,web adapter,one match,fourth_official,string,yes,Nullable fourth official,
+match_officials,web adapter,one match,var,string,yes,Nullable VAR official,
+match_officials,web adapter,one match,avar,array,yes,Nullable AVAR officials,
+match_detail,bronze,one match detail,id,string,no,TheStatsAPI match identifier,mt_153637999
+match_detail,bronze,one match detail,competition_name,string,yes,Competition display name,FIFA World Cup
+match_detail,bronze,one match detail,venue,object,yes,Assigned match venue,
+match_detail,bronze,one match detail,venue.name,string,yes,Stadium name,Estadio Azteca
+match_detail,bronze,one match detail,venue.city,string,yes,Stadium city,Mexico City
+match_detail,bronze,one match detail,referee,object,yes,Summary referee object,
+match_detail,bronze,one match detail,score.half_time_home,integer,yes,Home score at half time,
+match_detail,bronze,one match detail,score.half_time_away,integer,yes,Away score at half time,
+match_detail,web adapter,one match,stadium,string,yes,Normalized public stadium name,Estadio Azteca
+match_detail,web adapter,one match,venue_city,string,yes,Normalized public venue city,Mexico City

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#070b1a">
+  <meta name="description" content="World Cup Analytics — dados, contexto e história das Copas do Mundo.">
+  <title>World Cup Analytics</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body data-skin="2026">
+  <a class="skip-link" href="#content">Pular para o conteúdo</a>
+
+  <header class="site-header">
+    <div class="masthead shell">
+      <a class="brand" href="/2026" aria-label="World Cup Analytics — início">
+        <span class="brand-mark" aria-hidden="true">W</span>
+        <span>
+          <strong>World Cup</strong>
+          <small>Analytics</small>
+        </span>
+      </a>
+
+      <div class="edition-control">
+        <label for="edition-select">Edição</label>
+        <div class="select-wrap">
+          <select id="edition-select" aria-describedby="coverage-line">
+            <option value="2026">2026</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="coverage" id="coverage-line" aria-live="polite">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span id="coverage-text">Central analítica da Copa do Mundo</span>
+      </div>
+    </div>
+
+    <div class="nav-layer">
+      <div class="shell nav-row">
+        <button class="menu-toggle" id="menu-toggle" type="button" aria-expanded="false" aria-controls="primary-nav">
+          <span>Menu</span><span aria-hidden="true">☰</span>
+        </button>
+        <nav id="primary-nav" aria-label="Navegação principal"></nav>
+        <a class="history-link" href="/history">Arquivo histórico <span aria-hidden="true">↗</span></a>
+      </div>
+    </div>
+  </header>
+
+  <main id="content" tabindex="-1">
+    <div class="shell">
+      <div id="view" aria-live="polite" aria-busy="true"></div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="shell footer-inner">
+      <p><strong>World Cup Analytics</strong> — leitura editorial de dados de futebol.</p>
+      <p id="footer-source">Créditos e fontes consolidados na documentação do projeto.</p>
+    </div>
+  </footer>
+
+  <template id="loading-template">
+    <section class="loading-state" aria-label="Carregando">
+      <div class="skeleton skeleton-kicker"></div>
+      <div class="skeleton skeleton-title"></div>
+      <div class="skeleton skeleton-copy"></div>
+      <div class="skeleton-grid">
+        <div class="skeleton skeleton-card"></div>
+        <div class="skeleton skeleton-card"></div>
+        <div class="skeleton skeleton-card"></div>
+      </div>
+    </section>
+  </template>
+</body>
+</html>

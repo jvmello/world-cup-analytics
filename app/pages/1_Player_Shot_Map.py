@@ -4,6 +4,9 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from edition_context import get_selected_edition
+from fifa_pdf_ui import render_fifa_2026_page
+
 
 PLAYER_SHOTS_PATH = Path(
     "data/gold/world_cup/gold_player_shots/gold_player_shots.parquet"
@@ -42,6 +45,11 @@ def load_data() -> tuple[pd.DataFrame, pd.DataFrame]:
     shots = pd.read_parquet(PLAYER_SHOTS_PATH)
     summary = pd.read_parquet(PLAYER_SUMMARY_PATH)
     return shots, summary
+
+
+if get_selected_edition(st.session_state) == 2026:
+    render_fifa_2026_page("shot_map", "Player Shot Map")
+    st.stop()
 
 
 if not PLAYER_SHOTS_PATH.exists() or not PLAYER_SUMMARY_PATH.exists():
