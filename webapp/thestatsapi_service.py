@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter, defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from .player_analytics import (
     build_reference_distribution,
@@ -16,6 +17,7 @@ from .player_analytics import (
 
 SOURCE = "TheStatsAPI"
 DEFAULT_OPENING_MATCH_ID = "mt_153637999"
+HOME_TIMEZONE = ZoneInfo("America/Sao_Paulo")
 
 
 def json_safe(value: Any) -> Any:
@@ -85,20 +87,21 @@ class TheStatsApiBronzeService:
         player_leaders = self.player_leaders(player_rows)
         team_leaders = self.team_leaders(team_rows)
         match_leaders = self.match_rankings(fixtures)
+        now = datetime.now(timezone.utc)
         finished = sorted(
-            (match for match in fixtures if match.get("status") == "finished"),
+            (match for match in fixtures if self._is_effectively_finished(match, now=now)),
             key=lambda match: str(match.get("match_date") or ""),
             reverse=True,
         )
         upcoming = sorted(
-            (match for match in fixtures if match.get("status") != "finished"),
+            (match for match in fixtures if not self._is_effectively_finished(match, now=now)),
             key=lambda match: str(match.get("match_date") or ""),
         )
-        today = datetime.now(timezone.utc).date().isoformat()
+        today = now.astimezone(HOME_TIMEZONE).date()
         matches_today = [
             match
             for match in fixtures
-            if str(match.get("match_date") or "").startswith(today)
+            if self._local_match_date(match) == today
         ]
 
         compact_players = {
@@ -137,6 +140,40 @@ class TheStatsApiBronzeService:
                 "notice": None if fixtures else "Dados da edição ainda não disponíveis.",
             }
         )
+
+    @staticmethod
+    def _match_datetime(match: dict[str, Any]) -> datetime | None:
+        value = match.get("match_date") or match.get("kickoff_at")
+        if not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
+    @classmethod
+    def _local_match_date(cls, match: dict[str, Any]) -> Any:
+        parsed = cls._match_datetime(match)
+        return parsed.astimezone(HOME_TIMEZONE).date() if parsed else None
+
+    @classmethod
+    def _is_effectively_finished(
+        cls,
+        match: dict[str, Any],
+        *,
+        now: datetime | None = None,
+    ) -> bool:
+        if str(match.get("status") or "").lower() == "finished":
+            return True
+        parsed = cls._match_datetime(match)
+        has_score = all(
+            match.get(key) is not None for key in ("home_score", "away_score")
+        )
+        reference = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        return bool(parsed and has_score and parsed <= reference - timedelta(hours=4))
 
     @staticmethod
     def _compact_player(row: dict[str, Any]) -> dict[str, Any]:
@@ -1471,7 +1508,15 @@ class TheStatsApiBronzeService:
     @staticmethod
     def team_leaders(teams: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
         metrics = ("xg", "xga", "xg_difference", "shots", "goals_for", "points")
-        return {metric: sorted([row for row in teams if row.get(metric) is not None], key=lambda row: row.get(metric) or 0, reverse=True)[:10] for metric in metrics}
+        rankings = {}
+        for metric in metrics:
+            rows = sorted(
+                [row for row in teams if row.get(metric) is not None],
+                key=lambda row: row.get(metric) or 0,
+                reverse=True,
+            )
+            rankings[metric] = rows if metric == "xg_difference" else rows[:10]
+        return rankings
 
     @staticmethod
     def match_rankings(matches: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:

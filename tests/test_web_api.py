@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 import json
 
@@ -8,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from webapp.catalog import DEFAULT_EDITION
 from webapp.main import create_app
+from webapp.thestatsapi_service import TheStatsApiBronzeService
 
 
 def _write_parquet(root: Path, relative: str, rows: list[dict]) -> None:
@@ -739,6 +741,129 @@ def test_match_players_and_shots_are_fully_interactive() -> None:
     assert '"Drible e condução"' not in modal
     assert "Cobertura" not in modal
     assert "Confiança" not in modal
+
+
+def test_2026_home_is_a_compact_editorial_match_center() -> None:
+    root = Path(__file__).parents[1] / "webapp/static"
+    app_js = (root / "app.js").read_text(encoding="utf-8")
+    styles = (root / "styles.css").read_text(encoding="utf-8")
+
+    overview = app_js[
+        app_js.index("function renderOverview"):
+        app_js.index("function renderTeams")
+    ]
+
+    for function_name in (
+        "homeSummaryStrip",
+        "compactMatchRow",
+        "homeRankingPanel",
+        "homeStatExplorer",
+        "homeHighlights",
+        "openPlayerQuickView",
+        "openHomeTeamQuickView",
+        "openRankingQuickView",
+    ):
+        assert f"function {function_name}" in app_js
+
+    for heading in (
+        "Hoje na Copa",
+        "Últimos resultados",
+        "Próximos jogos",
+        "Líderes da Copa",
+        "Explorar estatísticas",
+        "Destaques da edição",
+    ):
+        assert heading in overview
+
+    assert "home-summary-strip" in app_js
+    assert "home-match-row" in app_js
+    assert "home-ranking-row" in app_js
+    assert "home-stat-row" in app_js
+    assert "home-highlight-card" in app_js
+    assert "flagNode" in overview
+    assert "openMatchQuickView" in overview
+    assert "data.matches_today" in overview
+    assert "score-grid" not in overview
+    assert "horizontalBars" not in overview
+    assert not any(
+        term in overview
+        for term in (
+            "match_id:",
+            "player_id:",
+            "team_id:",
+            "fetch_status",
+            "endpoint_status",
+        )
+    )
+
+    assert 'body[data-page="overview"][data-skin="2026"] .home-summary-strip' in styles
+    assert 'body[data-page="overview"][data-skin="2026"] .home-match-row' in styles
+    assert 'body[data-page="overview"][data-skin="2026"] .home-ranking-panel' in styles
+    assert 'body[data-page="overview"][data-skin="2026"] .home-stat-row' in styles
+    assert 'body[data-page="overview"][data-skin="2026"] .home-highlight-card' in styles
+    assert "white-space: nowrap" in styles
+    assert "text-overflow: ellipsis" in styles
+    assert "@media (max-width: 640px)" in styles
+
+
+def test_2026_home_rankings_use_central_modal_and_semantic_xg_balance() -> None:
+    root = Path(__file__).parents[1] / "webapp/static"
+    app_js = (root / "app.js").read_text(encoding="utf-8")
+    styles = (root / "styles.css").read_text(encoding="utf-8")
+    overview = app_js[
+        app_js.index("function renderOverview"):
+        app_js.index("function renderTeams")
+    ]
+
+    for title in (
+        '"Gols"',
+        '"xG"',
+        '"Assistências"',
+        '"Finalizações"',
+        '"Maior xG"',
+        '"Saldo de xG"',
+        '"Gols marcados"',
+        '"Mais finalizações"',
+        '"Maior xG total"',
+    ):
+        assert title in overview
+
+    assert 'layout: "modal"' in overview
+    assert "ranking-detail-head" in overview
+    assert "ranking-detail-column" in overview
+    assert "homeRankingValueClass" in overview
+    assert "is-positive" in overview
+    assert "is-negative" in overview
+    assert 'round_of_32: "16 avos"' in overview
+    assert "homeMatchIsLive" in overview
+    assert '.quick-view-overlay.is-modal' in styles
+    assert '.quick-view-drawer.is-modal' in styles
+    assert '.home-ranking-value.is-positive' in styles
+    assert '.home-ranking-value.is-negative' in styles
+
+
+def test_home_time_and_xg_ranking_contracts_are_complete() -> None:
+    service = TheStatsApiBronzeService()
+    stale_live = {
+        "status": "in_progress",
+        "match_date": "2026-06-29T01:00:00Z",
+        "home_score": 1,
+        "away_score": 1,
+    }
+    now = datetime(2026, 6, 30, 12, tzinfo=timezone.utc)
+
+    assert service._is_effectively_finished(stale_live, now=now) is True
+    assert str(service._local_match_date(stale_live)) == "2026-06-28"
+
+    teams = [
+        {"team_name": f"Team {index}", "xg_difference": 6 - index}
+        for index in range(12)
+    ]
+    ranking = service.team_leaders(teams)["xg_difference"]
+
+    assert len(ranking) == 12
+    assert ranking[0]["xg_difference"] == 6
+    assert ranking[-1]["xg_difference"] == -5
 
 
 def test_thestatsapi_opening_match_sample_feeds_web_contract(

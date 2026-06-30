@@ -390,7 +390,7 @@
 
   function teamLabel(team, className = "team-label") {
     const name = typeof team === "string" ? team : rawTeamName(team);
-    return node("span", { class: className }, [
+    return node("span", { class: className, title: displayTeamName(name) }, [
       flagNode(name),
       node("span", { text: displayTeamName(name) }),
     ]);
@@ -968,89 +968,334 @@
     return fragment;
   }
 
-  function renderOverview(data) {
-    const fragment = dashboardShell(
-      state.year === DEFAULT_YEAR ? "Copa do Mundo 2026" : "O torneio em perspectiva",
-      "Agenda, resultados e protagonistas da edição em um só lugar.",
-      data
-    );
+  function renderArchiveOverview(data) {
+    const fragment = dashboardShell("O torneio em perspectiva", "Resultados, protagonistas e contexto da edição em um só lugar.", data);
     const metrics = kpis(data.summary || {}, ["matches", "finished", "goals", "teams", "players", "shots", "xg", "champion", "goals_per_match"]);
     if (metrics) fragment.append(metrics);
-    if (data.matches_today?.length) {
-      fragment.append(section("Jogos do dia", `${data.matches_today.length} partidas`, node("div", { class: "score-grid" }, data.matches_today.map(matchCard))));
-    }
+    if (data.matches_today?.length) fragment.append(section("Jogos do dia", `${data.matches_today.length} partidas`, node("div", { class: "score-grid" }, data.matches_today.map(matchCard))));
     const scheduleColumns = [
       data.recent_matches?.length ? section("Últimos resultados", "Mais recentes", node("div", { class: "home-match-list" }, data.recent_matches.map(matchCard))) : null,
       data.upcoming_matches?.length ? section("Próximos jogos", "Agenda", node("div", { class: "home-match-list" }, data.upcoming_matches.map(matchCard))) : null,
     ].filter(Boolean);
     if (scheduleColumns.length) fragment.append(node("div", { class: "home-schedule-grid" }, scheduleColumns));
 
-    const leaders = data.leaders || {};
-    const leaderPanels = [
-      leaders.players?.goals?.length ? node("article", { class: "chart-card" }, [
-        node("div", { class: "chart-card-head" }, [node("p", { class: "eyebrow", text: "Jogadores" }), node("h3", { text: "Gols" })]),
-        horizontalBars(leaders.players.goals, "goals", { name: personName, limit: 8 }),
-      ]) : null,
-      leaders.players?.xg?.length ? node("article", { class: "chart-card" }, [
-        node("div", { class: "chart-card-head" }, [node("p", { class: "eyebrow", text: "Jogadores" }), node("h3", { text: "xG" })]),
-        horizontalBars(leaders.players.xg, "xg", { name: personName, limit: 8 }),
-      ]) : null,
-      leaders.players?.assists?.length ? node("article", { class: "chart-card" }, [
-        node("div", { class: "chart-card-head" }, [node("p", { class: "eyebrow", text: "Jogadores" }), node("h3", { text: "Assistências" })]),
-        horizontalBars(leaders.players.assists, "assists", { name: personName, limit: 8 }),
-      ]) : null,
-      leaders.teams?.xg?.length ? node("article", { class: "chart-card" }, [
-        node("div", { class: "chart-card-head" }, [node("p", { class: "eyebrow", text: "Seleções" }), node("h3", { text: "Maior xG" })]),
-        horizontalBars(leaders.teams.xg, "xg", { name: teamName, limit: 8 }),
-      ]) : null,
-      leaders.teams?.xg_difference?.length ? node("article", { class: "chart-card" }, [
-        node("div", { class: "chart-card-head" }, [node("p", { class: "eyebrow", text: "Seleções" }), node("h3", { text: "Saldo de xG" })]),
-        horizontalBars(leaders.teams.xg_difference, "xg_difference", { name: teamName, limit: 8 }),
-      ]) : null,
-      leaders.matches?.shots?.length ? node("article", { class: "chart-card" }, [
-        node("div", { class: "chart-card-head" }, [node("p", { class: "eyebrow", text: "Partidas" }), node("h3", { text: "Mais finalizações" })]),
-        horizontalBars(leaders.matches.shots, "shots", { name: item => `${displayTeamName(item.home_team)} × ${displayTeamName(item.away_team)}`, limit: 8 }),
-      ]) : null,
-      leaders.matches?.xg_total?.length ? node("article", { class: "chart-card" }, [
-        node("div", { class: "chart-card-head" }, [node("p", { class: "eyebrow", text: "Partidas" }), node("h3", { text: "Maior xG total" })]),
-        horizontalBars(leaders.matches.xg_total, "xg_total", { name: item => `${displayTeamName(item.home_team)} × ${displayTeamName(item.away_team)}`, limit: 8 }),
-      ]) : null,
-    ].filter(Boolean);
-    if (leaderPanels.length) fragment.append(section("Líderes da Copa", "Destaques gerais", node("div", { class: "chart-grid" }, leaderPanels)));
-
     const highlights = data.highlights || {};
     const featureCards = [
       ["Seleção em destaque", highlights.top_team, teamName],
       ["Jogador em destaque", highlights.top_player, personName],
     ].filter(([, item]) => item);
-    if (featureCards.length) {
-      fragment.append(section("Destaques da edição", "Lideranças do recorte", node("div", { class: "feature-grid" },
-        featureCards.map(([kicker, item, getName]) => node("article", { class: "feature-card" }, [
-          node("p", { class: "eyebrow", text: kicker }),
-          node("h3", { text: getName(item) }),
-          node("dl", { class: "feature-stats" }, entries(item)
-            .filter(([key, value]) => number(value) !== null && !/edition|year/i.test(key))
-            .slice(0, 4)
-            .map(([key, value]) => node("div", {}, [
-              node("dt", { text: metricName(key) }),
-              node("dd", { text: formatValue(value) }),
-            ]))),
-        ]))
-      )));
-    }
-    const rankings = node("div", { class: "chart-grid" }, [
-      highlights.team_ranking?.length ? node("article", { class: "chart-card" }, [
-        node("div", { class: "chart-card-head" }, [node("p", { class: "eyebrow", text: "Seleções" }), node("h3", { text: highlights.team_ranking[0]?.xg !== undefined ? "Produção de xG" : "Produção ofensiva" })]),
-        horizontalBars(highlights.team_ranking, highlights.team_ranking[0]?.xg !== undefined ? "xg" : "attempts_at_goal", { name: teamName, limit: 8 }),
-      ]) : null,
-      highlights.player_ranking?.length ? node("article", { class: "chart-card" }, [
-        node("div", { class: "chart-card-head" }, [node("p", { class: "eyebrow", text: "Jogadores" }), node("h3", { text: "Artilharia" })]),
-        horizontalBars(highlights.player_ranking, "goals", { name: personName, limit: 8 }),
-      ]) : null,
-    ]);
-    if (!leaderPanels.length && rankings.childElementCount) fragment.append(section("Quem lidera", "Top 8", rankings));
+    if (featureCards.length) fragment.append(section("Destaques da edição", "Lideranças do recorte", node("div", { class: "feature-grid" },
+      featureCards.map(([kicker, item, getName]) => node("article", { class: "feature-card" }, [
+        node("p", { class: "eyebrow", text: kicker }),
+        node("h3", { text: getName(item) }),
+        node("dl", { class: "feature-stats" }, entries(item)
+          .filter(([key, value]) => number(value) !== null && !/edition|year/i.test(key))
+          .slice(0, 4)
+          .map(([key, value]) => node("div", {}, [node("dt", { text: metricName(key) }), node("dd", { text: formatValue(value) })]))),
+      ]))
+    )));
     if (!metrics && !featureCards.length) fragment.append(emptyState());
     els.view.replaceChildren(fragment);
+  }
+
+  function renderOverview(data) {
+    if (state.year !== DEFAULT_YEAR) {
+      renderArchiveOverview(data);
+      return;
+    }
+    state.overviewData = data;
+    const fragment = dashboardShell(
+      state.year === DEFAULT_YEAR ? "Copa do Mundo 2026" : "O torneio em perspectiva",
+      "Agenda, resultados e protagonistas da edição em um só lugar.",
+      data
+    );
+    const summary = homeSummaryStrip(data.summary || {});
+    if (summary) fragment.append(summary);
+
+    const todayRows = data.matches_today || [];
+    fragment.append(section(
+      "Hoje na Copa",
+      todayRows.length ? `${todayRows.length} partidas` : "Agenda do dia",
+      todayRows.length
+        ? node("div", { class: "home-match-list home-today-list" }, todayRows.map((match, index) => compactMatchRow(match, { featured: index === 0 })))
+        : node("p", { class: "home-empty-line", text: "Não há partidas programadas para hoje. Confira a próxima rodada logo abaixo." }),
+      "home-today-section"
+    ));
+
+    const scheduleColumns = [
+      data.recent_matches?.length ? section("Últimos resultados", "O que acabou de acontecer", node("div", { class: "home-match-list" }, data.recent_matches.map(match => compactMatchRow(match)))) : null,
+      data.upcoming_matches?.length ? section("Próximos jogos", "O que vem pela frente", node("div", { class: "home-match-list" }, data.upcoming_matches.map(match => compactMatchRow(match)))) : null,
+    ].filter(Boolean);
+    if (scheduleColumns.length) fragment.append(node("div", { class: "home-schedule-grid" }, scheduleColumns));
+
+    const leaders = data.leaders || {};
+    const leaderPanels = [
+      ["Jogadores", "Gols", leaders.players?.goals, "goals", "player"],
+      ["Jogadores", "xG", leaders.players?.xg, "xg", "player"],
+      ["Jogadores", "Assistências", leaders.players?.assists, "assists", "player"],
+      ["Jogadores", "Finalizações", leaders.players?.shots, "shots", "player"],
+      ["Seleções", "Maior xG", leaders.teams?.xg, "xg", "team"],
+      ["Seleções", "Saldo de xG", leaders.teams?.xg_difference, "xg_difference", "team"],
+      ["Seleções", "Gols marcados", leaders.teams?.goals_for, "goals_for", "team"],
+      ["Partidas", "Mais finalizações", leaders.matches?.shots, "shots", "match"],
+      ["Partidas", "Maior xG total", leaders.matches?.xg_total, "xg_total", "match"],
+    ].filter(([, , rows]) => rows?.length).map(([kicker, title, rows, metric, entity]) =>
+      homeRankingPanel({ kicker, title, rows, metric, entity })
+    );
+    if (leaderPanels.length) fragment.append(section("Líderes da Copa", "Clique para ampliar", node("div", { class: "home-ranking-grid" }, leaderPanels)));
+
+    const explorer = homeStatExplorer(leaders);
+    if (explorer) fragment.append(section("Explorar estatísticas", "Panorama da edição", explorer));
+
+    const highlights = homeHighlights(data.highlights || {}, leaders);
+    if (highlights) fragment.append(section("Destaques da edição", "Por que estão em evidência", highlights));
+    if (!summary && !leaderPanels.length) fragment.append(emptyState());
+    els.view.replaceChildren(fragment);
+  }
+
+  function homeSummaryStrip(summary) {
+    const groups = [
+      ["Essencial", [
+        ["Partidas", summary.matches], ["Encerrados", summary.finished],
+        ["Gols", summary.goals], ["Gols por jogo", summary.goals_per_match],
+      ]],
+      ["Análise", [
+        ["Finalizações", summary.shots], ["xG total", summary.xg],
+        ["Jogadores", summary.players], ["Seleções", summary.teams],
+      ]],
+    ].map(([labelText, metrics]) => [labelText, metrics.filter(([, value]) => value !== null && value !== undefined)]).filter(([, metrics]) => metrics.length);
+    if (!groups.length) return null;
+    return section("Resumo da edição", "Panorama rápido", node("div", { class: "home-summary-strip" }, groups.map(([labelText, metrics]) =>
+      node("div", { class: "home-summary-group" }, [
+        node("span", { class: "home-summary-group-label", text: labelText }),
+        ...metrics.map(([metric, value]) => node("div", { class: "home-summary-metric" }, [
+          node("strong", { text: formatValue(value) }),
+          node("span", { text: metric }),
+        ])),
+      ])
+    )), "home-summary-section");
+  }
+
+  function homeMatchStatus(match) {
+    const status = String(match?.status || "").toLowerCase();
+    if (status === "finished") return "Encerrado";
+    if (homeMatchIsLive(match)) return "Ao vivo";
+    const date = new Date(match?.match_date || match?.kickoff_at || "");
+    const hasScore = match?.home_score !== null && match?.home_score !== undefined && match?.away_score !== null && match?.away_score !== undefined;
+    if (!Number.isNaN(date.getTime()) && hasScore && Date.now() - date.getTime() > 4 * 60 * 60 * 1000) return "Encerrado";
+    if (!Number.isNaN(date.getTime()) && date.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }) === new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })) return "Hoje";
+    return "Em breve";
+  }
+
+  function homeMatchIsLive(match) {
+    const status = String(match?.status || "").toLowerCase();
+    if (!/live|in_progress/.test(status)) return false;
+    const kickoff = new Date(match?.match_date || match?.kickoff_at || "").getTime();
+    if (Number.isNaN(kickoff)) return false;
+    const elapsed = Date.now() - kickoff;
+    return elapsed >= -15 * 60 * 1000 && elapsed <= 4 * 60 * 60 * 1000;
+  }
+
+  function homeMatchCenter(match) {
+    const status = String(match?.status || "").toLowerCase();
+    const hasScore = match?.home_score !== null && match?.home_score !== undefined && match?.away_score !== null && match?.away_score !== undefined;
+    const date = new Date(match?.match_date || match?.kickoff_at || "");
+    if (hasScore && (status === "finished" || homeMatchIsLive(match) || Date.now() - date.getTime() > 4 * 60 * 60 * 1000)) return `${formatValue(match.home_score)}–${formatValue(match.away_score)}`;
+    if (Number.isNaN(date.getTime())) return "×";
+    return new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" }).format(date);
+  }
+
+  function homeStageLabel(match) {
+    if (match?.group_name) return `Grupo ${match.group_name}`;
+    const stage = String(match?.stage || "").toLowerCase();
+    const labels = {
+      group_stage: "Fase de grupos", round_of_32: "16 avos",
+      round_of_16: "Oitavas de final", quarter_final: "Quartas de final",
+      semi_final: "Semifinal", semifinal: "Semifinal",
+      third_place: "Disputa de 3º lugar", final: "Final",
+    };
+    return labels[stage] || "Copa do Mundo 2026";
+  }
+
+  function compactMatchRow(match, { featured = false } = {}) {
+    const home = match?.home_team;
+    const away = match?.away_team;
+    const context = homeStageLabel(match);
+    return node("button", {
+      type: "button",
+      class: `home-match-row${featured ? " is-featured" : ""}`,
+      style: matchPalette(home, away),
+      onclick: () => openMatchQuickView(match),
+      "aria-label": `${displayTeamName(home)} contra ${displayTeamName(away)}. ${homeMatchStatus(match)}.`,
+    }, [
+      node("span", { class: "home-match-meta" }, [
+        node("b", { text: homeMatchStatus(match) }),
+        node("time", { dateTime: match?.match_date || "", text: formatMatchDate(match?.match_date) }),
+      ]),
+      node("span", { class: "home-match-scoreline" }, [
+        teamLabel(home, "home-match-team home"),
+        node("strong", { class: "home-match-score", text: homeMatchCenter(match) }),
+        teamLabel(away, "home-match-team away"),
+      ]),
+      node("span", { class: "home-match-context", text: context }),
+    ]);
+  }
+
+  function homeRankingEntity(item, entity) {
+    if (entity === "match") return node("span", { class: "home-ranking-match" }, [
+      teamLabel(item.home_team), node("i", { text: "×" }), teamLabel(item.away_team),
+    ]);
+    const team = item?.team_name;
+    return node("span", { class: "home-ranking-entity" }, [
+      flagNode(team), node("span", { text: entity === "player" ? personName(item) : teamName(item) }),
+    ]);
+  }
+
+  function homeRankingValue(item, metric) {
+    const parsed = number(item?.[metric]);
+    const value = metric === "xg_difference" && parsed !== null
+      ? (parsed > 0 ? `+${formatValue(parsed)}` : formatValue(parsed))
+      : formatValue(item?.[metric]);
+    if (metric === "goals") return `${value} gols`;
+    if (metric === "assists") return `${value} assist.`;
+    if (metric === "shots") return `${value} chutes`;
+    return value;
+  }
+
+  function homeRankingValueClass(item, metric) {
+    if (metric !== "xg_difference") return "";
+    const value = number(item?.[metric]);
+    if (value === null || value === 0) return "is-neutral";
+    return value > 0 ? "is-positive" : "is-negative";
+  }
+
+  function openHomeEntityQuickView(item, entity) {
+    if (entity === "player") openPlayerQuickView(item);
+    else if (entity === "team") openHomeTeamQuickView(item);
+    else openMatchQuickView(item);
+  }
+
+  function homeRankingRow(item, index, metric, entity) {
+    return node("button", { type: "button", class: "home-ranking-row", onclick: () => openHomeEntityQuickView(item, entity) }, [
+      node("span", { class: "home-rank", text: String(index + 1) }),
+      homeRankingEntity(item, entity),
+      node("strong", { class: `home-ranking-value ${homeRankingValueClass(item, metric)}`.trim(), text: homeRankingValue(item, metric) }),
+    ]);
+  }
+
+  function homeRankingPanel({ kicker, title, rows, metric, entity }) {
+    return node("article", { class: "home-ranking-panel" }, [
+      node("button", { type: "button", class: "home-ranking-open", onclick: () => openRankingQuickView({ kicker, title, rows, metric, entity }) }, [
+        node("span", {}, [node("small", { text: kicker }), node("strong", { text: title })]),
+        node("span", { class: "home-ranking-expand", text: `Ver ranking (${rows.length})` }),
+      ]),
+      node("div", { class: "home-ranking-list" }, rows.slice(0, 5).map((item, index) => homeRankingRow(item, index, metric, entity))),
+    ]);
+  }
+
+  function openPlayerQuickView(player) {
+    openQuickView({
+      kicker: "Resumo do jogador",
+      titleContent: node("span", { class: "quick-entity-title" }, [flagNode(player.team_name, "flag-medium"), node("span", { text: personName(player) })]),
+      rows: [
+        ["Seleção", teamName(player)], ["Posição", positionLabel(player.position)],
+        ["Jogos", player.games], ["Minutos", player.minutes_played],
+        ["Gols", player.goals], ["Assistências", player.assists],
+        ["xG", player.xg], ["Rating", player.rating],
+      ],
+      actionLabel: player.player_id ? "Abrir jogador" : null,
+      onAction: player.player_id ? () => routeTo("players", player.player_id) : null,
+    });
+  }
+
+  function openHomeTeamQuickView(team) {
+    const selectedTeam = rawTeamName(team);
+    const nextMatches = [
+      ...(state.overviewData?.matches_today || []),
+      ...(state.overviewData?.upcoming_matches || []),
+    ].filter((match, index, rows) =>
+      [match.home_team, match.away_team].includes(selectedTeam)
+      && rows.findIndex(item => item.match_id === match.match_id) === index
+    ).slice(0, 3);
+    const extra = node("section", { class: "quick-view-extra" }, [
+      node("h3", { text: "Próximos jogos" }),
+      nextMatches.length
+        ? node("div", { class: "quick-view-match-list" }, nextMatches.map(match => compactMatchRow(match)))
+        : node("p", { text: "O próximo compromisso ainda não está definido no calendário." }),
+    ]);
+    openQuickView({
+      kicker: "Resumo da seleção",
+      titleContent: teamLabel(rawTeamName(team), "quick-entity-title"),
+      rows: [
+        ["Grupo", team.group_name ? `Grupo ${team.group_name}` : null], ["Jogos", team.played],
+        ["Pontos", team.points], ["Gols", team.goals_for !== undefined ? `${team.goals_for} pró · ${team.goals_against} contra` : null],
+        ["Saldo", team.goal_difference !== undefined ? signedStandingValue(team.goal_difference) : null],
+        ["xG", team.xg], ["Saldo de xG", team.xg_difference],
+      ],
+      extra,
+      actionLabel: team.team_id ? "Abrir seleção" : null,
+      onAction: team.team_id ? () => routeTo("teams", team.team_id) : null,
+    });
+  }
+
+  function openRankingQuickView({ kicker, title, rows, metric, entity }) {
+    const entityLabel = entity === "match" ? "Partida" : entity === "team" ? "Seleção" : "Jogador";
+    const extra = node("section", { class: "ranking-detail" }, [
+      node("div", { class: "ranking-detail-head" }, [
+        node("span", { text: "Pos." }),
+        node("span", { class: "ranking-detail-column", text: entityLabel }),
+        node("span", { text: title }),
+      ]),
+      node("div", { class: "ranking-detail-list" }, rows.map((item, index) => homeRankingRow(item, index, metric, entity))),
+    ]);
+    openQuickView({
+      kicker: `Ranking · ${kicker}`,
+      titleContent: title,
+      rows: [["Ranking", `${rows.length} posições disponíveis`]],
+      extra,
+      layout: "modal",
+      actionLabel: null,
+      onAction: null,
+    });
+  }
+
+  function homeStatExplorer(leaders) {
+    const stats = [
+      ["Artilheiro da Copa", leaders.players?.goals, "goals", "player", "Mais gols marcados"],
+      ["Maior xG da Copa", leaders.players?.xg, "xg", "player", "Maior volume de chances"],
+      ["Seleção com maior xG", leaders.teams?.xg, "xg", "team", "Ataque mais produtivo"],
+      ["Melhor saldo de xG", leaders.teams?.xg_difference, "xg_difference", "team", "Criação menos concessão"],
+      ["Jogo com mais finalizações", leaders.matches?.shots, "shots", "match", "Maior volume de chutes"],
+      ["Jogo com maior xG", leaders.matches?.xg_total, "xg_total", "match", "Mais chances acumuladas"],
+    ].filter(([, rows]) => rows?.length);
+    if (!stats.length) return null;
+    return node("div", { class: "home-stat-list" }, stats.map(([title, rows, metric, entity, context]) => {
+      const leader = rows[0];
+      return node("button", { type: "button", class: "home-stat-row", onclick: () => openRankingQuickView({ kicker: entity === "match" ? "Partidas" : entity === "team" ? "Seleções" : "Jogadores", title, rows, metric, entity }) }, [
+        node("span", { class: "home-stat-copy" }, [node("small", { text: title }), node("strong", {}, homeRankingEntity(leader, entity)), node("span", { text: context })]),
+        node("b", { class: `home-ranking-value ${homeRankingValueClass(leader, metric)}`.trim(), text: homeRankingValue(leader, metric) }),
+      ]);
+    }));
+  }
+
+  function homeHighlights(highlights, leaders) {
+    const team = highlights.top_team;
+    const player = highlights.top_player;
+    const match = leaders.matches?.shots?.[0];
+    const items = [
+      team ? { kicker: "Seleção em destaque", entity: "team", item: team, reason: `${formatValue(team.xg)} xG e saldo de ${signedStandingValue(team.goal_difference)} gols na fase de grupos.`, stats: [["Pts", team.points], ["GP", team.goals_for], ["GC", team.goals_against]] } : null,
+      player ? { kicker: "Jogador em destaque", entity: "player", item: player, reason: `${formatValue(player.goals)} gols em ${formatValue(player.minutes_played)} minutos, liderando a artilharia.`, stats: [["Jogos", player.games], ["Gols", player.goals], ["Assist.", player.assists]] } : null,
+      match ? { kicker: "Partida em destaque", entity: "match", item: match, reason: `${formatValue(match.shots)} finalizações fizeram deste o jogo de maior volume ofensivo.`, stats: [["Chutes", match.shots], ["xG", match.xg_total]] } : null,
+    ].filter(Boolean);
+    if (!items.length) return null;
+    return node("div", { class: "home-highlight-grid" }, items.map(({ kicker, entity, item, reason, stats }) =>
+      node("button", { type: "button", class: "home-highlight-card", onclick: () => openHomeEntityQuickView(item, entity) }, [
+        node("span", { class: "eyebrow", text: kicker }),
+        node("strong", { class: "home-highlight-name" }, homeRankingEntity(item, entity)),
+        node("span", { class: "home-highlight-reason", text: reason }),
+        node("span", { class: "home-highlight-stats" }, stats.filter(([, value]) => value !== null && value !== undefined).map(([labelText, value]) => node("span", {}, [node("small", { text: labelText }), node("b", { text: formatValue(value) })]))),
+      ])
+    ));
   }
 
   function renderTeams(data) {
@@ -2478,20 +2723,24 @@
 
   function closeQuickView() {
     if (!state.quickView) return;
+    const returnFocus = state.quickView.returnFocus;
     document.removeEventListener("keydown", state.quickView.onKeydown);
     state.quickView.overlay.remove();
     state.quickView = null;
     document.body.classList.remove("quick-view-open");
+    returnFocus?.focus?.();
   }
 
-  function openQuickView({ kicker, titleContent, rows, extra = null, actionLabel, onAction }) {
+  function openQuickView({ kicker, titleContent, rows, extra = null, actionLabel, onAction, layout = "drawer" }) {
     closeQuickView();
+    const returnFocus = document.activeElement;
     closeStatPopover();
     const onKeydown = event => {
       if (event.key === "Escape") closeQuickView();
     };
-    const overlay = node("div", { class: "quick-view-overlay" });
-    const drawer = node("aside", { class: "quick-view-drawer", role: "dialog", "aria-modal": "true", "aria-label": kicker }, [
+    const layoutClass = layout === "modal" ? " is-modal" : "";
+    const overlay = node("div", { class: `quick-view-overlay${layoutClass}` });
+    const drawer = node("aside", { class: `quick-view-drawer${layoutClass}`, role: "dialog", "aria-modal": "true", "aria-label": kicker }, [
       node("header", { class: "quick-view-head" }, [
         node("div", {}, [node("p", { class: "eyebrow", text: kicker }), node("h2", {}, titleContent)]),
         node("button", { type: "button", class: "quick-view-close", text: "×", title: "Fechar", "aria-label": "Fechar", onclick: closeQuickView }),
@@ -2503,7 +2752,7 @@
         ]))),
         extra,
       ]),
-      node("footer", {}, node("button", {
+      actionLabel && onAction ? node("footer", {}, node("button", {
         type: "button",
         class: "quick-view-action",
         text: actionLabel,
@@ -2511,7 +2760,7 @@
           closeQuickView();
           onAction();
         },
-      })),
+      })) : null,
     ]);
     overlay.append(drawer);
     overlay.addEventListener("click", event => {
@@ -2520,7 +2769,7 @@
     document.body.append(overlay);
     document.body.classList.add("quick-view-open");
     document.addEventListener("keydown", onKeydown);
-    state.quickView = { overlay, onKeydown };
+    state.quickView = { overlay, onKeydown, returnFocus };
     drawer.querySelector(".quick-view-close")?.focus();
   }
 
@@ -2578,13 +2827,13 @@
     openQuickView({
       kicker: "Resumo da partida",
       titleContent: node("span", { class: "quick-match-title" }, [
-        node("span", { text: displayTeamName(teams.homeName) }),
+        teamLabel(teams.homeName, "quick-match-team"),
         node("strong", { text: score }),
-        node("span", { text: displayTeamName(teams.awayName) }),
+        teamLabel(teams.awayName, "quick-match-team"),
       ]),
       rows: [
         ["Data", formatMatchDate(date)],
-        ["Fase", match?.group_name ? `Grupo ${match.group_name}` : translateTeamsInText(match?.stage || "Mata-mata")],
+        ["Fase", homeStageLabel(match)],
         ["Situação", /live/i.test(match?.status || "") ? "Ao vivo" : match?.status === "finished" ? "Finalizada" : "Agendada"],
         ["xG total", xg !== null ? formatValue(xg) : null],
         ["Finalizações", match?.shots],

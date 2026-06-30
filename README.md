@@ -195,6 +195,38 @@ variant when you intentionally want to re-hit the API:
 make thestatsapi-opening-match-force
 ```
 
+Fetch partial coverage for every World Cup 2026 group-stage match:
+
+```bash
+make thestatsapi-group-stage
+```
+
+This resumable profile fetches `match_detail` and `match_referee` for all 72
+group-stage fixtures and `match_stats` for fixtures whose schedule status is
+finished. It provides match context and the main team comparison while avoiding
+the larger player/event payloads. To add lineups, player stats, events and
+shotmap for every finished fixture, run:
+
+```bash
+make thestatsapi-group-stage-rich
+```
+
+Both commands reuse successful jobs and existing Bronze files. They can be
+partitioned for a pilot or a future Airflow task without changing the storage
+contract:
+
+```bash
+make thestatsapi-group-stage GROUP=A
+make thestatsapi-group-stage-rich GROUP=B LIMIT=2
+make thestatsapi-group-stage REFRESH_FIXTURES=1 REQUEST_INTERVAL=6
+```
+
+`REQUEST_INTERVAL` controls the delay between requests and defaults to 5.2
+seconds, matching the currently observed account limit of 12 requests per
+minute. `REFRESH_FIXTURES=1` intentionally refreshes the schedule before the
+selection; match endpoint responses remain idempotent unless `--force` is used
+directly in the Python command.
+
 The bundle currently requests:
 
 - `match_detail` (optional; provides venue and city through

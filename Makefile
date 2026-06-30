@@ -77,6 +77,18 @@ thestatsapi-opening-match:
 thestatsapi-opening-match-force:
 	docker compose run --rm app python -m thestatsapi.opening_match_smoke --force
 
+THESTATSAPI_GROUP_STAGE_ARGS = \
+	$(if $(GROUP),--group "$(GROUP)",) \
+	$(if $(LIMIT),--limit "$(LIMIT)",) \
+	$(if $(REQUEST_INTERVAL),--request-interval "$(REQUEST_INTERVAL)",) \
+	$(if $(REFRESH_FIXTURES),--refresh-fixtures,)
+
+thestatsapi-group-stage:
+	docker compose run --rm app python -m thestatsapi.group_stage_bulk --profile overview $(THESTATSAPI_GROUP_STAGE_ARGS)
+
+thestatsapi-group-stage-rich:
+	docker compose run --rm app python -m thestatsapi.group_stage_bulk --profile available $(THESTATSAPI_GROUP_STAGE_ARGS)
+
 thestatsapi-silver:
 	docker compose run --rm --no-deps app python -m thestatsapi.silver
 
