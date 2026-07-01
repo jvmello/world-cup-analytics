@@ -116,6 +116,9 @@ class TheStatsApiBronzeService:
             metric: [self._compact_match(row) for row in rows]
             for metric, rows in match_leaders.items()
         }
+        pulse = self.home_pulse(fixtures, now=now)
+        knockout_summary = self.home_knockout_summary(fixtures, pulse=pulse)
+        discoveries = self.home_discoveries(player_rows, team_rows, match_details)
         return json_safe(
             {
                 "year": year,
@@ -131,6 +134,9 @@ class TheStatsApiBronzeService:
                     "teams": compact_teams,
                     "matches": compact_matches,
                 },
+                "pulse": pulse,
+                "knockout_summary": knockout_summary,
+                "discoveries": discoveries,
                 "highlights": {
                     "top_team": (compact_teams.get("xg") or [None])[0],
                     "top_player": (compact_players.get("goals") or [None])[0],
@@ -140,6 +146,268 @@ class TheStatsApiBronzeService:
                 "notice": None if fixtures else "Dados da edição ainda não disponíveis.",
             }
         )
+
+    @classmethod
+    def home_pulse(
+        cls,
+        fixtures: list[dict[str, Any]],
+        *,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        reference = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        knockout = cls.knockout_state(fixtures)
+        populated = [round_ for round_ in knockout["rounds"] if round_["matches"]]
+        current_index = next(
+            (
+                index
+                for index, round_ in enumerate(populated)
+                if any(
+                    not cls._is_effectively_finished(match, now=reference)
+                    for match in round_["matches"]
+                )
+            ),
+            max(len(populated) - 1, 0),
+        )
+        current_round = populated[current_index] if populated else None
+        next_round = (
+            populated[current_index + 1]
+            if populated and current_index + 1 < len(populated)
+            else None
+        )
+        today = reference.astimezone(HOME_TIMEZONE).date()
+        today_matches = [
+            match for match in fixtures if cls._local_match_date(match) == today
+        ]
+
+        classified = []
+        for round_ in populated:
+            for match in round_["matches"]:
+                if not cls._is_effectively_finished(match, now=reference):
+                    continue
+                home_score = number(match.get("home_score"))
+                away_score = number(match.get("away_score"))
+                if home_score is None or away_score is None or home_score == away_score:
+                    continue
+                home_won = home_score > away_score
+                winner = match["home"] if home_won else match["away"]
+                eliminated = match["away"] if home_won else match["home"]
+                winner_name = winner.get("team_name")
+                eliminated_name = eliminated.get("team_name")
+                if not winner_name or not eliminated_name:
+                    continue
+                classified.append(
+                    {
+                        "match": match,
+                        "phase": round_["name"],
+                        "winner_name": winner_name,
+                        "winner_id": winner.get("team_id"),
+                        "eliminated_name": eliminated_name,
+                        "eliminated_id": eliminated.get("team_id"),
+                        "narrative": (
+                            f"{winner_name} avançou após vencer {eliminated_name} "
+                            f"por {int(home_score)}–{int(away_score)}."
+                        ),
+                    }
+                )
+        classified.sort(
+            key=lambda item: str(item["match"].get("kickoff_at") or ""),
+            reverse=True,
+        )
+        return {
+            "current_phase": current_round["name"] if current_round else None,
+            "today_matches": today_matches,
+            "classified_recent": classified[:4],
+            "next_phase": next_round["name"] if next_round else None,
+            "next_matchups": (next_round or current_round or {}).get("matches", [])[:4],
+        }
+
+    @classmethod
+    def home_knockout_summary(
+        cls,
+        fixtures: list[dict[str, Any]],
+        *,
+        pulse: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        pulse = pulse or cls.home_pulse(fixtures)
+        knockout = cls.knockout_state(fixtures)
+        visible_rounds = [
+            round_
+            for round_ in knockout["rounds"]
+            if round_["matches"]
+            and round_["name"] in {pulse.get("current_phase"), pulse.get("next_phase")}
+        ]
+        return {
+            "current_phase": pulse.get("current_phase"),
+            "next_phase": pulse.get("next_phase"),
+            "rounds": visible_rounds,
+        }
+
+    @classmethod
+    def home_discoveries(
+        cls,
+        players: list[dict[str, Any]],
+        teams: list[dict[str, Any]],
+        details: list[dict[str, Any]],
+    ) -> dict[str, list[dict[str, Any]]]:
+        def player_rows(rows: list[dict[str, Any]], value_fn: Any) -> list[dict[str, Any]]:
+            return [
+                {**cls._compact_player(row), "value": round(float(value_fn(row)), 2)}
+                for row in rows
+            ]
+
+        def team_metric_rows(rows: list[dict[str, Any]], value_fn: Any) -> list[dict[str, Any]]:
+            return [
+                {**cls._compact_team(row), "value": round(float(value_fn(row)), 2)}
+                for row in rows
+            ]
+
+        eligible_minutes = [
+            row
+            for row in players
+            if float(row.get("minutes_played") or 0) >= 120
+            and float(row.get("goals") or 0) >= 1
+        ]
+        eligible_shooters = [
+            row for row in players if float(row.get("shots") or 0) >= 5
+        ]
+        eligible_teams = [
+            row for row in teams if float(row.get("played") or 0) >= 3
+        ]
+
+        goals_per_100 = sorted(
+            player_rows(
+                eligible_minutes,
+                lambda row: float(row.get("goals") or 0)
+                / float(row.get("minutes_played") or 1)
+                * 100,
+            ),
+            key=lambda row: row["value"],
+            reverse=True,
+        )
+        xg_per_shot = sorted(
+            player_rows(
+                eligible_shooters,
+                lambda row: float(row.get("xg") or 0) / float(row.get("shots") or 1),
+            ),
+            key=lambda row: row["value"],
+            reverse=True,
+        )
+        conversion = sorted(
+            player_rows(
+                eligible_shooters,
+                lambda row: float(row.get("goals") or 0) / float(row.get("shots") or 1) * 100,
+            ),
+            key=lambda row: row["value"],
+            reverse=True,
+        )
+
+        lowest_xga = sorted(
+            team_metric_rows(eligible_teams, lambda row: row.get("xga") or 0),
+            key=lambda row: row["value"],
+        )
+        shots_per_game = sorted(
+            team_metric_rows(
+                eligible_teams,
+                lambda row: float(row.get("shots") or 0) / float(row.get("played") or 1),
+            ),
+            key=lambda row: row["value"],
+            reverse=True,
+        )
+        efficiency = sorted(
+            team_metric_rows(
+                [row for row in eligible_teams if float(row.get("xg") or 0) > 0],
+                lambda row: float(row.get("goals_for") or 0) / float(row.get("xg") or 1),
+            ),
+            key=lambda row: row["value"],
+            reverse=True,
+        )
+
+        match_rows = []
+        goal_rows = []
+        for detail in details:
+            match = detail.get("match") or {}
+            if not match.get("match_id"):
+                continue
+            shots = detail.get("shot_map") or []
+            events = detail.get("events") or []
+            xg_row = next(
+                (row for row in detail.get("stats_comparison") or [] if row.get("metric") == "expected_goals"),
+                None,
+            )
+            xg_values = [
+                float(value or 0)
+                for key, value in (xg_row or {}).items()
+                if key not in {"metric", "unit", "section"}
+            ]
+            match_rows.append(
+                {
+                    **cls._compact_match(match),
+                    "events_total": len(events),
+                    "shots_on_target": sum(1 for shot in shots if shot.get("is_on_target")),
+                    "xg_gap": round(abs(xg_values[0] - xg_values[1]), 2) if len(xg_values) >= 2 else None,
+                }
+            )
+            for shot in shots:
+                if shot.get("is_goal") and number(shot.get("minute")) is not None:
+                    goal_rows.append({**cls._compact_match(match), **shot, "value": number(shot.get("minute"))})
+
+        most_events = sorted(
+            [{**row, "value": row["events_total"]} for row in match_rows if row["events_total"]],
+            key=lambda row: row["value"],
+            reverse=True,
+        )
+        most_on_target = sorted(
+            [{**row, "value": row["shots_on_target"]} for row in match_rows if row["shots_on_target"]],
+            key=lambda row: row["value"],
+            reverse=True,
+        )
+        balanced = sorted(
+            [{**row, "value": row["xg_gap"]} for row in match_rows if row["xg_gap"] is not None],
+            key=lambda row: row["value"],
+        )
+        earliest = sorted(goal_rows, key=lambda row: row["value"])
+        latest = sorted(goal_rows, key=lambda row: row["value"], reverse=True)
+
+        def metric(
+            metric_id: str,
+            title: str,
+            description: str,
+            eligibility: str,
+            entity: str,
+            unit: str,
+            rows: list[dict[str, Any]],
+        ) -> dict[str, Any]:
+            return {
+                "id": metric_id,
+                "title": title,
+                "description": description,
+                "eligibility": eligibility,
+                "entity": entity,
+                "unit": unit,
+                "rows": rows,
+            }
+
+        return {
+            "players": [
+                metric("goals_per_100", "Gols por 100 minutos", "Frequência de gols ajustada ao tempo em campo.", "Mínimo de 120 minutos e 1 gol", "player", "gols", goals_per_100),
+                metric("xg_per_shot", "xG por finalização", "Qualidade média das chances finalizadas.", "Mínimo de 5 finalizações", "player", "xG", xg_per_shot),
+                metric("shot_conversion", "Conversão de chutes", "Percentual de finalizações transformadas em gol.", "Mínimo de 5 finalizações", "player", "%", conversion),
+            ],
+            "teams": [
+                metric("lowest_xga", "Menos xG cedido", "Defesas que concederam chances de menor qualidade.", "Mínimo de 3 jogos", "team", "xG", lowest_xga),
+                metric("shots_per_game", "Finalizações por jogo", "Volume ofensivo médio por partida.", "Mínimo de 3 jogos", "team", "chutes", shots_per_game),
+                metric("offensive_efficiency", "Eficiência ofensiva", "Relação entre gols marcados e xG produzido.", "Mínimo de 3 jogos e xG positivo", "team", "índice", efficiency),
+            ],
+            "matches": [
+                metric("most_events", "Maior volume de eventos", "Partidas com mais ações registradas.", "Somente jogos com eventos disponíveis", "match", "eventos", most_events),
+                metric("most_on_target", "Mais chutes no alvo", "Jogos que mais exigiram os goleiros.", "Somente jogos com mapa de chutes", "match", "chutes", most_on_target),
+                metric("most_balanced_xg", "Jogo mais equilibrado", "Menor diferença de xG entre as seleções.", "Somente jogos com xG para as duas equipes", "match", "xG", balanced),
+            ],
+            "curiosities": [
+                metric("earliest_goal", "Gol mais cedo", "Os gols marcados mais próximos do início.", "Somente gols com minuto informado", "match", "min", earliest),
+                metric("latest_goal", "Gol mais tardio", "Os gols marcados mais próximos do fim.", "Somente gols com minuto informado", "match", "min", latest),
+            ],
+        }
 
     @staticmethod
     def _match_datetime(match: dict[str, Any]) -> datetime | None:
@@ -270,7 +538,9 @@ class TheStatsApiBronzeService:
         return json_safe(detail)
 
     def players(self, year: int) -> dict[str, Any]:
-        rows = self._aggregate_players(self._all_match_details(year))
+        rows = self._aggregate_player_analytics(
+            self._aggregate_players(self._all_match_details(year))
+        )
         return json_safe(
             {
                 "year": year,
@@ -293,38 +563,74 @@ class TheStatsApiBronzeService:
             }
         )
 
-    def player_detail(self, year: int, player_id: str) -> dict[str, Any]:
+    def player_detail(
+        self,
+        year: int,
+        player_id: str,
+        scope: str = "all",
+        match_id: str | None = None,
+    ) -> dict[str, Any]:
         details = self._all_match_details(year)
+        scope = scope if scope in {"all", "group_stage", "knockout", "match"} else "all"
+        player_matches = [
+            detail
+            for detail in details
+            if any(player.get("player_id") == player_id for player in detail.get("players", []))
+        ]
+        available_matches = [
+            {
+                "match_id": detail["match"].get("match_id"),
+                "label": self._match_label(detail["match"]),
+                "match_date": detail["match"].get("match_date"),
+                "stage": detail["match"].get("stage"),
+                "group_name": detail["match"].get("group_name"),
+            }
+            for detail in player_matches
+        ]
+
+        def in_scope(detail: dict[str, Any]) -> bool:
+            match = detail.get("match") or {}
+            if scope == "match":
+                return bool(match_id) and str(match.get("match_id")) == str(match_id)
+            is_group = bool(match.get("group_name")) or "group" in str(match.get("stage") or "").casefold()
+            if scope == "group_stage":
+                return is_group
+            if scope == "knockout":
+                return not is_group
+            return True
+
+        scoped_details = [detail for detail in details if in_scope(detail)]
         logs = []
         shots = []
-        for detail in details:
+        for detail in scoped_details:
             match = detail["match"]
             for player in detail["players"]:
                 if player.get("player_id") == player_id:
-                    logs.append({**player, "match": self._match_label(match), "match_id": match["match_id"]})
+                    logs.append(
+                        {
+                            **player,
+                            "match": self._match_label(match),
+                            "match_id": match.get("match_id"),
+                            "match_date": match.get("match_date"),
+                            "stage": match.get("stage"),
+                            "group_name": match.get("group_name"),
+                        }
+                    )
             for shot in detail["shot_map"]:
                 if shot.get("player_id") == player_id:
                     shots.append(shot)
         if not logs:
-            return {"year": year, "available": False, "notice": "Jogador não encontrado."}
-        summary = self._merge_player_rows(logs)
-        macroposition = macroposition_for(summary.get("position"))
-        reference = build_reference_distribution(
-            [player for detail in details for player in detail.get("players", [])]
-        )
-        analytics = calculate_player_radar(
-            summary,
-            reference,
-            macroposition,
-        )
-        summary.update(
-            {
-                "macroposition": macroposition,
-                "profile_score": analytics.get("profile_score"),
-                "radar": analytics.get("radar", []),
-                "radar_dimensions": analytics.get("dimensions", {}),
+            return {
+                "year": year,
+                "available": False,
+                "notice": "Não há dados do jogador neste recorte.",
+                "context": {"scope": scope, "match_id": match_id},
+                "available_matches": available_matches,
             }
+        scoped_players = self._aggregate_player_analytics(
+            self._aggregate_players(scoped_details)
         )
+        summary = next(row for row in scoped_players if row.get("player_id") == player_id)
         return json_safe(
             {
                 "year": year,
@@ -335,8 +641,10 @@ class TheStatsApiBronzeService:
                 "match_log": logs,
                 "shots": shots,
                 "shot_map": shots,
-                "radar": analytics.get("radar", []),
-                "radar_dimensions": analytics.get("dimensions", {}),
+                "radar": summary.get("radar", []),
+                "radar_dimensions": summary.get("radar_dimensions", {}),
+                "context": {"scope": scope, "match_id": match_id},
+                "available_matches": available_matches,
             }
         )
 
@@ -1083,10 +1391,17 @@ class TheStatsApiBronzeService:
         xg = values("expected_goals")
         creation_team = None
         if xg:
-            team = home if xg[0] >= xg[1] else away
-            creation_team = team
-            value, other = xg if team == home else (xg[1], xg[0])
-            lines.append(f"{team} controlou a criação: {value} xG contra {other}.")
+            displayed_home = round(float(xg[0]), 2)
+            displayed_away = round(float(xg[1]), 2)
+            if displayed_home == displayed_away:
+                lines.append(
+                    f"A criação foi equilibrada: {displayed_home:g} xG para cada lado."
+                )
+            else:
+                team = home if xg[0] > xg[1] else away
+                creation_team = team
+                value, other = xg if team == home else (xg[1], xg[0])
+                lines.append(f"{team} controlou a criação: {value} xG contra {other}.")
 
         shots_values = values("total_shots")
         target_values = values("shots_on_target")
@@ -1275,7 +1590,7 @@ class TheStatsApiBronzeService:
     @classmethod
     def knockout_state(cls, fixtures: list[dict[str, Any]]) -> dict[str, Any]:
         round_specs = (
-            ("round_of_32", "Fase de 32"),
+            ("round_of_32", "16 avos"),
             ("round_of_16", "Oitavas"),
             ("quarter_finals", "Quartas"),
             ("semi_finals", "Semifinais"),
@@ -1423,12 +1738,42 @@ class TheStatsApiBronzeService:
     @staticmethod
     def _merge_player_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
         first = rows[0].copy()
-        for metric in ("minutes_played", "goals", "assists", "shots", "shots_on_target", "xg", "xa", "key_passes", "yellow_cards", "red_cards"):
-            first[metric] = round(sum(float(row.get(metric) or 0) for row in rows), 3)
+        sum_metrics = (
+            "minutes_played", "goals", "assists", "shots", "shots_on_target",
+            "shots_off_target", "blocked_shots", "xg", "np_xg", "xa",
+            "big_chances_created", "key_passes", "passes", "accurate_passes",
+            "total_long_balls", "accurate_long_balls", "total_crosses",
+            "accurate_crosses", "duels_won", "duels_lost", "aerial_won",
+            "successful_dribbles", "dispossessed", "tackles", "interceptions",
+            "clearances", "touches", "possession_lost", "fouls",
+            "fouls_suffered", "offsides", "yellow_cards", "red_cards", "saves",
+        )
+        for metric in sum_metrics:
+            values = [float(row[metric]) for row in rows if row.get(metric) is not None]
+            first[metric] = round(sum(values), 3) if values else None
         first["games"] = len(rows)
-        first["rating"] = round(sum(float(row.get("rating") or 0) for row in rows if row.get("rating") is not None) / max(1, sum(1 for row in rows if row.get("rating") is not None)), 2)
-        first["xg_per_shot"] = round(first["xg"] / first["shots"], 3) if first["shots"] else None
-        first["goals_minus_xg"] = round(first["goals"] - first["xg"], 2)
+        ratings = [float(row["rating"]) for row in rows if row.get("rating") is not None]
+        first["rating"] = round(sum(ratings) / len(ratings), 2) if ratings else None
+        first["pass_accuracy"] = (
+            round(float(first["accurate_passes"]) / float(first["passes"]) * 100, 1)
+            if first.get("accurate_passes") is not None and first.get("passes") else None
+        )
+        first["long_pass_accuracy"] = (
+            round(float(first["accurate_long_balls"]) / float(first["total_long_balls"]) * 100, 1)
+            if first.get("accurate_long_balls") is not None and first.get("total_long_balls") else None
+        )
+        first["cross_accuracy"] = (
+            round(float(first["accurate_crosses"]) / float(first["total_crosses"]) * 100, 1)
+            if first.get("accurate_crosses") is not None and first.get("total_crosses") else None
+        )
+        first["xg_per_shot"] = (
+            round(float(first["xg"]) / float(first["shots"]), 3)
+            if first.get("xg") is not None and first.get("shots") else None
+        )
+        first["goals_minus_xg"] = (
+            round(float(first["goals"]) - float(first["xg"]), 2)
+            if first.get("goals") is not None and first.get("xg") is not None else None
+        )
         return first
 
     def _aggregate_players(self, details: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1438,6 +1783,25 @@ class TheStatsApiBronzeService:
                 if player.get("player_id"):
                     grouped[player["player_id"]].append(player)
         return sorted([self._merge_player_rows(rows) for rows in grouped.values()], key=lambda row: (row.get("goals") or 0, row.get("xg") or 0), reverse=True)
+
+    @staticmethod
+    def _aggregate_player_analytics(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        reference = build_reference_distribution(rows)
+        enriched = []
+        for row in rows:
+            macroposition = macroposition_for(row.get("position"))
+            analytics = calculate_player_radar(row, reference, macroposition)
+            enriched.append(
+                {
+                    **row,
+                    "macroposition": macroposition,
+                    "impact_score": analytics.get("profile_score"),
+                    "profile_score": analytics.get("profile_score"),
+                    "radar": analytics.get("radar", []),
+                    "radar_dimensions": analytics.get("dimensions", {}),
+                }
+            )
+        return enriched
 
     @staticmethod
     def _team_match_row(team_name: str, detail: dict[str, Any]) -> dict[str, Any]:

@@ -55,9 +55,14 @@ def create_app(
         require_year(year)
         return service.team_detail(year, team_id)
 
-    def player_detail(year: int, player_id: str) -> dict[str, Any]:
+    def player_detail(
+        year: int,
+        player_id: str,
+        scope: str = "all",
+        match_id: str | None = None,
+    ) -> dict[str, Any]:
         require_year(year)
-        return service.player_detail(year, player_id)
+        return service.player_detail(year, player_id, scope=scope, match_id=match_id)
 
     def match_detail(year: int, match_id: str) -> dict[str, Any]:
         require_year(year)

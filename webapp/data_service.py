@@ -689,9 +689,20 @@ class DataService:
             "notice": "Detalhe de partida disponível apenas para partidas com estatísticas preparadas.",
         }
 
-    def player_detail(self, year: int, player_id: str) -> dict[str, Any]:
+    def player_detail(
+        self,
+        year: int,
+        player_id: str,
+        scope: str = "all",
+        match_id: str | None = None,
+    ) -> dict[str, Any]:
         if self._has_thestatsapi(year):
-            return self.thestatsapi.player_detail(year, player_id)
+            return self.thestatsapi.player_detail(
+                year,
+                player_id,
+                scope=scope,
+                match_id=match_id,
+            )
         return {
             "year": year,
             "available": False,

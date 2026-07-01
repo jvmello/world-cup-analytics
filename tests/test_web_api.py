@@ -743,6 +743,98 @@ def test_match_players_and_shots_are_fully_interactive() -> None:
     assert "Confiança" not in modal
 
 
+def test_players_page_is_an_inline_analysis_experience() -> None:
+    root = Path(__file__).parents[1] / "webapp/static"
+    app_js = (root / "app.js").read_text(encoding="utf-8")
+    styles = (root / "styles.css").read_text(encoding="utf-8")
+    render = app_js[
+        app_js.index("function renderPlayers"):
+        app_js.index("function renderMatches")
+    ]
+
+    assert "playerAnalysisExperience" in render
+    assert "entityCard" not in render
+    assert "kpis(" not in render
+    for function_name in (
+        "playerAnalysisExperience",
+        "playerScatterPlot",
+        "playerOverviewTable",
+        "playerProfileView",
+        "playerShotMapPanel",
+        "playerShotMinuteChart",
+        "playerShotDistributions",
+    ):
+        assert f"function {function_name}" in app_js
+    for label_text in (
+        "Buscar jogador", "Posição", "Seleção", "Minutos mínimos",
+        "Finalizações mínimas", "Edição inteira", "Fase de grupos",
+        "Mata-mata", "Geral", "Radar", "Finalizações", "Distribuição",
+    ):
+        assert f'"{label_text}"' in app_js
+    assert "scatter-reference-line" in app_js
+    assert "selectedId" in app_js
+    assert "onSelect" in app_js
+    for selector in (
+        ".players-control-panel", ".players-analysis-layout",
+        ".players-overview-table", ".player-profile-summary",
+        ".player-profile-tabs",
+    ):
+        assert f'body[data-page="players"][data-skin="2026"] {selector}' in styles
+
+
+def test_player_detail_aggregates_metrics_and_supports_contexts(monkeypatch) -> None:
+    service = TheStatsApiBronzeService()
+    player = {
+        "player_id": "p1", "player_name": "Player One", "team_id": "t1",
+        "team_name": "Brazil", "position": "F",
+    }
+    details = [
+        {
+            "match": {
+                "match_id": "group-1", "match_date": "2026-06-12T19:00:00Z",
+                "group_name": "A", "stage": "Group Stage", "home_team": "Brazil",
+                "away_team": "France", "home_score": 1, "away_score": 0,
+            },
+            "players": [
+                {**player, "minutes_played": 90, "goals": 1, "shots": 2, "xg": .8, "passes": 20, "accurate_passes": 18, "rating": 7.5},
+                {**player, "player_id": "peer", "player_name": "Peer", "minutes_played": 90, "goals": 0, "shots": 1, "xg": .2, "passes": 12, "accurate_passes": 10, "rating": 6.5},
+            ],
+            "shot_map": [{"player_id": "p1", "match_id": "group-1", "minute": 20, "xg": .8}],
+        },
+        {
+            "match": {
+                "match_id": "knockout-1", "match_date": "2026-06-28T19:00:00Z",
+                "group_name": None, "stage": "round_of_32", "home_team": "Brazil",
+                "away_team": "Japan", "home_score": 2, "away_score": 1,
+            },
+            "players": [
+                {**player, "minutes_played": 60, "goals": 1, "shots": 3, "xg": 1.1, "passes": 10, "accurate_passes": 8, "rating": 8.0},
+                {**player, "player_id": "peer", "player_name": "Peer", "minutes_played": 60, "goals": 0, "shots": 2, "xg": .4, "passes": 8, "accurate_passes": 6, "rating": 6.8},
+            ],
+            "shot_map": [{"player_id": "p1", "match_id": "knockout-1", "minute": 70, "xg": 1.1}],
+        },
+    ]
+    monkeypatch.setattr(service, "_all_match_details", lambda year: details)
+
+    full = service.player_detail(2026, "p1")
+    group = service.player_detail(2026, "p1", scope="group_stage")
+    match = service.player_detail(2026, "p1", scope="match", match_id="knockout-1")
+
+    assert full["summary"]["minutes_played"] == 150
+    assert full["summary"]["goals"] == 2
+    assert full["summary"]["shots"] == 5
+    assert full["summary"]["passes"] == 30
+    assert full["summary"]["accurate_passes"] == 26
+    assert full["summary"]["pass_accuracy"] == 86.7
+    assert len(full["match_log"]) == 2
+    assert {row["stage"] for row in full["match_log"]} == {"Group Stage", "round_of_32"}
+    assert group["summary"]["minutes_played"] == 90
+    assert group["context"]["scope"] == "group_stage"
+    assert match["summary"]["minutes_played"] == 60
+    assert match["context"]["match_id"] == "knockout-1"
+    assert len(match["shot_map"]) == 1
+
+
 def test_2026_home_is_a_compact_editorial_match_center() -> None:
     root = Path(__file__).parents[1] / "webapp/static"
     app_js = (root / "app.js").read_text(encoding="utf-8")
@@ -755,10 +847,14 @@ def test_2026_home_is_a_compact_editorial_match_center() -> None:
 
     for function_name in (
         "homeSummaryStrip",
+        "homePulse",
+        "homeBracketSummary",
         "compactMatchRow",
         "homeRankingPanel",
-        "homeStatExplorer",
-        "homeHighlights",
+        "homeDiscoveryLab",
+        "homeDiscoveryCategoryCard",
+        "openDiscoveryCategoryView",
+        "homeDiscoveryMetricPanel",
         "openPlayerQuickView",
         "openHomeTeamQuickView",
         "openRankingQuickView",
@@ -766,25 +862,33 @@ def test_2026_home_is_a_compact_editorial_match_center() -> None:
         assert f"function {function_name}" in app_js
 
     for heading in (
-        "Hoje na Copa",
-        "Últimos resultados",
-        "Próximos jogos",
+        "Pulso da Copa",
+        "Caminho do mata-mata",
         "Líderes da Copa",
         "Explorar estatísticas",
-        "Destaques da edição",
     ):
         assert heading in overview
 
     assert "home-summary-strip" in app_js
     assert "home-match-row" in app_js
     assert "home-ranking-row" in app_js
-    assert "home-stat-row" in app_js
-    assert "home-highlight-card" in app_js
+    for tab in ("Jogadores", "Seleções", "Partidas", "Curiosidades"):
+        assert f'"{tab}"' in overview
     assert "flagNode" in overview
     assert "openMatchQuickView" in overview
-    assert "data.matches_today" in overview
+    assert "data.pulse" in overview
+    assert "data.knockout_summary" in overview
+    assert "data.discoveries" in overview
     assert "score-grid" not in overview
     assert "horizontalBars" not in overview
+    assert 'section("Últimos resultados"' not in overview
+    assert 'section("Próximos jogos"' not in overview
+    summary_strip = app_js[
+        app_js.index("function homeSummaryStrip"):
+        app_js.index("function homeMatchStatus")
+    ]
+    for metric in ("summary.matches", "summary.finished", "summary.goals", "summary.goals_per_match", "summary.teams", "summary.shots", "summary.xg", "summary.players"):
+        assert metric in summary_strip
     assert not any(
         term in overview
         for term in (
@@ -799,8 +903,17 @@ def test_2026_home_is_a_compact_editorial_match_center() -> None:
     assert 'body[data-page="overview"][data-skin="2026"] .home-summary-strip' in styles
     assert 'body[data-page="overview"][data-skin="2026"] .home-match-row' in styles
     assert 'body[data-page="overview"][data-skin="2026"] .home-ranking-panel' in styles
-    assert 'body[data-page="overview"][data-skin="2026"] .home-stat-row' in styles
-    assert 'body[data-page="overview"][data-skin="2026"] .home-highlight-card' in styles
+    assert 'body[data-page="overview"][data-skin="2026"] .home-pulse' in styles
+    assert 'body[data-page="overview"][data-skin="2026"] .home-bracket-summary' in styles
+    assert 'body[data-page="overview"][data-skin="2026"] .discovery-category-grid' in styles
+    assert 'body[data-page="overview"][data-skin="2026"] .discovery-category-card' in styles
+    discovery = app_js[
+        app_js.index("function homeDiscoveryLab"):
+        app_js.index("function homeHighlights")
+    ]
+    assert 'text: "Ver ranking completo"' in discovery
+    assert "rows.slice(0, 5)" in discovery
+    assert 'role: "tablist"' not in discovery
     assert "white-space: nowrap" in styles
     assert "text-overflow: ellipsis" in styles
     assert "@media (max-width: 640px)" in styles
@@ -864,6 +977,117 @@ def test_home_time_and_xg_ranking_contracts_are_complete() -> None:
     assert len(ranking) == 12
     assert ranking[0]["xg_difference"] == 6
     assert ranking[-1]["xg_difference"] == -5
+
+
+def test_match_story_describes_equal_displayed_xg_as_balanced() -> None:
+    story = TheStatsApiBronzeService._match_story(
+        {"home_team": "Haiti", "away_team": "Scotland"},
+        [{"metric": "expected_goals", "Haiti": 1.054, "Scotland": 1.051}],
+        [],
+        [],
+    )
+
+    assert story[0] == "A criação foi equilibrada: 1.05 xG para cada lado."
+    assert all("controlou a criação" not in line for line in story)
+
+
+def test_home_pulse_reports_knockout_consequences_and_next_matchups() -> None:
+    service = TheStatsApiBronzeService()
+    fixtures = [
+        {
+            "match_id": "m1",
+            "stage": "round_of_32",
+            "status": "finished",
+            "match_date": "2026-06-28T19:00:00Z",
+            "home_team": "Brazil",
+            "home_team_id": "bra",
+            "away_team": "Japan",
+            "away_team_id": "jpn",
+            "home_score": 2,
+            "away_score": 1,
+        },
+        {
+            "match_id": "m2",
+            "stage": "round_of_32",
+            "status": "scheduled",
+            "match_date": "2026-07-01T19:00:00Z",
+            "home_team": "France",
+            "away_team": "Sweden",
+            "home_score": None,
+            "away_score": None,
+        },
+        {
+            "match_id": "m3",
+            "stage": "round_of_16",
+            "status": "scheduled",
+            "match_date": "2026-07-04T19:00:00Z",
+            "home_team": "Brazil",
+            "home_team_id": "bra",
+            "away_team": "W2",
+            "home_score": None,
+            "away_score": None,
+        },
+    ]
+
+    pulse = service.home_pulse(fixtures, now=datetime(2026, 6, 30, 12, tzinfo=timezone.utc))
+
+    assert pulse["current_phase"] == "16 avos"
+    assert pulse["classified_recent"][0]["winner_name"] == "Brazil"
+    assert pulse["classified_recent"][0]["eliminated_name"] == "Japan"
+    assert "avançou" in pulse["classified_recent"][0]["narrative"]
+    assert pulse["next_matchups"][0]["home"]["team_name"] == "Brazil"
+    assert pulse["next_matchups"][0]["away"]["placeholder"] == "Vencedor da partida 2"
+
+
+def test_home_discoveries_are_distinct_and_apply_minimum_samples() -> None:
+    service = TheStatsApiBronzeService()
+    players = [
+        {"player_id": "p1", "player_name": "Eligible", "team_name": "Brazil", "minutes_played": 180, "goals": 3, "shots": 10, "xg": 2, "xg_per_shot": .2},
+        {"player_id": "p2", "player_name": "Tiny sample", "team_name": "France", "minutes_played": 10, "goals": 1, "shots": 1, "xg": .9, "xg_per_shot": .9},
+    ]
+    teams = [
+        {"team_id": "t1", "team_name": "Brazil", "played": 3, "goals_for": 6, "shots": 30, "xg": 5, "xga": 2},
+        {"team_id": "t2", "team_name": "France", "played": 1, "goals_for": 3, "shots": 5, "xg": 1, "xga": .2},
+    ]
+    details = [
+        {
+            "match": {"match_id": "m1", "home_team": "Brazil", "away_team": "France", "home_score": 2, "away_score": 1, "match_date": "2026-06-20T19:00:00Z"},
+            "summary": {"events": 42, "shots": 18},
+            "shot_map": [{"minute": 8, "is_goal": True, "is_on_target": True}, {"minute": 88, "is_goal": True, "is_on_target": True}],
+            "events": [{"type": "yellow_card"}],
+            "stats_comparison": [{"metric": "expected_goals", "Brazil": 1.8, "France": 1.2}],
+        }
+    ]
+
+    discoveries = service.home_discoveries(players, teams, details)
+
+    assert set(discoveries) == {"players", "teams", "matches", "curiosities"}
+    player_metric = next(item for item in discoveries["players"] if item["id"] == "goals_per_100")
+    assert player_metric["eligibility"] == "Mínimo de 120 minutos e 1 gol"
+    assert [row["player_name"] for row in player_metric["rows"]] == ["Eligible"]
+    assert all(item["description"] for group in discoveries.values() for item in group)
+
+
+def test_home_discoveries_keep_every_eligible_row_for_expanded_rankings() -> None:
+    players = [
+        {
+            "player_id": f"p{index}",
+            "player_name": f"Player {index}",
+            "team_name": "Brazil",
+            "minutes_played": 180,
+            "goals": index + 1,
+            "shots": 10,
+            "xg": 2,
+        }
+        for index in range(12)
+    ]
+
+    discoveries = TheStatsApiBronzeService.home_discoveries(players, [], [])
+    goals_per_100 = next(
+        metric for metric in discoveries["players"] if metric["id"] == "goals_per_100"
+    )
+
+    assert len(goals_per_100["rows"]) == 12
 
 
 def test_thestatsapi_opening_match_sample_feeds_web_contract(
@@ -1123,7 +1347,7 @@ def test_thestatsapi_opening_match_sample_feeds_web_contract(
     assert competition["best_thirds"][0]["rank"] == 1
     assert competition["best_thirds"][0]["status"] == "Classificando"
     assert [round_["name"] for round_ in competition["knockout"]["rounds"]] == [
-        "Fase de 32",
+        "16 avos",
         "Oitavas",
         "Quartas",
         "Semifinais",
