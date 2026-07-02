@@ -680,6 +680,17 @@ class DataService:
     def thestatsapi_match(self, year: int) -> dict[str, Any]:
         return self.thestatsapi.opening_match(year)
 
+    def profiles(self, year: int) -> dict[str, Any]:
+        if self._has_thestatsapi(year):
+            return self.thestatsapi.profiles(year)
+        return {
+            "year": year,
+            "available": False,
+            "players": [],
+            "teams": [],
+            "notice": "Perfis detalhados ainda não estão disponíveis para esta edição.",
+        }
+
     def match_detail(self, year: int, match_id: str) -> dict[str, Any]:
         if self._has_thestatsapi(year):
             return self.thestatsapi.match_detail(year, match_id)

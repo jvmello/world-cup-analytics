@@ -13,7 +13,7 @@ COMMON_MENUS = (
     ("competition", "Competição"),
     ("matches", "Partidas"),
     ("players", "Jogadores"),
-    ("teams", "Países"),
+    ("teams", "Seleções"),
 )
 
 
@@ -86,6 +86,7 @@ def edition_catalog(data_root: Path) -> dict[str, Any]:
             "competition": True,
             "teams": True,
             "players": True,
+            "profile": has_thestatsapi,
             "matches": True,
             "shots": (not is_fifa) or has_thestatsapi,
             "xg": (not is_fifa) or has_thestatsapi,
@@ -103,7 +104,8 @@ def edition_catalog(data_root: Path) -> dict[str, Any]:
                 {"id": "competition", "label": "Competição"},
                 {"id": "matches", "label": "Partidas"},
                 {"id": "players", "label": "Jogadores"},
-                {"id": "teams", "label": "Países"},
+                {"id": "teams", "label": "Seleções"},
+                {"id": "profile", "label": "Perfil"},
             ]
         else:
             menus = [{"id": key, "label": label} for key, label in COMMON_MENUS]

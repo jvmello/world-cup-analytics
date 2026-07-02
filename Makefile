@@ -95,6 +95,9 @@ thestatsapi-silver:
 thestatsapi-gold:
 	docker compose run --rm --no-deps app python -m thestatsapi.gold
 
+thestatsapi-position-report:
+	docker compose run --rm --no-deps app python -m thestatsapi.position_report --year 2026
+
 test:
 	docker compose run --rm --no-deps app python -m unittest discover -s tests -v
 

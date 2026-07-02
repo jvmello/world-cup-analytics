@@ -232,12 +232,13 @@ def build_reference_distribution(
         if minutes is None or minutes < minimum_minutes:
             continue
         macroposition = macroposition_for(player.get("position"))
+        reference_group = str(player.get("benchmark_position") or macroposition)
         metrics = {metric for weights in _radar_config(macroposition).values() for metric in weights}
         for metric in metrics:
             value = _number(player.get(metric))
             if value is None:
                 continue
-            grouped.setdefault(macroposition, {}).setdefault(metric, []).append(value)
+            grouped.setdefault(reference_group, {}).setdefault(metric, []).append(value)
 
     distribution: dict[str, dict[str, dict[str, float | int | None]]] = {}
     for macroposition, metrics in grouped.items():
@@ -272,10 +273,11 @@ def calculate_player_radar(
     reference_distribution: dict[str, dict[str, dict[str, Any]]],
     macroposition: str,
     radar_config: dict[str, dict[str, float]] | None = None,
+    reference_key: str | None = None,
 ) -> dict[str, Any]:
     """Calculate position-aware dimensions without replacing raw match values."""
     config = radar_config or _radar_config(macroposition)
-    references = reference_distribution.get(macroposition, {})
+    references = reference_distribution.get(reference_key or macroposition, {})
     dimensions: dict[str, dict[str, Any]] = {}
     radar: list[dict[str, Any]] = []
 

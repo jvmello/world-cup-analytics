@@ -292,6 +292,16 @@ make thestatsapi-silver
 make thestatsapi-gold
 ```
 
+Generate the internal player-position inference diagnostic without changing Bronze data:
+
+```bash
+make thestatsapi-position-report
+```
+
+The report is written to `artifacts/diagnostics/player_position_inference_2026.json`.
+It separates per-match roles from the minutes-weighted tournament summary and flags
+low-confidence, multifunctional, or unmapped cases for future review.
+
 ### Process FIFA 2026 PDFs
 
 Add new reports to:

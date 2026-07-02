@@ -13,6 +13,12 @@ from .player_analytics import (
     calculate_player_radar,
     macroposition_for,
 )
+from .player_positions import (
+    assign_benchmark_cohorts,
+    infer_match_positions,
+    radar_profile_group,
+    summarize_tournament_positions,
+)
 
 
 SOURCE = "TheStatsAPI"
@@ -451,6 +457,7 @@ class TheStatsApiBronzeService:
             "team_id",
             "team_name",
             "position",
+            "resolved_position",
             "games",
             "minutes_played",
             "goals",
@@ -538,9 +545,9 @@ class TheStatsApiBronzeService:
         return json_safe(detail)
 
     def players(self, year: int) -> dict[str, Any]:
-        rows = self._aggregate_player_analytics(
-            self._aggregate_players(self._all_match_details(year))
-        )
+        details = self._all_match_details(year)
+        rows = self._aggregate_player_analytics(self._aggregate_players(details))
+        shots = [shot for detail in details for shot in detail.get("shot_map", [])]
         return json_safe(
             {
                 "year": year,
@@ -549,15 +556,20 @@ class TheStatsApiBronzeService:
                 "summary": {
                     "players": len(rows),
                     "goals": self._total(rows, "goals"),
+                    "assists": self._total(rows, "assists"),
                     "shots": self._total(rows, "shots"),
                     "xg": self._total(rows, "xg"),
+                    "xa": self._total(rows, "xa"),
                 },
                 "leaders": self.player_leaders(rows),
                 "filters": {
                     "teams": sorted({row["team_name"] for row in rows if row.get("team_name")}),
                     "positions": sorted({row["position"] for row in rows if row.get("position")}),
+                    "position_groups": sorted({row["api_position_group"] for row in rows if row.get("api_position_group")}),
+                    "inferred_positions": sorted({row["resolved_position"] for row in rows if row.get("resolved_position")}),
                 },
                 "scatter": rows,
+                "shot_breakdowns": self._player_shot_breakdowns(shots),
                 "items": rows,
                 "notice": None if rows else "Estatísticas de jogadores ainda não estão disponíveis.",
             }
@@ -606,6 +618,16 @@ class TheStatsApiBronzeService:
             match = detail["match"]
             for player in detail["players"]:
                 if player.get("player_id") == player_id:
+                    participated = (
+                        float(player.get("minutes_played") or 0) > 0
+                        and player.get("played") is not False
+                    )
+                    team_name = player.get("team_name")
+                    opponent = (
+                        match.get("away_team")
+                        if team_name == match.get("home_team")
+                        else match.get("home_team")
+                    )
                     logs.append(
                         {
                             **player,
@@ -614,11 +636,14 @@ class TheStatsApiBronzeService:
                             "match_date": match.get("match_date"),
                             "stage": match.get("stage"),
                             "group_name": match.get("group_name"),
+                            "opponent": opponent,
+                            "participated": participated,
                         }
                     )
             for shot in detail["shot_map"]:
                 if shot.get("player_id") == player_id:
                     shots.append(shot)
+        logs.sort(key=lambda row: (str(row.get("match_date") or "9999"), str(row.get("match_id") or "")))
         if not logs:
             return {
                 "year": year,
@@ -631,6 +656,39 @@ class TheStatsApiBronzeService:
             self._aggregate_players(scoped_details)
         )
         summary = next(row for row in scoped_players if row.get("player_id") == player_id)
+        macroposition = summary.get("radar_profile_group") or macroposition_for(summary.get("position"))
+        benchmark_position = summary.get("benchmark_position") or macroposition
+        peers = [row for row in scoped_players if row.get("benchmark_position") == benchmark_position and float(row.get("minutes_played") or 0) >= 30]
+        benchmark_label = summary.get("benchmark_label") or self._position_benchmark_label(macroposition)
+        benchmarks = self._metric_benchmarks(
+            peers,
+            summary,
+            {
+                "minutes_played": "higher", "games": "higher", "goals": "higher", "assists": "higher", "xg": "higher", "xa": "higher",
+                "shots": "higher", "shots_on_target": "higher", "xg_per_shot": "higher",
+                "shot_conversion": "higher", "goals_per_90": "higher", "assists_per_90": "higher",
+                "xg_per_90": "higher", "xa_per_90": "higher", "shots_per_90": "higher",
+                "key_passes": "higher", "key_passes_per_90": "higher", "accurate_passes": "higher",
+                "pass_accuracy": "higher", "long_pass_accuracy": "higher", "defensive_actions": "higher",
+                "defensive_actions_per_90": "higher", "duels_won": "higher", "tackles": "higher",
+                "interceptions": "higher", "clearances": "higher", "saves": "higher",
+                "saves_per_90": "higher", "goal_involvements": "higher",
+                "goal_involvements_per_90": "higher", "rating": "higher",
+            },
+            benchmark_label,
+        )
+        reference = build_reference_distribution(scoped_players)
+        reference_metrics = reference.get(benchmark_position, {})
+        mean_player = {metric: values.get("mean") for metric, values in reference_metrics.items()}
+        mean_player["minutes_played"] = 90
+        benchmark_radar = calculate_player_radar(
+            mean_player,
+            reference,
+            macroposition,
+            reference_key=str(benchmark_position),
+        ).get("radar", [])
+        scoped_shots = [shot for detail in scoped_details for shot in detail.get("shot_map", [])]
+        peer_ids = {row.get("player_id") for row in peers if row.get("player_id")}
         return json_safe(
             {
                 "year": year,
@@ -642,15 +700,39 @@ class TheStatsApiBronzeService:
                 "shots": shots,
                 "shot_map": shots,
                 "radar": summary.get("radar", []),
+                "benchmark_radar": benchmark_radar,
                 "radar_dimensions": summary.get("radar_dimensions", {}),
+                "benchmarks": benchmarks,
+                "shot_benchmark": self._shot_profile_benchmark(scoped_shots, peer_ids, player_id),
                 "context": {"scope": scope, "match_id": match_id},
                 "available_matches": available_matches,
+            }
+        )
+
+    def profiles(self, year: int) -> dict[str, Any]:
+        details = self._all_match_details(year)
+        players = self._aggregate_player_analytics(self._aggregate_players(details))
+        teams = self.team_rows(year, self.standings_by_group(year), details)
+        return json_safe(
+            {
+                "year": year,
+                "available": bool(players or teams),
+                "players": players,
+                "teams": teams,
+                "filters": {
+                    "player_teams": sorted({row["team_name"] for row in players if row.get("team_name")}),
+                    "positions": sorted({row["position"] for row in players if row.get("position")}),
+                    "position_groups": sorted({row["api_position_group"] for row in players if row.get("api_position_group")}),
+                    "inferred_positions": sorted({row["resolved_position"] for row in players if row.get("resolved_position")}),
+                    "groups": sorted({row["group_name"] for row in teams if row.get("group_name")}),
+                },
             }
         )
 
     def teams(self, year: int) -> dict[str, Any]:
         details = self._all_match_details(year)
         rows = self.team_rows(year, self.standings_by_group(year), details)
+        shots = [shot for detail in details for shot in detail.get("shot_map", [])]
         return json_safe(
             {
                 "year": year,
@@ -660,8 +742,11 @@ class TheStatsApiBronzeService:
                     "teams": len(rows),
                     "goals": self._total(rows, "goals_for"),
                     "xg": self._total(rows, "xg"),
+                    "shots": self._total(rows, "shots"),
+                    "goals_per_match": self._team_goals_per_match(rows),
                 },
                 "rankings": self.team_leaders(rows),
+                "shot_breakdowns": self._player_shot_breakdowns(shots),
                 "items": rows,
                 "notice": None if rows else "Seleções ainda não estão disponíveis.",
             }
@@ -683,6 +768,28 @@ class TheStatsApiBronzeService:
                 matches.append(self._team_match_row(team["team_name"], detail))
             players.extend([row for row in detail["players"] if row.get("team_id") == team_id])
             shots.extend([shot for shot in detail["shot_map"] if shot.get("team_id") == team_id])
+        matches.sort(
+            key=lambda row: (str(row.get("match_date") or "9999"), str(row.get("match_id") or ""))
+        )
+        benchmarks = self._metric_benchmarks(
+            teams,
+            team,
+            {
+                "played": "higher", "wins": "higher",
+                "goals_for": "higher", "goals_against": "lower", "goal_difference": "higher",
+                "xg": "higher", "xga": "lower", "xg_difference": "higher",
+                "shots": "higher", "shots_against": "lower", "shots_on_target": "higher",
+                "goals_per_game": "higher", "goals_against_per_game": "lower",
+                "xg_per_game": "higher", "xga_per_game": "lower", "shots_per_game": "higher",
+                "shots_against_per_game": "lower", "conversion": "higher", "pass_accuracy": "higher",
+                "average_possession": "higher", "recoveries_per_game": "higher", "tackles_per_game": "higher",
+                "goals_minus_xg": "higher",
+            },
+            "Média da Copa",
+        )
+        radar = self._team_profile_radar(benchmarks)
+        all_shots = [shot for detail in details for shot in detail.get("shot_map", [])]
+        team_ids = {row.get("team_id") for row in teams if row.get("team_id")}
         return json_safe(
             {
                 "year": year,
@@ -694,6 +801,10 @@ class TheStatsApiBronzeService:
                 "players": sorted(players, key=lambda row: (row.get("minutes_played") or 0, row.get("rating") or 0), reverse=True),
                 "shots": shots,
                 "shot_map": shots,
+                "benchmarks": benchmarks,
+                "radar": radar,
+                "benchmark_radar": [{"axis": axis["axis"], "value": 50} for axis in radar],
+                "shot_benchmark": self._shot_profile_benchmark(all_shots, team_ids, team_id, entity_key="team_id"),
             }
         )
 
@@ -901,6 +1012,15 @@ class TheStatsApiBronzeService:
     ) -> list[dict[str, Any]]:
         rows = [row.copy() for group in standings.values() for row in group]
         by_name = {row["team_name"]: row for row in rows}
+        cumulative_metrics = {
+            "shots_on_target": "shots_on_target",
+            "passes": "passes",
+            "accurate_passes": "accurate_passes",
+            "ball_recoveries": "recoveries",
+            "tackles": "tackles",
+            "interceptions": "interceptions",
+            "clearances": "clearances",
+        }
         for detail in details:
             for team in detail["team_summary"]:
                 row = by_name.get(team.get("team_name"))
@@ -909,7 +1029,9 @@ class TheStatsApiBronzeService:
                 row["shots"] = (row.get("shots") or 0) + int(team.get("shots") or 0)
                 row["goals"] = (row.get("goals") or 0) + int(team.get("goals") or 0)
             match = detail["match"]
-            xg_rows = {item.get("metric"): item for item in detail["stats_comparison"]}
+            xg_rows: dict[str, dict[str, Any]] = {}
+            for item in detail["stats_comparison"]:
+                xg_rows.setdefault(str(item.get("metric")), item)
             xg = xg_rows.get("expected_goals")
             if xg:
                 home = match.get("home_team")
@@ -920,10 +1042,49 @@ class TheStatsApiBronzeService:
                 if away in by_name:
                     by_name[away]["xg"] = round(float(by_name[away].get("xg") or 0) + float(xg.get(away) or 0), 2)
                     by_name[away]["xga"] = round(float(by_name[away].get("xga") or 0) + float(xg.get(home) or 0), 2)
+            home = match.get("home_team")
+            away = match.get("away_team")
+            for team, opponent in ((home, away), (away, home)):
+                row = by_name.get(team)
+                if not row:
+                    continue
+                for metric, field in cumulative_metrics.items():
+                    value = number((xg_rows.get(metric) or {}).get(team))
+                    if value is not None:
+                        row[field] = round(float(row.get(field) or 0) + float(value), 3)
+                possession = number((xg_rows.get("ball_possession") or {}).get(team))
+                if possession is not None:
+                    row["possession_total"] = float(row.get("possession_total") or 0) + float(possession)
+                    row["possession_games"] = int(row.get("possession_games") or 0) + 1
+                opponent_shots = number((xg_rows.get("total_shots") or {}).get(opponent))
+                if opponent_shots is not None:
+                    row["shots_against"] = int(row.get("shots_against") or 0) + int(opponent_shots)
+                opponent_on_target = number((xg_rows.get("shots_on_target") or {}).get(opponent))
+                if opponent_on_target is not None:
+                    row["shots_on_target_against"] = int(row.get("shots_on_target_against") or 0) + int(opponent_on_target)
         for row in rows:
             row["xg"] = round(float(row.get("xg") or 0), 2)
             row["xga"] = round(float(row.get("xga") or 0), 2)
             row["xg_difference"] = round(row["xg"] - row["xga"], 2)
+            played = int(row.get("played") or 0)
+            shots = int(row.get("shots") or 0)
+            passes = float(row.get("passes") or 0)
+            row["goal_difference"] = int(row.get("goals_for") or 0) - int(row.get("goals_against") or 0)
+            row["shot_difference"] = shots - int(row.get("shots_against") or 0)
+            row["goals_minus_xg"] = round(float(row.get("goals_for") or 0) - row["xg"], 2)
+            row["goals_per_game"] = round(float(row.get("goals_for") or 0) / played, 2) if played else None
+            row["goals_against_per_game"] = round(float(row.get("goals_against") or 0) / played, 2) if played else None
+            row["xg_per_game"] = round(row["xg"] / played, 2) if played else None
+            row["xga_per_game"] = round(row["xga"] / played, 2) if played else None
+            row["shots_per_game"] = round(shots / played, 2) if played else None
+            row["shots_against_per_game"] = round(float(row.get("shots_against") or 0) / played, 2) if played else None
+            row["conversion"] = round(float(row.get("goals_for") or 0) / shots * 100, 1) if shots else None
+            row["pass_accuracy"] = round(float(row.get("accurate_passes") or 0) / passes * 100, 1) if passes else None
+            row["average_possession"] = round(float(row.get("possession_total") or 0) / int(row.get("possession_games") or 1), 1) if row.get("possession_games") else None
+            row["recoveries_per_game"] = round(float(row.get("recoveries") or 0) / played, 2) if played else None
+            row["tackles_per_game"] = round(float(row.get("tackles") or 0) / played, 2) if played else None
+            row.pop("possession_total", None)
+            row.pop("possession_games", None)
         return sorted(rows, key=lambda item: (item.get("points") or 0, item.get("xg") or 0), reverse=True)
 
     def _all_match_details(self, year: int) -> list[dict[str, Any]]:
@@ -981,6 +1142,20 @@ class TheStatsApiBronzeService:
         shot_map = self._shot_map(match, shots_raw)
         event_rows = self._events(match, events_payload)
         player_rows = self._players(players_raw, lineups)
+        raw_events = events_payload.get("events", []) if isinstance(events_payload, dict) else []
+        inferred_positions = {
+            row["player_id"]: row
+            for row in infer_match_positions(match_id, lineups, player_rows, raw_events)
+            if row.get("player_id")
+        }
+        for player in player_rows:
+            inference = inferred_positions.get(player.get("player_id"), {})
+            player.update(inference)
+            player["resolved_position"] = (
+                inference.get("inferred_role")
+                if inference.get("role_confidence") in {"high", "medium"}
+                else inference.get("api_position_group") or player.get("position")
+            )
         stats_comparison = self._stats_comparison(match, stats)
         reference = reference_distribution or build_reference_distribution(
             self._reference_player_rows(year)
@@ -1288,7 +1463,7 @@ class TheStatsApiBronzeService:
             return []
         enriched = []
         for row in players:
-            macroposition = macroposition_for(row.get("position"))
+            macroposition = radar_profile_group(row)
             analytics = calculate_player_radar(
                 row,
                 reference_distribution,
@@ -1718,6 +1893,7 @@ class TheStatsApiBronzeService:
         return {
             "groups": sorted({str(item.get("group_name")) for item in items if item.get("group_name")}),
             "stages": sorted({str(item.get("stage")) for item in items if item.get("stage")}),
+            "dates": sorted({str(item.get("match_date"))[:10] for item in items if item.get("match_date")}),
             "teams": sorted({team for item in items for team in (item.get("home_team"), item.get("away_team")) if team}),
             "statuses": sorted({str(item.get("status")) for item in items if item.get("status")}),
         }
@@ -1737,7 +1913,13 @@ class TheStatsApiBronzeService:
 
     @staticmethod
     def _merge_player_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
-        first = rows[0].copy()
+        active_rows = [
+            row for row in rows
+            if float(row.get("minutes_played") or 0) > 0
+            and row.get("played") is not False
+        ]
+        aggregate_rows = active_rows or rows
+        first = aggregate_rows[0].copy()
         sum_metrics = (
             "minutes_played", "goals", "assists", "shots", "shots_on_target",
             "shots_off_target", "blocked_shots", "xg", "np_xg", "xa",
@@ -1749,10 +1931,15 @@ class TheStatsApiBronzeService:
             "fouls_suffered", "offsides", "yellow_cards", "red_cards", "saves",
         )
         for metric in sum_metrics:
-            values = [float(row[metric]) for row in rows if row.get(metric) is not None]
+            values = [float(row[metric]) for row in active_rows if row.get(metric) is not None]
             first[metric] = round(sum(values), 3) if values else None
-        first["games"] = len(rows)
-        ratings = [float(row["rating"]) for row in rows if row.get("rating") is not None]
+        first["games"] = len(active_rows)
+        first["played"] = bool(active_rows)
+        ratings = [
+            float(row["rating"])
+            for row in active_rows
+            if row.get("rating") is not None and float(row.get("rating") or 0) > 0
+        ]
         first["rating"] = round(sum(ratings) / len(ratings), 2) if ratings else None
         first["pass_accuracy"] = (
             round(float(first["accurate_passes"]) / float(first["passes"]) * 100, 1)
@@ -1774,6 +1961,22 @@ class TheStatsApiBronzeService:
             round(float(first["goals"]) - float(first["xg"]), 2)
             if first.get("goals") is not None and first.get("xg") is not None else None
         )
+        minutes = float(first.get("minutes_played") or 0)
+
+        def per_90(metric: str) -> float | None:
+            value = first.get(metric)
+            return round(float(value) / minutes * 90, 3) if value is not None and minutes > 0 else None
+
+        first["goal_involvements"] = int(first.get("goals") or 0) + int(first.get("assists") or 0)
+        first["defensive_actions"] = sum(float(first.get(metric) or 0) for metric in ("tackles", "interceptions", "clearances"))
+        if float(first["defensive_actions"]).is_integer():
+            first["defensive_actions"] = int(first["defensive_actions"])
+        first["shot_conversion"] = round(float(first.get("goals") or 0) / float(first["shots"]) * 100, 1) if first.get("shots") else None
+        for metric in ("goals", "assists", "xg", "xa", "shots", "key_passes", "duels_won", "saves"):
+            first[f"{metric}_per_90"] = per_90(metric)
+        first["goal_involvements_per_90"] = round(float(first["goal_involvements"]) / minutes * 90, 3) if minutes > 0 else None
+        first["defensive_actions_per_90"] = round(float(first["defensive_actions"]) / minutes * 90, 3) if minutes > 0 else None
+        first.update(summarize_tournament_positions(active_rows))
         return first
 
     def _aggregate_players(self, details: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1786,11 +1989,17 @@ class TheStatsApiBronzeService:
 
     @staticmethod
     def _aggregate_player_analytics(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        reference = build_reference_distribution(rows)
+        cohort_rows = assign_benchmark_cohorts(rows)
+        reference = build_reference_distribution(cohort_rows)
         enriched = []
-        for row in rows:
-            macroposition = macroposition_for(row.get("position"))
-            analytics = calculate_player_radar(row, reference, macroposition)
+        for row in cohort_rows:
+            macroposition = row.get("radar_profile_group") or radar_profile_group(row)
+            analytics = calculate_player_radar(
+                row,
+                reference,
+                macroposition,
+                reference_key=row.get("benchmark_position"),
+            )
             enriched.append(
                 {
                     **row,
@@ -1807,7 +2016,154 @@ class TheStatsApiBronzeService:
     def _team_match_row(team_name: str, detail: dict[str, Any]) -> dict[str, Any]:
         match = detail["match"]
         opponent = match.get("away_team") if match.get("home_team") == team_name else match.get("home_team")
-        return {**match, "opponent": opponent}
+        metrics: dict[str, dict[str, Any]] = {}
+        for row in detail.get("stats_comparison", []):
+            metrics.setdefault(str(row.get("metric")), row)
+        is_home = match.get("home_team") == team_name
+        return {
+            **match,
+            "opponent": opponent,
+            "goals_for": match.get("home_score") if is_home else match.get("away_score"),
+            "goals_against": match.get("away_score") if is_home else match.get("home_score"),
+            "xg_for": (metrics.get("expected_goals") or {}).get(team_name),
+            "xg_against": (metrics.get("expected_goals") or {}).get(opponent),
+            "shots_for": (metrics.get("total_shots") or {}).get(team_name),
+            "shots_against": (metrics.get("total_shots") or {}).get(opponent),
+        }
+
+    @staticmethod
+    def _quantile(values: list[float], quantile: float) -> float | None:
+        if not values:
+            return None
+        ordered = sorted(values)
+        position = (len(ordered) - 1) * quantile
+        lower = int(position)
+        upper = min(lower + 1, len(ordered) - 1)
+        fraction = position - lower
+        return ordered[lower] + (ordered[upper] - ordered[lower]) * fraction
+
+    @classmethod
+    def _metric_benchmarks(
+        cls,
+        rows: list[dict[str, Any]],
+        selected: dict[str, Any],
+        metric_directions: dict[str, str],
+        label: str,
+    ) -> dict[str, Any]:
+        metrics: dict[str, dict[str, Any]] = {}
+        for metric, direction in metric_directions.items():
+            values = [float(value) for row in rows if (value := number(row.get(metric))) is not None]
+            selected_value = number(selected.get(metric))
+            if not values or selected_value is None:
+                continue
+            average = sum(values) / len(values)
+            better_or_equal = (
+                sum(value >= float(selected_value) for value in values)
+                if direction == "lower"
+                else sum(value <= float(selected_value) for value in values)
+            )
+            metrics[metric] = {
+                "selected_value": round(float(selected_value), 3),
+                "average_value": round(average, 3),
+                "median_value": round(float(cls._quantile(values, .5) or 0), 3),
+                "percentile_25": round(float(cls._quantile(values, .25) or 0), 3),
+                "percentile_75": round(float(cls._quantile(values, .75) or 0), 3),
+                "percentile_90": round(float(cls._quantile(values, .9) or 0), 3),
+                "delta": round(float(selected_value) - average, 3),
+                "percentile": round(better_or_equal / len(values) * 100),
+                "sample_size": len(values),
+                "direction": direction,
+            }
+        return {"label": label, "sample_size": len(rows), "metrics": metrics}
+
+    @staticmethod
+    def _position_benchmark_label(macroposition: str) -> str:
+        labels = {
+            "Goleiro": "Média dos goleiros",
+            "Lateral": "Média dos laterais",
+            "Zagueiro": "Média dos zagueiros",
+            "Meia ofensivo/Ponta": "Média dos meias ofensivos e pontas",
+            "Volante/Meio-campista": "Média dos volantes e meio-campistas",
+            "Centroavante": "Média dos centroavantes",
+        }
+        return labels.get(macroposition, f"Média da função {macroposition}")
+
+    @staticmethod
+    def _team_profile_radar(benchmarks: dict[str, Any]) -> list[dict[str, Any]]:
+        metrics = benchmarks.get("metrics", {})
+        axes = {
+            "Ataque": (("xg_per_game", "xG por jogo"), ("goals_per_game", "gols por jogo")),
+            "Finalização": (("shots_per_game", "finalizações por jogo"), ("conversion", "conversão")),
+            "Passe": (("pass_accuracy", "precisão de passe"),),
+            "Defesa": (("xga_per_game", "xG cedido por jogo"), ("shots_against_per_game", "finalizações sofridas por jogo")),
+            "Controle": (("average_possession", "posse média"), ("recoveries_per_game", "recuperações por jogo")),
+            "Eficiência": (("goals_minus_xg", "gols acima do xG"), ("xg_difference", "saldo de xG")),
+        }
+        radar = []
+        for axis, definitions in axes.items():
+            available = [(key, label) for key, label in definitions if key in metrics]
+            values = [float(metrics[key]["percentile"]) for key, _ in available]
+            if values:
+                radar.append(
+                    {
+                        "axis": axis,
+                        "value": round(sum(values) / len(values), 1),
+                        "available_metrics": [label for _, label in available],
+                    }
+                )
+        return radar
+
+    @staticmethod
+    def _shot_profile_benchmark(
+        shots: list[dict[str, Any]],
+        peer_ids: set[Any],
+        selected_id: Any,
+        *,
+        entity_key: str = "player_id",
+    ) -> dict[str, Any]:
+        peers = {peer_id: [] for peer_id in peer_ids}
+        for shot in shots:
+            entity_id = shot.get(entity_key)
+            if entity_id in peers:
+                peers[entity_id].append(shot)
+        peer_rows = list(peers.values())
+        totals = {
+            "shots": round(sum(len(rows) for rows in peer_rows) / len(peer_rows), 2) if peer_rows else None,
+            "xg": round(sum(sum(float(shot.get("xg") or 0) for shot in rows) for rows in peer_rows) / len(peer_rows), 2) if peer_rows else None,
+        }
+        reference_shots = [shot for entity_id, rows in peers.items() if entity_id != selected_id for shot in rows]
+        reference_peer_rows = [rows for entity_id, rows in peers.items() if entity_id != selected_id]
+        distributions: dict[str, list[dict[str, Any]]] = {}
+        for column in ("body_part", "shot_type"):
+            counts = Counter(str(shot.get(column) or "Não informado") for shot in reference_shots)
+            total = sum(counts.values())
+            distributions[column] = [
+                {"label": label, "percentage": round(count / total * 100, 1)}
+                for label, count in counts.most_common()
+            ] if total else []
+        ranges = (
+            (0, 15, "0–15"), (16, 30, "16–30"), (31, 45, "31–45+"),
+            (46, 60, "46–60"), (61, 75, "61–75"), (76, 90, "76–90"),
+            (91, float("inf"), "90+"),
+        )
+        minute_bins = []
+        for start, end, label in ranges:
+            counts = [
+                sum(start <= float(shot.get("minute") or 0) <= end for shot in rows)
+                for rows in reference_peer_rows
+            ]
+            minute_bins.append(
+                {
+                    "label": label,
+                    "average_shots": round(sum(counts) / len(counts), 2) if counts else None,
+                }
+            )
+        return {
+            "totals": totals,
+            "distributions": distributions,
+            "minute_bins": minute_bins,
+            "sample_size": len(peer_rows),
+        }
 
     @staticmethod
     def _team_summary(shots: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1861,6 +2217,22 @@ class TheStatsApiBronzeService:
         }
 
     @staticmethod
+    def _player_shot_breakdowns(shots: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+        result: dict[str, list[dict[str, Any]]] = {}
+        for column in ("body_part", "shot_type"):
+            totals = Counter(str(shot.get(column) or "Não informado") for shot in shots)
+            goals = Counter(
+                str(shot.get(column) or "Não informado")
+                for shot in shots
+                if shot.get("is_goal")
+            )
+            result[column] = [
+                {"label": label, "shots": total, "goals": goals.get(label, 0)}
+                for label, total in totals.most_common()
+            ]
+        return result
+
+    @staticmethod
     def _event_breakdown(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [{"label": label, "value": value} for label, value in Counter(str(event.get("type") or "unknown") for event in events).most_common()]
 
@@ -1893,6 +2265,12 @@ class TheStatsApiBronzeService:
     def _total(rows: list[dict[str, Any]], metric: str) -> float | int:
         total = round(sum(float(row.get(metric) or 0) for row in rows), 2)
         return int(total) if float(total).is_integer() else total
+
+    @staticmethod
+    def _team_goals_per_match(rows: list[dict[str, Any]]) -> float | None:
+        matches = sum(float(row.get("played") or 0) for row in rows) / 2
+        goals = sum(float(row.get("goals_for") or 0) for row in rows)
+        return round(goals / matches, 2) if matches else None
 
     @staticmethod
     def _endpoint_status(root: Path) -> list[dict[str, Any]]:

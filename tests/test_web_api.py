@@ -614,23 +614,29 @@ def test_match_center_frontend_has_internal_nav_and_clear_filters() -> None:
     assert "Math.max(0, number(item.cumulative_xg) || 0)" in app_js
 
 
-def test_2026_theme_uses_selective_neon_broadcast_tokens() -> None:
+def test_2026_theme_uses_black_editorial_world_cup_tokens() -> None:
     root = Path(__file__).parents[1] / "webapp/static"
     styles = (root / "styles.css").read_text(encoding="utf-8")
     index = (root / "index.html").read_text(encoding="utf-8")
 
     for token in (
-        "--wc26-bg: #070b1a",
-        "--wc26-surface: #0d1328",
-        "--wc26-border: #243a66",
-        "--wc26-neon-cyan: #39dfff",
-        "--wc26-neon-mint: #52ffd2",
-        "--wc26-electric-blue: #2f6bff",
-        "--wc26-glow-cyan:",
-        "--wc26-glow-green:",
+        "--wc26-bg: #000000",
+        "--wc26-bg-soft: #050505",
+        "--wc26-surface: #0b0b0b",
+        "--wc26-surface-alt: #121212",
+        "--wc26-border: #2a2a2a",
+        "--wc26-green: #8fbd46",
+        "--wc26-teal: #4fbfa6",
+        "--wc26-blue: #5578bd",
+        '--wc26-display-font: "Nimbus Sans"',
+        "--wc26-display-stroke: 0.5px",
+        "--wc26-glow-cyan: none",
+        "--wc26-glow-green: none",
     ):
         assert token in styles
-    assert 'content="#070b1a"' in index
+    assert 'content="#000000"' in index
+    assert '<strong>Analytics</strong>' in index
+    assert '<small>World Cup 2026</small>' in index
     assert 'body[data-skin="2026"] .match-score-card' in styles
     assert 'body[data-skin="2026"] .impact-card' in styles
     assert 'body[data-skin="2026"] .player-metrics-table tbody tr.is-selected' in styles
@@ -638,7 +644,7 @@ def test_2026_theme_uses_selective_neon_broadcast_tokens() -> None:
     assert "@media (prefers-reduced-motion: reduce)" in styles
 
 
-def test_2026_skin_uses_neon_as_a_controlled_visual_accent() -> None:
+def test_2026_skin_uses_color_as_a_controlled_editorial_accent() -> None:
     styles = (
         Path(__file__).parents[1] / "webapp/static/styles.css"
     ).read_text(encoding="utf-8")
@@ -648,13 +654,13 @@ def test_2026_skin_uses_neon_as_a_controlled_visual_accent() -> None:
     ]
 
     for token in (
-        "--wc26-bg: #070b1a;",
-        "--wc26-surface: #0d1328;",
-        "--wc26-neon-cyan: #39dfff;",
-        "--wc26-neon-mint: #52ffd2;",
-        "--wc26-neon-yellow: #f8ff3d;",
-        "--wc26-neon-magenta: #ff4fd8;",
-        "--wc26-glow-cyan:",
+        "--wc26-bg: #000000;",
+        "--wc26-surface: #0b0b0b;",
+        "--wc26-red: #c94f4a;",
+        "--wc26-yellow: #d4b84c;",
+        "--wc26-green: #8fbd46;",
+        "--wc26-teal: #4fbfa6;",
+        "--wc26-glow-cyan: none;",
         "--wc26-gradient-score:",
     ):
         assert token in skin
@@ -664,6 +670,10 @@ def test_2026_skin_uses_neon_as_a_controlled_visual_accent() -> None:
     assert 'body[data-skin="2026"] .impact-inline-score' in skin
     assert 'body[data-skin="2026"] .xg-point.is-goal' in skin
     assert 'body[data-skin="2026"] .event-var .event-icon' in skin
+    assert "font-family: var(--wc26-display-font);" in skin
+    assert "font-stretch: normal;" in skin
+    assert "-webkit-text-stroke: var(--wc26-display-stroke) currentColor;" in skin
+    assert "Impact," not in skin
     assert "border: 4px solid var(--cup-blue);" not in skin
 
 
@@ -730,7 +740,7 @@ def test_match_players_and_shots_are_fully_interactive() -> None:
     assert "is-player-interactive" in styles
     assert "showModal" in app_js
     assert "player-modal" in styles
-    assert "por 90" not in app_js.lower()
+    assert "por 100" not in app_js.lower()
 
     modal = app_js[
         app_js.index("function playerPerformanceStory"):
@@ -743,23 +753,73 @@ def test_match_players_and_shots_are_fully_interactive() -> None:
     assert "Confiança" not in modal
 
 
-def test_players_page_is_an_inline_analysis_experience() -> None:
+def test_analytical_pages_separate_overviews_from_individual_profiles() -> None:
     root = Path(__file__).parents[1] / "webapp/static"
     app_js = (root / "app.js").read_text(encoding="utf-8")
     styles = (root / "styles.css").read_text(encoding="utf-8")
-    render = app_js[
+    players_render = app_js[
         app_js.index("function renderPlayers"):
-        app_js.index("function renderMatches")
+        app_js.index("function compactAnalysisSummary")
+    ]
+    teams_render = app_js[
+        app_js.index("function renderTeams"):
+        app_js.index("function renderPlayers")
+    ]
+    teams_experience = app_js[
+        app_js.index("function teamAnalysisExperience"):
+        app_js.index("function teamComparisonScatter")
     ]
 
-    assert "playerAnalysisExperience" in render
-    assert "entityCard" not in render
-    assert "kpis(" not in render
+    assert '{ id: "teams", label: "Seleções" }' in app_js
+    assert '{ id: "profile", label: "Perfil" }' in app_js
+    assert 'profile: "Perfil"' in app_js
+    assert "playerOverviewExperience" in players_render
+    assert 'dashboardShell("Jogadores",' in players_render
+    assert "playerProfileView" not in players_render
+    assert "entityCard" not in players_render
+    assert "teamAnalysisExperience" in teams_render
+    assert 'dashboardShell("Seleções",' in teams_render
+    assert "entityCard" not in teams_render
     for function_name in (
-        "playerAnalysisExperience",
+        "playerOverviewExperience",
         "playerScatterPlot",
+        "analysisScatterPlot",
+        "playerSecondaryScatterPlot",
+        "playerPositionDistribution",
+        "playerShotBreakdown",
+        "playerEditionHighlights",
+        "playerComparisonMap",
+        "playerRankingExplorer",
         "playerOverviewTable",
+        "playerRankingPanels",
+        "teamAnalysisExperience",
+        "teamComparisonScatter",
+        "teamSecondaryScatterPlot",
+        "teamEditionHighlights",
+        "teamComparisonMap",
+        "teamComparisonInsights",
+        "teamProductionOverview",
+        "teamCollectiveProfile",
+        "teamRankingExplorer",
+        "teamOverviewTable",
+        "renderProfile",
+        "profilePlayerSelector",
+        "profileTeamSelector",
         "playerProfileView",
+        "teamProfileView",
+        "metricWithComparison",
+        "profileStandingLabel",
+        "profileQuickRead",
+        "playerRadarFeature",
+        "playerShotExperience",
+        "playerMatchLogCards",
+        "teamProfileTabs",
+        "teamProfileQuickRead",
+        "teamRadarFeature",
+        "teamShotExperience",
+        "teamMatchLogTable",
+        "distributionWithBenchmark",
+        "teamMatchProductionChart",
         "playerShotMapPanel",
         "playerShotMinuteChart",
         "playerShotDistributions",
@@ -772,14 +832,156 @@ def test_players_page_is_an_inline_analysis_experience() -> None:
     ):
         assert f'"{label_text}"' in app_js
     assert "scatter-reference-line" in app_js
-    assert "selectedId" in app_js
-    assert "onSelect" in app_js
+    for label_text in (
+        "xG × xA", "Finalizações × xG", "Produção por posição",
+        "Gols × xG", "Finalizações feitas × sofridas",
+        "Gols por 90", "xG por 90", "Ações defensivas por 90",
+    ):
+        assert label_text in app_js
+    assert "analysisRankingExplorer" in app_js
+    assert "analysis-table-disclosure" in app_js
+    assert "radar-benchmark-area" in app_js
+    assert "Média da posição" in app_js
+    assert "Média da Copa" in app_js
+    team_profile = app_js[
+        app_js.index("function teamProfileView"):
+        app_js.index("function renderPlayerDetail")
+    ]
+    assert "Principais jogadores" not in team_profile
+    assert "playerOverviewTable" not in team_profile
+    assert 'activeTab === "match_log"' in team_profile
+    assert 'activeTab === "shots"' in team_profile
+    assert "Percentil 100" not in team_profile
+    assert 'standingUniverse: "das seleções"' in app_js
+    assert "team-profile-tabs" in styles
+    assert "team-match-card" in styles
+    assert 'goToProfile("player"' in app_js
+    assert 'goToProfile("team"' in app_js
+    assert "isGoalkeeper" in app_js
+    assert "radar.length < 4 || benchmarkRadar.length < 4" in app_js
+    assert "value !== 0" in app_js
+    profile_tabs = app_js[
+        app_js.index("function profilePlayerTabs"):
+        app_js.index("function profilePlayerSelector")
+    ]
+    assert '"Jogo a jogo"' in profile_tabs
+    assert '"radar"' not in profile_tabs
+    assert '"distribution"' not in profile_tabs
+    player_profile = app_js[
+        app_js.index("function playerProfileView"):
+        app_js.index("function playerMatchLogTable")
+    ]
+    assert "Percentil 100" not in player_profile
+    assert 'activeTab === "match_log"' in player_profile
+    assert "playerRadarFeature" in player_profile
+    assert "playerShotExperience" in player_profile
+    assert "profile-radar-feature" in styles
+    assert "player-match-card.is-dnp" in styles
+    assert 'section("Destaques da edição"' in app_js
+    assert 'section("Mapa de comparação"' in app_js
+    assert 'section("Produção por posição"' in app_js
+    assert 'section("Perfil das finalizações"' in app_js
+    assert 'regular: "Bola rolando"' in app_js
+    assert '"set-piece": "Bola parada"' in app_js
+    assert '"fast-break": "Contra-ataque"' in app_js
+    assert '"throw-in-set-piece": "Lateral ensaiado"' in app_js
+    assert "creationHost" not in players_render
+    assert "volumeHost" not in players_render
+    assert 'minMinutes: 90, minShots: 3, minGames: 1' in app_js
+    assert 'body[data-page="players"][data-skin="2026"] .page-head' in styles
+    assert ".player-editorial-highlights" in styles
+    assert ".player-comparison-switch" in styles
+    assert 'section("Destaques da edição"' in teams_experience
+    assert 'section("Mapa de comparação"' in teams_experience
+    assert 'section("Produção ofensiva e defensiva"' in teams_experience
+    assert 'section("Perfil coletivo"' in teams_experience
+    assert "efficiencyHost" not in teams_experience
+    assert "volumeHost" not in teams_experience
+    assert "possessionHost" not in teams_experience
+    assert 'body[data-page="teams"][data-skin="2026"] .page-head' in styles
+    assert ".team-editorial-highlights" in styles
+    assert ".team-comparison-map" in styles
+    assert ".team-collective-profile" in styles
+    assert "meta instanceof Node" in app_js
+    assert 'body[data-skin="2026"] .home-ranking-entity,' in styles
     for selector in (
         ".players-control-panel", ".players-analysis-layout",
-        ".players-overview-table", ".player-profile-summary",
-        ".player-profile-tabs",
+        ".players-overview-table", ".teams-analysis-layout",
+        ".team-comparison-scatter", ".profile-mode-tabs",
+        ".profile-selector-panel", ".player-profile-summary",
     ):
-        assert f'body[data-page="players"][data-skin="2026"] {selector}' in styles
+        assert selector in styles
+
+
+def test_analytical_adapters_calculate_per_90_and_collective_metrics(monkeypatch) -> None:
+    player = TheStatsApiBronzeService._merge_player_rows([
+        {
+            "player_id": "p1", "player_name": "Player", "minutes_played": 90,
+            "goals": 1, "assists": 1, "shots": 3, "xg": 1.0, "xa": .4,
+            "key_passes": 2, "tackles": 1, "interceptions": 1,
+            "clearances": 1, "duels_won": 2,
+        },
+        {
+            "player_id": "p1", "player_name": "Player", "minutes_played": 90,
+            "goals": 1, "assists": 0, "shots": 2, "xg": .5, "xa": .2,
+            "key_passes": 1, "tackles": 1, "interceptions": 0,
+            "clearances": 1, "duels_won": 2,
+        },
+    ])
+
+    assert player["goal_involvements"] == 3
+    assert player["goals_per_90"] == 1
+    assert player["xg_per_90"] == .75
+    assert player["xa_per_90"] == .3
+    assert player["defensive_actions"] == 5
+    assert player["defensive_actions_per_90"] == 2.5
+
+    service = TheStatsApiBronzeService()
+    standings = {
+        "A": [
+            {"team_id": "bra", "team_name": "Brazil", "group_name": "A", "played": 1, "goals_for": 2, "goals_against": 1},
+            {"team_id": "fra", "team_name": "France", "group_name": "A", "played": 1, "goals_for": 1, "goals_against": 2},
+        ]
+    }
+    details = [{
+        "match": {"home_team": "Brazil", "away_team": "France"},
+        "players": [],
+        "shot_map": [],
+        "team_summary": [
+            {"team_name": "Brazil", "shots": 8, "goals": 2},
+            {"team_name": "France", "shots": 4, "goals": 1},
+        ],
+        "stats_comparison": [
+            {"metric": "expected_goals", "section": "overview", "Brazil": 1.8, "France": .7},
+            {"metric": "total_shots", "section": "overview", "Brazil": 8, "France": 4},
+            {"metric": "shots_on_target", "section": "overview", "Brazil": 3, "France": 2},
+            {"metric": "passes", "section": "overview", "Brazil": 100, "France": 80},
+            {"metric": "accurate_passes", "section": "overview", "Brazil": 90, "France": 60},
+            {"metric": "ball_possession", "section": "overview", "Brazil": 60, "France": 40},
+            {"metric": "ball_recoveries", "section": "defending", "Brazil": 40, "France": 35},
+            {"metric": "tackles", "section": "defending", "Brazil": 12, "France": 15},
+        ],
+    }]
+    teams = service.team_rows(2026, standings, details)
+    brazil = next(row for row in teams if row["team_name"] == "Brazil")
+
+    assert brazil["shots_against"] == 4
+    assert brazil["shots_on_target"] == 3
+    assert brazil["average_possession"] == 60
+    assert brazil["pass_accuracy"] == 90
+    assert brazil["goals_per_game"] == 2
+    assert brazil["xg_per_game"] == 1.8
+
+    monkeypatch.setattr(service, "_all_match_details", lambda year: details)
+    monkeypatch.setattr(service, "standings_by_group", lambda year: standings)
+    team_profile = service.team_detail(2026, "bra")
+    assert team_profile["benchmarks"]["metrics"]["xg"]["sample_size"] == 2
+    assert team_profile["benchmarks"]["metrics"]["xga"]["direction"] == "lower"
+    assert len(team_profile["radar"]) >= 4
+    assert all(axis["value"] == 50 for axis in team_profile["benchmark_radar"])
+    assert len(team_profile["shot_benchmark"]["minute_bins"]) == 7
+    teams_payload = service.teams(2026)
+    assert teams_payload["shot_breakdowns"] == {"body_part": [], "shot_type": []}
 
 
 def test_player_detail_aggregates_metrics_and_supports_contexts(monkeypatch) -> None:
@@ -813,6 +1015,17 @@ def test_player_detail_aggregates_metrics_and_supports_contexts(monkeypatch) -> 
             ],
             "shot_map": [{"player_id": "p1", "match_id": "knockout-1", "minute": 70, "xg": 1.1}],
         },
+        {
+            "match": {
+                "match_id": "group-dnp", "match_date": "2026-06-20T19:00:00Z",
+                "group_name": "A", "stage": "Group Stage", "home_team": "Brazil",
+                "away_team": "Norway", "home_score": 0, "away_score": 0,
+            },
+            "players": [
+                {**player, "played": False, "minutes_played": 0, "goals": 0, "shots": 0, "xg": 0, "passes": 0, "accurate_passes": 0, "rating": 0},
+            ],
+            "shot_map": [],
+        },
     ]
     monkeypatch.setattr(service, "_all_match_details", lambda year: details)
 
@@ -826,13 +1039,32 @@ def test_player_detail_aggregates_metrics_and_supports_contexts(monkeypatch) -> 
     assert full["summary"]["passes"] == 30
     assert full["summary"]["accurate_passes"] == 26
     assert full["summary"]["pass_accuracy"] == 86.7
-    assert len(full["match_log"]) == 2
+    assert full["summary"]["games"] == 2
+    assert full["summary"]["rating"] == 7.75
+    assert full["benchmarks"]["label"] == "Média dos atacantes"
+    assert full["benchmarks"]["metrics"]["xg"]["sample_size"] == 2
+    assert [axis["axis"] for axis in full["benchmark_radar"]] == [axis["axis"] for axis in full["radar"]]
+    assert len(full["match_log"]) == 3
+    assert [row["match_id"] for row in full["match_log"]] == ["group-1", "group-dnp", "knockout-1"]
+    assert full["match_log"][1]["participated"] is False
+    assert full["match_log"][1]["opponent"] == "Norway"
     assert {row["stage"] for row in full["match_log"]} == {"Group Stage", "round_of_32"}
     assert group["summary"]["minutes_played"] == 90
     assert group["context"]["scope"] == "group_stage"
     assert match["summary"]["minutes_played"] == 60
     assert match["context"]["match_id"] == "knockout-1"
     assert len(match["shot_map"]) == 1
+
+
+def test_player_surfaces_use_resolved_positions_without_internal_diagnostics() -> None:
+    app_js = (Path(__file__).parents[1] / "webapp/static/app.js").read_text(encoding="utf-8")
+
+    assert "function resolvedPlayerPosition" in app_js
+    assert "inferred_positions" in app_js
+    assert '"Grupo bruto"' in app_js
+    assert '"Posição inferida"' in app_js
+    assert "role_confidence" not in app_js
+    assert "role_source" not in app_js
 
 
 def test_2026_home_is_a_compact_editorial_match_center() -> None:
@@ -879,6 +1111,8 @@ def test_2026_home_is_a_compact_editorial_match_center() -> None:
     assert "data.pulse" in overview
     assert "data.knockout_summary" in overview
     assert "data.discoveries" in overview
+    assert "const fragment = document.createDocumentFragment();" in overview
+    assert "dashboardShell(" not in overview
     assert "score-grid" not in overview
     assert "horizontalBars" not in overview
     assert 'section("Últimos resultados"' not in overview
@@ -1333,9 +1567,15 @@ def test_thestatsapi_opening_match_sample_feeds_web_contract(
         "matches",
         "players",
         "teams",
+        "profile",
     ]
     assert "thestatsapi_match" not in [menu["id"] for menu in edition["menus"]]
     assert "availability" not in [menu["id"] for menu in edition["menus"]]
+
+    profiles = client.get("/api/editions/2026/profiles").json()
+    assert profiles["available"] is True
+    assert profiles["players"][0]["player_id"] == "pl_1"
+    assert profiles["teams"][0]["team_id"] == "tm_mx"
 
     competition = client.get("/api/editions/2026/competition").json()
     assert competition["groups"][0]["name"] == "A"
@@ -1402,6 +1642,11 @@ def test_thestatsapi_opening_match_sample_feeds_web_contract(
     assert payload["player_impacts"][0]["radar"][0]["axis"] == "Ataque"
     assert payload["players"][0]["impact_score"] > 0
     assert payload["players"][0]["macroposition"] == "Centroavante"
+    assert payload["players"][0]["api_position_group"] == "Atacante"
+    assert payload["players"][0]["inferred_role"] == "Centroavante"
+    assert payload["players"][0]["resolved_position"] == "Centroavante"
+    assert payload["players"][0]["role_source"] == "statistics_profile"
+    assert payload["players"][0]["role_confidence"] == "medium"
     assert payload["players"][0]["radar_dimensions"]["Ataque"]["score"] is not None
     assert payload["players"][0]["radar_dimensions"]["Progressão"]["score"] is None
     assert all(axis["axis"] != "Progressão" for axis in payload["players"][0]["radar"])

@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from webapp.player_analytics import (
+    build_reference_distribution,
     calculate_player_radar,
     robust_score,
     weighted_dimension_score,
@@ -91,3 +92,22 @@ def test_outfield_radar_adds_duels_and_participation_when_supported() -> None:
 
     axes = {axis["axis"] for axis in result["radar"]}
     assert axes == {"Ataque", "Criação", "Passe", "Defesa", "Duelos", "Participação"}
+
+
+def test_radar_can_use_inferred_benchmark_cohort_without_changing_role_weights() -> None:
+    players = [
+        {"position": "F", "benchmark_position": "Pontas", "minutes_played": 90, "shots": shots, "xg": xg}
+        for shots, xg in ((2, .2), (4, .8), (6, 1.4), (3, .5), (5, 1.0))
+    ]
+    reference = build_reference_distribution(players)
+
+    result = calculate_player_radar(
+        players[-1],
+        reference,
+        "Meia ofensivo/Ponta",
+        reference_key="Pontas",
+    )
+
+    assert "Pontas" in reference
+    assert result["macroposition"] == "Meia ofensivo/Ponta"
+    assert any(axis["axis"] == "Ataque" for axis in result["radar"])

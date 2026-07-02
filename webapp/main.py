@@ -73,6 +73,7 @@ def create_app(
     app.get("/api/editions/{year}/matches/{match_id}")(match_detail)
     app.get("/api/editions/{year}/teams")(edition_route(service.teams))
     app.get("/api/editions/{year}/players")(edition_route(service.players))
+    app.get("/api/editions/{year}/profiles")(edition_route(service.profiles))
     app.get("/api/editions/{year}/matches")(edition_route(service.matches))
     app.get("/api/editions/{year}/shots")(edition_route(service.shots))
     app.get("/api/editions/{year}/thestatsapi-match")(
