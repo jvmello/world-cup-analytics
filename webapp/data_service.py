@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from .catalog import DEFAULT_EDITION, edition_catalog
+from .curation_repository import CurationRepository
 from .thestatsapi_service import TheStatsApiBronzeService
 
 
@@ -58,9 +60,20 @@ def json_safe(value: Any) -> Any:
 
 
 class DataService:
-    def __init__(self, data_root: Path | str = Path("data")) -> None:
+    def __init__(
+        self,
+        data_root: Path | str = Path("data"),
+        *,
+        curation_repository: CurationRepository | None = None,
+        admin_db_path: Path | str | None = None,
+    ) -> None:
         self.data_root = Path(data_root)
-        self.thestatsapi = TheStatsApiBronzeService(data_root)
+        database_path = admin_db_path or os.getenv("ADMIN_DATABASE_PATH") or self.data_root / "admin/world_cup_admin.db"
+        self.curation = curation_repository or CurationRepository(database_path)
+        self.thestatsapi = TheStatsApiBronzeService(
+            data_root,
+            curation_repository=self.curation,
+        )
 
     def catalog(self) -> dict[str, Any]:
         return edition_catalog(self.data_root)

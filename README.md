@@ -302,6 +302,22 @@ The report is written to `artifacts/diagnostics/player_position_inference_2026.j
 It separates per-match roles from the minutes-weighted tournament summary and flags
 low-confidence, multifunctional, or unmapped cases for future review.
 
+### Internal curation area
+
+Player and team overrides are stored separately from ingestion data in
+`data/admin/world_cup_admin.db`. Enable the internal area locally with:
+
+```env
+ENABLE_ADMIN_TOOLS=true
+ADMIN_API_KEY=replace_with_a_long_random_key
+ADMIN_DATABASE_PATH=data/admin/world_cup_admin.db
+```
+
+Start the web application and open `http://127.0.0.1:8010/admin/teams`.
+The admin route is not included in public navigation. In shared environments,
+keep an `ADMIN_API_KEY` configured and restrict the route at the network layer.
+Overrides follow `manual > inferred > API` and never modify Bronze responses.
+
 ### Process FIFA 2026 PDFs
 
 Add new reports to:

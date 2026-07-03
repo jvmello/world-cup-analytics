@@ -388,7 +388,8 @@
 
   function flagNode(team, className = "flag-mini") {
     const name = typeof team === "string" ? team : rawTeamName(team);
-    const code = teamCode(name);
+    const sourceName = typeof team === "string" ? team : first(team, ["api_team_name", "team_name", "name"], name);
+    const code = teamCode(sourceName);
     const translated = displayTeamName(name);
     if (availableFlagCodes.has(code)) {
       return node("img", { class: className, src: `/static/flags/${code}.svg`, alt: `Bandeira de ${translated}`, loading: "lazy" });
@@ -396,10 +397,39 @@
     return node("span", { class: `${className} flag-fallback`, text: code.toUpperCase(), "aria-label": `Bandeira indisponível: ${translated}` });
   }
 
+  function flagAssetSource(team) {
+    const customPath = typeof team === "object" ? team?.flag_asset_path : null;
+    if (customPath) return `/static/${String(customPath).replace(/^\/?static\//, "")}`;
+    const sourceName = typeof team === "string" ? team : first(team, ["api_team_name", "team_name", "name"], rawTeamName(team));
+    const code = teamCode(sourceName);
+    return availableFlagCodes.has(code) ? `/static/flags/${code}.svg` : null;
+  }
+
+  function playerPhotoSource(player) {
+    if (player?.photo_asset_path) return `/static/${String(player.photo_asset_path).replace(/^\/?static\//, "")}`;
+    return player?.photo_url || null;
+  }
+
+  function playerPhotoNode(player) {
+    const name = personName(player);
+    const initials = name.split(/\s+/).slice(0, 2).map(part => part[0]).join("").toUpperCase() || "?";
+    const fallback = node("span", { text: initials, "aria-hidden": "true" });
+    const wrapper = node("span", { class: "player-profile-photo", "aria-label": `Foto de ${name}` }, fallback);
+    const source = player?.photo_asset_path
+      ? `/static/${String(player.photo_asset_path).replace(/^\/?static\//, "")}`
+      : player?.photo_url;
+    if (source) {
+      const image = node("img", { src: source, alt: player.photo_alt_text || `Foto de ${name}`, loading: "lazy" });
+      image.onerror = () => image.remove();
+      wrapper.append(image);
+    }
+    return wrapper;
+  }
+
   function teamLabel(team, className = "team-label") {
     const name = typeof team === "string" ? team : rawTeamName(team);
     return node("span", { class: className, title: displayTeamName(name) }, [
-      flagNode(name),
+      flagNode(team),
       node("span", { text: displayTeamName(name) }),
     ]);
   }
@@ -671,6 +701,51 @@
     element.addEventListener("focus", show);
     element.addEventListener("blur", hide);
     return element;
+  }
+
+  function scatterEntityMarker(item, { cx, cy, kind, selected = false, tooltip, onSelect = null }) {
+    const isPlayer = kind === "player";
+    const flagSource = flagAssetSource(item);
+    const photoSource = isPlayer ? playerPhotoSource(item) : null;
+    const imageSource = photoSource || flagSource;
+    const group = svgNode("g", {
+      transform: `translate(${cx} ${cy})`,
+      class: `scatter-entity-marker is-${kind}${selected ? " is-selected" : ""}`,
+      tabindex: "0", role: "button", "aria-pressed": String(selected), "aria-label": tooltip,
+    });
+    group.append(svgNode("circle", { cx: 0, cy: 0, r: 12, class: "scatter-marker-hitbox" }));
+    if (imageSource) {
+      const usesPhoto = Boolean(photoSource);
+      group.append(usesPhoto
+        ? svgNode("circle", { cx: 0, cy: 0, r: 10, class: "scatter-marker-frame is-photo" })
+        : svgNode("rect", { x: -12, y: -8.5, width: 24, height: 17, rx: 2.5, class: "scatter-marker-frame is-flag" }));
+      const image = svgNode("image", {
+        href: imageSource,
+        x: usesPhoto ? -9 : -11,
+        y: usesPhoto ? -9 : -7.5,
+        width: usesPhoto ? 18 : 22,
+        height: usesPhoto ? 18 : 15,
+        preserveAspectRatio: "xMidYMid slice",
+        class: `scatter-marker-image ${usesPhoto ? "is-photo" : "is-flag"}`,
+      });
+      if (usesPhoto && flagSource) image.addEventListener("error", () => {
+        image.setAttribute("href", flagSource);
+        image.setAttribute("x", "-11"); image.setAttribute("y", "-7.5");
+        image.setAttribute("width", "22"); image.setAttribute("height", "15");
+        image.setAttribute("class", "scatter-marker-image is-flag");
+      }, { once: true });
+      group.append(image);
+    } else {
+      const fallback = isPlayer ? personName(item) : teamName(item);
+      group.append(svgNode("text", { x: 0, y: 3, class: "scatter-marker-fallback", "text-anchor": "middle" }, fallback.slice(0, 2).toUpperCase()));
+    }
+    if (onSelect) {
+      group.addEventListener("click", () => onSelect(item));
+      group.addEventListener("keydown", event => {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(item); }
+      });
+    }
+    return attachChartTooltip(group, tooltip);
   }
 
   const SHOT_OUTCOME_LABELS = {
@@ -1045,65 +1120,111 @@
       ["Jogadores", "Finalizações", leaders.players?.shots, "shots", "player"],
       ["Seleções", "Maior xG", leaders.teams?.xg, "xg", "team"],
       ["Seleções", "Saldo de xG", leaders.teams?.xg_difference, "xg_difference", "team"],
-      ["Seleções", "Gols marcados", leaders.teams?.goals_for, "goals_for", "team"],
-      ["Partidas", "Mais finalizações", leaders.matches?.shots, "shots", "match"],
-      ["Partidas", "Maior xG total", leaders.matches?.xg_total, "xg_total", "match"],
     ].filter(([, , rows]) => rows?.length).map(([kicker, title, rows, metric, entity]) =>
       homeRankingPanel({ kicker, title, rows, metric, entity })
     );
-    if (leaderPanels.length) fragment.append(section("Líderes da Copa", "Clique para ampliar", node("div", { class: "home-ranking-grid" }, leaderPanels)));
+    if (leaderPanels.length) fragment.append(section("Líderes da Copa", "Top 5 · ranking completo no detalhe", node("div", { class: "home-ranking-grid" }, leaderPanels), "home-leaders-section"));
 
     const explorer = homeDiscoveryLab(data.discoveries || {});
-    if (explorer) fragment.append(section("Explorar estatísticas", "Leituras menos óbvias da edição", explorer));
+    if (explorer) fragment.append(section("Explorar estatísticas", "Leituras menos óbvias da edição", explorer, "home-explore-section"));
     if (!summary && !leaderPanels.length) fragment.append(emptyState());
     els.view.replaceChildren(fragment);
   }
 
   function homeSummaryStrip(summary) {
-    const groups = [
-      ["Essencial", [
-        ["Partidas", summary.matches], ["Encerrados", summary.finished],
-        ["Gols", summary.goals], ["Gols por jogo", summary.goals_per_match],
-      ]],
-      ["Análise", [
-        ["Finalizações", summary.shots], ["xG total", summary.xg],
-        ["Jogadores", summary.players], ["Seleções", summary.teams],
-      ]],
-    ].map(([labelText, metrics]) => [labelText, metrics.filter(([, value]) => value !== null && value !== undefined)]).filter(([, metrics]) => metrics.length);
-    if (!groups.length) return null;
-    return section("Resumo da edição", "Panorama rápido", node("div", { class: "home-summary-strip" }, groups.map(([labelText, metrics]) =>
-      node("div", { class: "home-summary-group" }, [
-        node("span", { class: "home-summary-group-label", text: labelText }),
-        ...metrics.map(([metric, value]) => node("div", { class: "home-summary-metric" }, [
-          node("strong", { text: formatValue(value) }),
-          node("span", { text: metric }),
-        ])),
+    const metrics = [
+      ["Partidas", summary.matches], ["Encerrados", summary.finished],
+      ["Gols", summary.goals], ["Gols por jogo", summary.goals_per_match],
+      ["Finalizações", summary.shots], ["xG total", summary.xg],
+      ["Jogadores", summary.players], ["Seleções", summary.teams],
+    ].filter(([, value]) => value !== null && value !== undefined);
+    if (!metrics.length) return null;
+    return section("Resumo da edição", "Panorama rápido", node("div", { class: "home-summary-strip" }, metrics.map(([metric, value]) =>
+      node("div", { class: "home-summary-metric" }, [
+        node("strong", { text: formatValue(value) }),
+        node("span", { text: metric }),
       ])
     )), "home-summary-section");
   }
 
   function knockoutSideNode(side, className = "") {
     if (side?.defined && side?.team_name) return teamLabel(side.team_name, `home-bracket-team ${className}`.trim());
-    return node("span", { class: `home-bracket-team is-placeholder ${className}`.trim(), text: side?.placeholder || "A definir" });
+    return node("span", { class: `home-bracket-team is-placeholder ${className}`.trim(), text: translateTeamsInText(side?.placeholder || "A definir") });
+  }
+
+  function homeFriendlyKickoff(value) {
+    const date = new Date(value || "");
+    if (Number.isNaN(date.getTime())) return "Horário a definir";
+    const timezone = "America/Sao_Paulo";
+    const dateKey = input => new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(input);
+    const now = new Date();
+    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const time = new Intl.DateTimeFormat("pt-BR", { timeZone: timezone, hour: "2-digit", minute: "2-digit" }).format(date);
+    if (dateKey(date) === dateKey(now)) return `Hoje, ${time}`;
+    if (dateKey(date) === dateKey(tomorrow)) return `Amanhã, ${time}`;
+    const shortDate = new Intl.DateTimeFormat("pt-BR", { timeZone: timezone, day: "2-digit", month: "2-digit" }).format(date);
+    return `${shortDate}, ${time}`;
+  }
+
+  function homePulseHeadline(pulse) {
+    const phase = pulse?.current_phase || "Copa em andamento";
+    const classified = pulse?.classified_recent || [];
+    if (!classified.length) return `${phase} em andamento: os próximos classificados serão definidos em campo.`;
+    if (classified.length === 1) return `${phase} em andamento: ${displayTeamName(classified[0].winner_name)} já está nas oitavas.`;
+    if (classified.length === 2) {
+      const names = classified.map(item => displayTeamName(item.winner_name));
+      return `${phase} em andamento: ${names[0]} e ${names[1]} já estão nas oitavas.`;
+    }
+    return `${phase} em andamento: ${classified.length} vagas nas oitavas já foram definidas.`;
+  }
+
+  function teamNameWithArticle(team) {
+    const feminine = new Set([
+      "Argentina", "Australia", "Austria", "Belgium", "Bosnia & Herzegovina",
+      "Colombia", "Côte d'Ivoire", "Croatia", "Denmark", "France", "Germany", "Ghana",
+      "Netherlands", "Norway", "Poland", "Saudi Arabia", "Scotland", "South Africa",
+      "South Korea", "Spain", "Sweden", "Switzerland", "Tunisia", "Türkiye", "Turkey",
+      "Ukraine",
+    ]);
+    if (team === "USA" || team === "United States") return `os ${displayTeamName(team)}`;
+    return `${feminine.has(team) ? "a" : "o"} ${displayTeamName(team)}`;
+  }
+
+  function homeQualifiedStory(item) {
+    const winner = displayTeamName(item.winner_name);
+    const eliminated = teamNameWithArticle(item.eliminated_name);
+    const score = item.score_label || "placar não informado";
+    if (item.decided_by === "penalties") {
+      const regulation = score.split(" (")[0];
+      return `${winner} avançou nos pênaltis após empate por ${regulation} contra ${eliminated}.`;
+    }
+    return `${winner} avançou após vencer ${eliminated} por ${score}.`;
   }
 
   function homeBracketMatch(match, phase = null) {
     const canOpen = Boolean(match?.match_id);
+    const hasPlaceholder = !match?.home?.defined || !match?.away?.defined;
     const hasScore = match?.home_score !== null && match?.home_score !== undefined
       && match?.away_score !== null && match?.away_score !== undefined;
     const date = match?.kickoff_at || match?.match_date;
     const center = hasScore
       ? `${formatValue(match.home_score)}–${formatValue(match.away_score)}`
-      : date ? new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(date)) : "A definir";
+      : date ? homeFriendlyKickoff(date) : "A definir";
+    const outcome = match?.decided_by === "penalties" && match?.winner_name
+      ? `${displayTeamName(match.winner_name)} nos pênaltis`
+      : null;
     return node("button", {
       type: "button",
-      class: "home-bracket-match",
+      class: `home-bracket-match${hasPlaceholder ? " has-placeholder" : ""}`,
       disabled: !canOpen,
       onclick: canOpen ? () => openMatchQuickView({ ...match, stage: phase || match.stage }) : null,
     }, [
       knockoutSideNode(match?.home, "home"),
       node("strong", { class: "home-bracket-center", text: center }),
       knockoutSideNode(match?.away, "away"),
+      outcome ? node("small", { class: "home-bracket-outcome", text: outcome }) : null,
     ]);
   }
 
@@ -1114,7 +1235,7 @@
     if (!pulse?.current_phase && !today.length && !classified.length && !next.length) return null;
     const columns = [
       node("article", { class: "home-pulse-column" }, [
-        node("header", {}, [node("small", { text: "Agora" }), node("h3", { text: "Agenda de hoje" })]),
+        node("header", {}, [node("small", { text: "Horários em Brasília" }), node("h3", { text: "Agenda de hoje" })]),
         today.length
           ? node("div", { class: "home-pulse-list" }, today.slice(0, 4).map((match, index) => compactMatchRow(match, { featured: index === 0 })))
           : node("p", { class: "home-empty-line", text: "Não há jogos programados para hoje." }),
@@ -1128,7 +1249,8 @@
             flagNode(item.winner_name),
             node("span", {}, [
               node("strong", { text: displayTeamName(item.winner_name) }),
-              node("small", { text: translateTeamsInText(item.narrative) }),
+              node("small", { text: homeQualifiedStory(item) }),
+              node("em", { text: [item.phase, item.score_label].filter(Boolean).join(" · ") }),
             ]),
           ])))
           : node("p", { class: "home-empty-line", text: "As próximas classificações aparecerão aqui." }),
@@ -1142,8 +1264,8 @@
     ];
     return node("div", { class: "home-pulse" }, [
       node("div", { class: "home-pulse-phase" }, [
-        node("small", { text: "Fase atual" }),
-        node("strong", { text: pulse.current_phase || "Em andamento" }),
+        node("span", {}, [node("small", { text: "Fase atual" }), node("strong", { text: pulse.current_phase || "Em andamento" })]),
+        node("p", { class: "home-pulse-headline", text: homePulseHeadline(pulse) }),
       ]),
       node("div", { class: "home-pulse-grid" }, columns),
     ]);
@@ -1170,8 +1292,7 @@
     const date = new Date(match?.match_date || match?.kickoff_at || "");
     const hasScore = match?.home_score !== null && match?.home_score !== undefined && match?.away_score !== null && match?.away_score !== undefined;
     if (!Number.isNaN(date.getTime()) && hasScore && Date.now() - date.getTime() > 4 * 60 * 60 * 1000) return "Encerrado";
-    if (!Number.isNaN(date.getTime()) && date.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }) === new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })) return "Hoje";
-    return "Em breve";
+    return "Programado";
   }
 
   function homeMatchIsLive(match) {
@@ -1196,7 +1317,7 @@
     if (match?.group_name) return `Grupo ${match.group_name}`;
     const stage = String(match?.stage || "").toLowerCase();
     const labels = {
-      group_stage: "Fase de grupos", round_of_32: "16 avos",
+      group_stage: "Fase de grupos", round_of_32: "Fase de 32",
       round_of_16: "Oitavas de final", quarter_final: "Quartas de final",
       semi_final: "Semifinal", semifinal: "Semifinal",
       third_place: "Disputa de 3º lugar", final: "Final",
@@ -1217,7 +1338,7 @@
     }, [
       node("span", { class: "home-match-meta" }, [
         node("b", { text: homeMatchStatus(match) }),
-        node("time", { dateTime: match?.match_date || "", text: formatMatchDate(match?.match_date) }),
+        node("time", { dateTime: match?.match_date || "", title: "Horários em Brasília", text: homeFriendlyKickoff(match?.match_date) }),
       ]),
       node("span", { class: "home-match-scoreline" }, [
         teamLabel(home, "home-match-team home"),
@@ -1280,7 +1401,7 @@
     return node("article", { class: "home-ranking-panel" }, [
       node("button", { type: "button", class: "home-ranking-open", onclick: () => openRankingQuickView({ kicker, title, rows, metric, entity }) }, [
         node("span", {}, [node("small", { text: kicker }), node("strong", { text: title })]),
-        node("span", { class: "home-ranking-expand", text: `Ver ranking (${rows.length})` }),
+        node("span", { class: "home-ranking-expand", text: "Ver ranking completo" }),
       ]),
       node("div", { class: "home-ranking-list" }, rows.slice(0, 5).map((item, index) => homeRankingRow(item, index, metric, entity))),
     ]);
@@ -1289,7 +1410,7 @@
   function openPlayerQuickView(player) {
     openQuickView({
       kicker: "Resumo do jogador",
-      titleContent: node("span", { class: "quick-entity-title" }, [flagNode(player.team_name, "flag-medium"), node("span", { text: personName(player) })]),
+      titleContent: node("span", { class: "quick-entity-title" }, [flagNode(player, "flag-medium"), node("span", { text: personName(player) })]),
       rows: [
         ["Seleção", teamName(player)], ["Posição", resolvedPlayerPosition(player)],
         ["Jogos", player.games], ["Minutos", player.minutes_played],
@@ -1357,7 +1478,10 @@
     if (value === null) return "—";
     if (metric.unit === "%") return `${formatValue(value)}%`;
     if (metric.unit === "min") return `${formatValue(value)}'`;
-    if (metric.unit === "gols") return `${formatValue(value)} gols/100 min`;
+    if (metric.id === "goals_per_90") return `${formatValue(value)} gols/90`;
+    if (metric.id === "most_on_target") return `${formatValue(value)} no alvo`;
+    if (metric.id === "most_balanced_xg") return `Diferença de xG: ${value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    if (metric.id === "goals_minus_xg") return `${value > 0 ? "+" : ""}${formatValue(value)} gols - xG`;
     if (metric.unit === "xG") return `${formatValue(value)} xG`;
     return `${formatValue(value)} ${metric.unit || ""}`.trim();
   }
@@ -1387,7 +1511,7 @@
 
   function homeDiscoveryLab(discoveries) {
     const categories = [
-      ["players", "Jogadores", "Eficiência e influência individual", "Gols por tempo em campo, qualidade das chances e conversão."],
+      ["players", "Jogadores", "Eficiência e influência individual", "Eficiência por 90, qualidade das chances e conversão."],
       ["teams", "Seleções", "Perfis coletivos da competição", "Produção ofensiva, resistência defensiva e aproveitamento."],
       ["matches", "Partidas", "Jogos fora da curva", "Equilíbrio, intensidade e volume de ações em cada confronto."],
       ["curiosities", "Curiosidades", "Recortes especiais da edição", "Momentos e marcas que ajudam a contar a história da Copa."],
@@ -1712,7 +1836,7 @@
       type: "button", onclick: () => goToProfile("player", player.player_id),
     }, [
       node("small", { text: kicker }),
-      node("strong", {}, [flagNode(player.team_name), node("span", { text: personName(player) })]),
+      node("strong", {}, [flagNode(player), node("span", { text: personName(player) })]),
       node("b", { text: value }),
       node("span", { text: detail }),
     ])));
@@ -1805,7 +1929,7 @@
     ].filter(Boolean);
     return node("div", { class: "team-editorial-highlights" }, highlights.map(({ kicker, team, value, detail }) => node("button", {
       type: "button", onclick: () => goToProfile("team", team.team_id),
-    }, [node("small", { text: kicker }), node("strong", {}, [flagNode(team.team_name), node("span", { text: teamName(team) })]), node("b", { text: value }), node("span", { text: detail })])));
+    }, [node("small", { text: kicker }), node("strong", {}, [flagNode(team), node("span", { text: teamName(team) })]), node("b", { text: value }), node("span", { text: detail })])));
   }
 
   function teamComparisonInsights(teams, mode) {
@@ -1840,7 +1964,7 @@
     const rows = (modes[mode] || []).filter(([, team]) => team);
     return node("aside", { class: "team-map-insights" }, [node("h3", { text: "Destaques do mapa" }), ...rows.map(([labelText, team, metric, unit, signed]) => {
       const value = number(team[metric]);
-      return node("button", { type: "button", onclick: () => goToProfile("team", team.team_id) }, [node("small", { text: labelText }), node("strong", {}, [flagNode(team.team_name), node("span", { text: teamName(team) })]), node("b", { text: `${signed && value > 0 ? "+" : ""}${formatValue(value)} ${unit}` })]);
+      return node("button", { type: "button", onclick: () => goToProfile("team", team.team_id) }, [node("small", { text: labelText }), node("strong", {}, [flagNode(team), node("span", { text: teamName(team) })]), node("b", { text: `${signed && value > 0 ? "+" : ""}${formatValue(value)} ${unit}` })]);
     })]);
   }
 
@@ -1978,9 +2102,8 @@
     ].filter(Boolean));
     clean.forEach(team => {
       const cx = pad + number(team.xg) / maxX * (width - pad * 2), cy = height - pad - number(team.xga) / maxY * (height - pad * 2);
-      const point = svgNode("circle", { cx, cy, r: 7, class: "team-scatter-point", tabindex: "0", role: "button" });
-      point.onclick = () => onSelect(team); point.onkeydown = event => { if (event.key === "Enter" || event.key === " ") onSelect(team); };
-      svg.append(attachChartTooltip(point, `${teamName(team)} · ${formatValue(team.played)} jogos · ${formatValue(team.goals_for)} gols marcados · ${formatValue(team.goals_against)} sofridos · ${formatValue(team.xg)} xG criado · ${formatValue(team.xga)} xG cedido · saldo ${signedStandingValue(team.xg_difference)} · ${formatValue(team.shots)} finalizações · ${formatValue(team.shots_against)} sofridas`));
+      const tooltip = `${teamName(team)} · ${formatValue(team.played)} jogos · ${formatValue(team.goals_for)} gols marcados · ${formatValue(team.goals_against)} sofridos · ${formatValue(team.xg)} xG criado · ${formatValue(team.xga)} xG cedido · saldo ${signedStandingValue(team.xg_difference)} · ${formatValue(team.shots)} finalizações · ${formatValue(team.shots_against)} sofridas`;
+      svg.append(scatterEntityMarker(team, { cx, cy, kind: "team", tooltip, onSelect }));
       if (highlighted.has(team.team_id)) svg.append(svgNode("text", { x: cx + 10, y: cy - 9, class: "team-scatter-label" }, teamName(team)));
     });
     svg.append(svgNode("text", { x: width / 2, y: height - 4, class: "chart-axis-title", "text-anchor": "middle" }, "xG criado"), svgNode("text", { x: 14, y: height / 2, class: "chart-axis-title", transform: `rotate(-90 14 ${height / 2})`, "text-anchor": "middle" }, "xG cedido"));
@@ -2143,7 +2266,7 @@
       selectedData = null;
       scopeValue = "all";
       activeTab = "general";
-      selectedCopy.replaceChildren(flagNode(player.team_name), node("strong", { text: personName(player) }), node("span", { text: resolvedPlayerPosition(player) }));
+      selectedCopy.replaceChildren(flagNode(player), node("strong", { text: personName(player) }), node("span", { text: resolvedPlayerPosition(player) }));
       clearButton.disabled = false;
       contextSelect.disabled = false;
       tabButtons.forEach(button => { button.disabled = false; });
@@ -2204,20 +2327,10 @@
     svg.append(svgNode("line", { x1: xAt(0), y1: yAt(0), x2: xAt(referenceMax), y2: yAt(referenceMax), class: "scatter-reference-line" }));
     clean.forEach(point => {
       const selected = point.item.player_id === selectedId;
-      const performanceClass = point.y > point.x ? " is-over" : point.y < point.x ? " is-under" : " is-level";
       const tooltip = `${personName(point.item)} · ${teamName(point.item)} · ${resolvedPlayerPosition(point.item)} · ${formatValue(point.y)} gols · ${formatValue(point.x)} xG · ${formatValue(point.item.minutes_played)} min · ${formatValue(point.item.shots)} finalizações`;
-      const circle = svgNode("circle", {
-        cx: xAt(point.x), cy: yAt(point.y), r: selected ? 8 : 5,
-        class: `player-scatter-point${performanceClass}${selected ? " is-selected" : ""}`,
-        tabindex: "0", role: "button", "aria-pressed": String(selected), "aria-label": tooltip,
-      });
-      if (onSelect) {
-        circle.addEventListener("click", () => onSelect(point.item));
-        circle.addEventListener("keydown", event => {
-          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(point.item); }
-        });
-      }
-      svg.append(attachChartTooltip(circle, tooltip));
+      svg.append(scatterEntityMarker(point.item, {
+        cx: xAt(point.x), cy: yAt(point.y), kind: "player", selected, tooltip, onSelect,
+      }));
     });
     svg.append(svgNode("text", { x: width / 2, y: height - 2, class: "chart-axis-title", "text-anchor": "middle" }, "xG"));
     svg.append(svgNode("text", { x: 13, y: height / 2, class: "chart-axis-title", transform: `rotate(-90 13 ${height / 2})`, "text-anchor": "middle" }, "Gols"));
@@ -2254,13 +2367,9 @@
     }
     clean.forEach(point => {
       const tooltip = config.tooltip(point.item, point.x, point.y);
-      const circle = svgNode("circle", {
-        cx: xAt(point.x), cy: yAt(point.y), r: 5,
-        class: `${config.entity}-scatter-point`, tabindex: "0", role: "button", "aria-label": tooltip,
-      });
-      circle.onclick = () => config.onSelect?.(point.item);
-      circle.onkeydown = event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); config.onSelect?.(point.item); } };
-      svg.append(attachChartTooltip(circle, tooltip));
+      svg.append(scatterEntityMarker(point.item, {
+        cx: xAt(point.x), cy: yAt(point.y), kind: config.entity, tooltip, onSelect: config.onSelect,
+      }));
     });
     svg.append(
       svgNode("text", { x: width / 2, y: height - 2, class: "chart-axis-title", "text-anchor": "middle" }, config.xLabel),
@@ -2331,7 +2440,7 @@
   function playerOverviewTable(rows, { selectedId = null, onSelect = null } = {}) {
     const ordered = [...rows].sort((left, right) => (number(right.minutes_played) || 0) - (number(left.minutes_played) || 0));
     const columns = [
-      ["Jogador", player => node("span", { class: "players-table-player" }, [flagNode(player.team_name), node("strong", { text: personName(player) })])],
+      ["Jogador", player => node("span", { class: "players-table-player" }, [flagNode(player), node("strong", { text: personName(player) })])],
       ["Seleção", player => displayTeamName(player.team_name)], ["Pos.", player => resolvedPlayerPosition(player, true)],
       ["Min.", player => formatValue(player.minutes_played)], ["Gols", player => formatValue(player.goals)],
       ["Assist.", player => formatValue(player.assists)], ["xG", player => formatValue(player.xg)], ["xA", player => formatValue(player.xa)],
@@ -2512,7 +2621,7 @@
       ].filter(Boolean));
     }
     return node("article", { class: "player-profile-view" }, [
-      node("header", { class: "player-profile-identity" }, [flagNode(player.team_name, "flag-large"), node("span", {}, [node("small", { text: `${displayTeamName(player.team_name)} · ${resolvedPlayerPosition(player)}` }), node("h3", { text: personName(player) })])]),
+      node("header", { class: "player-profile-identity" }, [playerPhotoNode(player), node("span", {}, [node("small", { class: "player-profile-team", text: `${displayTeamName(player.team_name)} · ${resolvedPlayerPosition(player)}` }), node("h3", { text: personName(player) })])]),
       profileSummaryLine(summaryDefinitions.map(([key, labelText, unit]) => metric(key, labelText, unit))),
       node("div", { class: "player-profile-content" }, content),
     ]);
@@ -2631,56 +2740,203 @@
     }));
   }
 
-  function renderMatches(data) {
-    const fragment = dashboardShell("Partida por partida", "Resultados, placares e distribuição do calendário por fase.", data);
-    const metrics = kpis(data.summary || {}, ["matches", "goals", "goals_per_match"]);
-    if (metrics) fragment.append(metrics);
-    if (data.stage_distribution?.length) {
-      fragment.append(section("Distribuição por fase", `${data.stage_distribution.length} fases`,
-        node("article", { class: "chart-card chart-card-wide" }, horizontalBars(data.stage_distribution, "matches", { name: item => item.stage, limit: 12 }))
-      ));
+  function matchStageLabel(matchOrStage) {
+    if (isObject(matchOrStage) && matchOrStage.stage_label) return matchOrStage.stage_label;
+    const raw = isObject(matchOrStage) ? matchOrStage.stage : matchOrStage;
+    const normalized = String(raw || "").toLowerCase().replace(/[ -]+/g, "_");
+    const labels = {
+      group_stage: "Fase de grupos", round_of_32: "Fase de 32", round_of_16: "Oitavas",
+      quarter_final: "Quartas", quarter_finals: "Quartas", semi_final: "Semifinais",
+      semi_finals: "Semifinais", third_place: "Disputa de 3º lugar", final: "Final",
+    };
+    return labels[normalized] || "Fase não informada";
+  }
+
+  function matchPublicStatus(match) {
+    if (match?.public_status) return match.public_status;
+    const status = competitionMatchStatus(match);
+    if (["Encerrado", "Ao vivo", "Aguardando atualização"].includes(status)) return status;
+    if (!match?.home_defined || !match?.away_defined) return "A definir";
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+    if (match?.local_date === today) return "Hoje";
+    return "Agendado";
+  }
+
+  function matchStageDistribution(rows, onSelect) {
+    const max = Math.max(...rows.map(item => number(item.matches) || 0), 1);
+    return node("div", { class: "matches-stage-distribution" }, rows.map(item => node("button", {
+      type: "button",
+      class: "matches-stage-row",
+      onclick: () => onSelect(item.stage),
+      title: `Filtrar por ${item.stage_label || matchStageLabel(item.stage)}`,
+    }, [
+      node("span", {}, [node("strong", { text: item.stage_label || matchStageLabel(item.stage) }), node("small", { text: `${formatValue(item.matches)} partidas` })]),
+      node("span", { class: "matches-stage-track", "aria-hidden": "true" }, node("span", { style: `width:${(number(item.matches) || 0) / max * 100}%` })),
+    ])));
+  }
+
+  function matchTeamLink(teamNameValue, teamId, defined) {
+    const display = translateTeamsInText(teamNameValue || "A definir");
+    if (!defined || !teamId) return node("span", { class: "matches-calendar-team is-placeholder", text: display, title: display });
+    return node("button", {
+      type: "button", class: "matches-calendar-team", title: display,
+      onclick: event => { event.stopPropagation(); goToProfile("team", teamId); },
+    }, [flagNode(teamNameValue), node("span", { text: display })]);
+  }
+
+  function matchCalendarRow(match, grouping) {
+    const status = matchPublicStatus(match);
+    const finished = status === "Encerrado";
+    const live = status === "Ao vivo";
+    const hasScore = match?.home_score !== null && match?.home_score !== undefined
+      && match?.away_score !== null && match?.away_score !== undefined;
+    const score = hasScore && (finished || live) ? `${formatValue(match.home_score)}–${formatValue(match.away_score)}` : status === "A definir" ? "A definir" : "×";
+    const row = node("article", {
+      class: `matches-calendar-row is-${status.toLowerCase().replace(/[^a-záàâãéêíóôõúç]+/gi, "-")}${!match?.home_defined && !match?.away_defined ? " is-undefined" : ""}`,
+      role: match?.match_id ? "link" : null, tabIndex: match?.match_id ? 0 : -1,
+      "aria-label": `${translateTeamsInText(match?.home_team)} ${score} ${translateTeamsInText(match?.away_team)}. ${status}.`,
+    }, [
+      node("div", { class: "matches-calendar-time" }, [
+        node("time", { dateTime: match?.match_date || "", title: "Horários em Brasília", text: grouping === "date" ? competitionKickoffLabel(match?.match_date).split(" · ").at(-1) : competitionKickoffLabel(match?.match_date) }),
+        node("small", { text: match?.group_name ? `Grupo ${match.group_name}` : matchStageLabel(match) }),
+      ]),
+      node("div", { class: "matches-calendar-scoreline" }, [
+        matchTeamLink(match?.home_team, match?.home_team_id, match?.home_defined),
+        node("strong", { text: score }),
+        matchTeamLink(match?.away_team, match?.away_team_id, match?.away_defined),
+      ]),
+      node("span", { class: "matches-calendar-status", text: status }),
+      node("span", { class: "matches-calendar-open", "aria-hidden": "true", text: "→" }),
+    ]);
+    if (match?.match_id) {
+      row.addEventListener("click", () => routeTo("matches", match.match_id));
+      row.addEventListener("keydown", event => {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); routeTo("matches", match.match_id); }
+      });
     }
-    if (data.items?.length) {
-      const selected = { group: "all", stage: "all", team: "all", date: "all", status: "all" };
-      const filters = data.filters || {};
-      const controls = node("div", { class: "analysis-filters match-filters" }, [
-        filterSelect("Grupo", "group", filters.groups || []),
-        filterSelect("Fase", "stage", filters.stages || []),
-        filterSelect("Seleção", "team", filters.teams || []),
-        filterSelect("Data", "date", filters.dates || []),
-        filterSelect("Status", "status", filters.statuses || []),
+    return row;
+  }
+
+  function matchCalendarDayLabel(value) {
+    const date = new Date(`${value}T12:00:00`);
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+    const tomorrow = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date(Date.now() + 24 * 60 * 60 * 1000));
+    if (value === today) return "Hoje";
+    if (value === tomorrow) return "Amanhã";
+    return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short" }).format(date).replace(" de ", " ").replace(".", "");
+  }
+
+  function matchCalendarGroups(rows, grouping) {
+    const grouped = new Map();
+    rows.forEach(match => {
+      const key = grouping === "stage" ? match.stage : match.local_date || "not-informed";
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key).push(match);
+    });
+    return node("div", { class: `matches-calendar-list is-${grouping}` }, [...grouped].map(([key, matches]) => node("section", { class: "matches-calendar-group" }, [
+      node("header", {}, [
+        node("h3", { text: grouping === "stage" ? matchStageLabel(matches[0]) : key === "not-informed" ? "Data a definir" : matchCalendarDayLabel(key) }),
+        node("span", { text: `${matches.length} ${matches.length === 1 ? "partida" : "partidas"}` }),
+      ]),
+      node("div", { class: "matches-calendar-group-list" }, matches.map(match => matchCalendarRow(match, grouping))),
+    ])));
+  }
+
+  function matchFilterBar({ rows, filters, stages, selected, onChange }) {
+    const selects = {};
+    const statusOptions = ["Encerrado", "Próximos", "Hoje", "Ao vivo", "A definir", "Aguardando atualização"]
+      .filter(value => value === "Próximos" || rows.some(match => matchPublicStatus(match) === value));
+    const definitions = [
+      ["Fase", "stage", stages.map(item => [item.stage, item.stage_label])],
+      ["Grupo", "group", (filters.groups || []).map(value => [value, `Grupo ${value}`])],
+      ["Seleção", "team", (filters.teams || []).map(value => [value, displayTeamName(value)])],
+      ["Status", "status", statusOptions.map(value => [value, value])],
+      ["Data", "date", (filters.dates || []).map(value => [value, matchCalendarDayLabel(value)])],
+    ];
+    const fields = definitions.map(([labelText, key, values]) => {
+      const select = node("select", { onchange: event => { selected[key] = event.target.value; onChange(); } }, [
+        node("option", { value: "all", text: "Todos" }),
+        ...values.map(([value, display]) => node("option", { value, text: display })),
       ]);
-      const grid = node("div", { class: "score-grid" });
-      const meta = node("span", { text: `${data.items.length} partidas` });
-      const matchSection = section("Calendário", "", node("div", {}, [controls, grid]));
-      matchSection.querySelector(".section-heading").append(meta);
-      fragment.append(matchSection);
+      selects[key] = select;
+      return node("label", {}, [node("span", { text: labelText }), select]);
+    });
+    const setShortcut = (key, value) => {
+      Object.keys(selected).filter(item => item !== "grouping").forEach(item => { selected[item] = "all"; if (selects[item]) selects[item].value = "all"; });
+      selected[key] = value;
+      if (selects[key]) selects[key].value = value;
+      onChange();
+    };
+    const clear = () => setShortcut("status", "all");
+    const element = node("details", { class: "matches-filter-disclosure", open: true }, [
+      node("summary", {}, [node("span", { text: "Filtros" }), node("small", { text: "Refine o calendário" })]),
+      node("div", { class: "matches-filter-panel" }, [
+        node("div", { class: "matches-filter-grid" }, fields),
+        node("div", { class: "matches-filter-actions" }, [
+          node("button", { type: "button", text: "Hoje", onclick: () => setShortcut("date", new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date())) }),
+          node("button", { type: "button", text: "Próximos jogos", onclick: () => setShortcut("status", "Próximos") }),
+          node("button", { type: "button", text: "Encerrados", onclick: () => setShortcut("status", "Encerrado") }),
+          node("button", { type: "button", class: "is-clear", text: "Limpar filtros", onclick: clear }),
+        ]),
+      ]),
+    ]);
+    element.matchSelects = selects;
+    return element;
+  }
 
-      function filterSelect(labelText, key, values) {
-        return node("label", {}, [
-          node("span", { text: labelText }),
-          node("select", { onchange: event => { selected[key] = event.target.value; drawMatches(); } }, [
-            node("option", { value: "all", text: "Todos" }),
-          ...values.map(value => node("option", { value, text: key === "team" ? displayTeamName(value) : key === "date" ? new Date(`${value}T12:00:00`).toLocaleDateString("pt-BR") : value })),
-          ]),
-        ]);
-      }
-
-      function drawMatches() {
-        const rows = data.items.filter(match => {
-          const teams = [match.home_team, match.away_team];
-          return (selected.group === "all" || match.group_name === selected.group)
-            && (selected.stage === "all" || match.stage === selected.stage)
-            && (selected.team === "all" || teams.includes(selected.team))
-            && (selected.date === "all" || String(match.match_date || "").slice(0, 10) === selected.date)
-            && (selected.status === "all" || match.status === selected.status);
-        });
-        meta.textContent = `${rows.length} partidas`;
-        grid.replaceChildren(...rows.slice(0, 96).map(matchCard));
-      }
-      drawMatches();
+  function renderMatches(data) {
+    const fragment = dashboardShell("Partidas", "Calendário, resultados e detalhes dos jogos da Copa 2026.", data);
+    const summary = data.summary || {};
+    fragment.append(node("div", { class: "matches-summary-strip" }, [
+      ["Partidas", summary.matches], ["Encerradas", summary.finished], ["Próximas", summary.upcoming],
+      ["Gols", summary.goals], ["Gols por jogo", summary.goals_per_match], ["Fase atual", summary.current_phase],
+    ].filter(([, value]) => value !== null && value !== undefined).map(([labelText, value]) => node("div", {}, [node("strong", { text: formatValue(value) }), node("span", { text: labelText })]))));
+    if (!data.items?.length) {
+      fragment.append(emptyState("Calendário ainda não disponível", "As partidas aparecerão assim que forem publicadas."));
+      els.view.replaceChildren(fragment);
+      return;
     }
-    if (!metrics && !data.items?.length) fragment.append(emptyState());
+    const selected = { group: "all", stage: "all", team: "all", date: "all", status: "all", grouping: "date" };
+    const calendarHost = node("div");
+    const resultMeta = node("span");
+    let filterBar;
+    const drawMatches = () => {
+      const rows = data.items.filter(match => {
+        const status = matchPublicStatus(match);
+        const teams = [match.home_team, match.away_team];
+        const upcoming = !["Encerrado", "Aguardando atualização"].includes(status);
+        return (selected.group === "all" || match.group_name === selected.group)
+          && (selected.stage === "all" || match.stage === selected.stage)
+          && (selected.team === "all" || teams.includes(selected.team))
+          && (selected.date === "all" || match.local_date === selected.date)
+          && (selected.status === "all" || status === selected.status || (selected.status === "Próximos" && upcoming));
+      });
+      resultMeta.textContent = `${rows.length} ${rows.length === 1 ? "partida" : "partidas"}`;
+      calendarHost.replaceChildren(rows.length ? matchCalendarGroups(rows, selected.grouping) : emptyState("Nenhuma partida neste recorte", "Ajuste ou limpe os filtros para voltar ao calendário."));
+    };
+    const stageDistribution = matchStageDistribution(data.stage_distribution || [], stage => {
+      selected.stage = stage;
+      if (filterBar?.matchSelects?.stage) filterBar.matchSelects.stage.value = stage;
+      drawMatches();
+    });
+    fragment.append(section("Distribuição por fase", `${(data.stage_distribution || []).length} fases`, stageDistribution, "matches-stage-section"));
+    filterBar = matchFilterBar({ rows: data.items, filters: data.filters || {}, stages: data.stage_distribution || [], selected, onChange: drawMatches });
+    const grouping = node("div", { class: "matches-grouping-control", role: "group", "aria-label": "Agrupar calendário" }, [
+      node("button", { type: "button", class: "is-active", text: "Por data" }),
+      node("button", { type: "button", text: "Por fase" }),
+    ]);
+    grouping.querySelectorAll("button").forEach((button, index) => button.onclick = () => {
+      selected.grouping = index === 0 ? "date" : "stage";
+      grouping.querySelectorAll("button").forEach(item => item.classList.toggle("is-active", item === button));
+      drawMatches();
+    });
+    const calendarSection = section("Calendário", "Horários em Brasília", node("div", { class: "matches-calendar-experience" }, [
+      node("div", { class: "matches-calendar-toolbar" }, [filterBar, grouping]),
+      calendarHost,
+    ]), "matches-calendar-section");
+    calendarSection.querySelector(".section-heading").append(resultMeta);
+    fragment.append(calendarSection);
+    drawMatches();
     els.view.replaceChildren(fragment);
   }
 
@@ -3580,7 +3836,7 @@
     const content = [
       node("header", { class: "player-modal-header" }, [
         node("div", { class: "player-modal-identity" }, [
-          flagNode(player.team_name, "flag-large"),
+          flagNode(player, "flag-large"),
           node("div", {}, [
             node("p", { class: "eyebrow", text: displayTeamName(player.team_name) }),
             node("h2", { id: "player-modal-title", text: player.player_name }),
@@ -4152,7 +4408,7 @@
       class: className,
       onclick: event => {
         event.stopPropagation();
-        openTeamQuickView(teamNameValue, teamId);
+        goToProfile("team", teamId);
       },
     }, teamLabel(teamNameValue));
   }
@@ -4169,6 +4425,16 @@
     if ((position !== null && position <= 2) || /classificad/.test(status)) return "competition-row-qualified";
     if (position === 3 || /possível vaga/.test(status)) return "competition-row-third";
     return "competition-row-out";
+  }
+
+  function competitionGroupStatus(team, position) {
+    if (!state.competitionData?.group_stage_complete) {
+      return team.classification_status || (position === 3 ? "Possível vaga" : "Fora agora");
+    }
+    if (position <= 2) return "Classificado";
+    const qualifiedThirds = new Set((state.competitionData.best_thirds || []).slice(0, 8).map(item => item.team_id));
+    if (position === 3 && qualifiedThirds.has(team.team_id)) return "Classificado como melhor terceiro";
+    return "Eliminado";
   }
 
   function competitionGroupTable(group) {
@@ -4191,7 +4457,7 @@
           node("td", { class: "competition-position", text: position }),
           node("td", { class: "competition-team-cell" }, [
             competitionTeamLink(rawTeamName(team), team.team_id),
-            node("small", { text: team.classification_status || (position === 3 ? "Possível vaga" : "Fora agora") }),
+            node("small", { text: competitionGroupStatus(team, number(position) || index + 1) }),
           ]),
           ...stats.map(([statKey, value]) => node("td", {
             class: statKey === "Pts" ? "competition-points" : "",
@@ -4201,10 +4467,42 @@
     ]));
   }
 
-  function competitionMatchRow(match) {
+  function competitionKickoffLabel(value) {
+    const date = new Date(value || "");
+    if (Number.isNaN(date.getTime())) return "Horário a definir";
+    const timezone = "America/Sao_Paulo";
+    const dateKey = input => new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(input);
+    const now = new Date();
+    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const time = new Intl.DateTimeFormat("pt-BR", { timeZone: timezone, hour: "2-digit", minute: "2-digit" }).format(date);
+    if (dateKey(date) === dateKey(now)) return `Hoje · ${time}`;
+    if (dateKey(date) === dateKey(tomorrow)) return `Amanhã · ${time}`;
+    const dayMonth = new Intl.DateTimeFormat("pt-BR", { timeZone: timezone, day: "2-digit", month: "short" })
+      .format(date).replace(" de ", " ").replace(".", "");
+    return `${dayMonth} · ${time}`;
+  }
+
+  function competitionMatchStatus(match) {
     const status = String(match?.status || "").toLocaleLowerCase("pt-BR");
-    const isLive = /live|ao vivo|in progress/.test(status);
-    const isFinished = /finished|finalizado|encerrado/.test(status);
+    const kickoff = new Date(match?.match_date || match?.kickoff_at || "");
+    const isStale = !Number.isNaN(kickoff.getTime()) && Date.now() - kickoff.getTime() > 4 * 60 * 60 * 1000;
+    const hasScore = match?.home_score !== null && match?.home_score !== undefined
+      && match?.away_score !== null && match?.away_score !== undefined;
+    if (/live|ao vivo|in progress/.test(status)) {
+      if (homeMatchIsLive(match)) return "Ao vivo";
+      return hasScore && isStale ? "Encerrado" : "Aguardando atualização";
+    }
+    if (/finished|finalizado|encerrado/.test(status)) return "Encerrado";
+    if (isStale && !hasScore) return "Aguardando atualização";
+    return match?.match_id ? "Agendado" : "A definir";
+  }
+
+  function competitionMatchRow(match) {
+    const statusLabel = competitionMatchStatus(match);
+    const isLive = statusLabel === "Ao vivo";
+    const isFinished = statusLabel === "Encerrado";
     const hasScore = match?.home_score !== null && match?.home_score !== undefined
       && match?.away_score !== null && match?.away_score !== undefined;
     const score = hasScore && (isFinished || isLive)
@@ -4217,43 +4515,87 @@
       "aria-label": `${displayTeamName(match?.home_team)} ${score} ${displayTeamName(match?.away_team)}`,
     }, [
       node("div", { class: "competition-match-meta" }, [
-        node("time", { dateTime: match?.match_date || "", text: isLive ? "Ao vivo" : formatMatchDate(match?.match_date) }),
-        isLive ? node("span", { class: "live-label", text: "Ao vivo" }) : null,
+        node("time", { dateTime: match?.match_date || "", title: "Horários em Brasília", text: competitionKickoffLabel(match?.match_date) }),
+        node("span", { class: isLive ? "live-label" : "competition-match-status", text: statusLabel }),
       ]),
       node("div", { class: "competition-match-score" }, [
         competitionTeamLink(match?.home_team, match?.home_team_id),
         node("strong", { text: score }),
         competitionTeamLink(match?.away_team, match?.away_team_id),
       ]),
+      match?.matchday ? node("small", { class: "competition-matchday", text: `Rodada ${formatValue(match.matchday)}` }) : null,
     ]);
     if (match?.match_id) {
-      row.addEventListener("click", () => openMatchQuickView(match));
+      row.addEventListener("click", () => routeTo("matches", match.match_id));
       row.addEventListener("keydown", event => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
-          openMatchQuickView(match);
+          routeTo("matches", match.match_id);
         }
       });
     }
     return row;
   }
 
-  function competitionGroupCard(group) {
-    return node("article", { class: "competition-group-card" }, [
+  function competitionGroupCard(group, onToggle) {
+    const toggle = node("button", {
+      type: "button",
+      class: "competition-group-toggle",
+      "aria-expanded": "false",
+      onclick: () => onToggle(group, toggle),
+    }, [
+      node("span", { text: "Ver jogos do grupo" }),
+      node("strong", { text: `${(group.matches || []).length} jogos` }),
+      node("span", { class: "competition-chevron", text: "⌄", "aria-hidden": "true" }),
+    ]);
+    return node("article", { class: "competition-group-card", "data-group": group.name }, [
       node("header", { class: "competition-group-head" }, [
         node("div", {}, [node("p", { class: "eyebrow", text: "Fase de grupos" }), node("h3", { text: `Grupo ${group.name}` })]),
         node("span", { text: "Pts · SG · GP · GC · Campanha" }),
       ]),
       competitionGroupTable(group),
-      node("details", { class: "competition-group-games" }, [
-        node("summary", {}, [
-          node("span", { text: "Ver jogos do grupo" }),
-          node("strong", { text: `${(group.matches || []).length} jogos` }),
-          node("span", { class: "competition-chevron", text: "⌄", "aria-hidden": "true" }),
-        ]),
-        node("div", { class: "competition-group-matches" }, (group.matches || []).map(competitionMatchRow)),
-      ]),
+      toggle,
     ]);
+  }
+
+  function competitionGroupGamesPanel(group, onClose) {
+    return node("section", { class: "competition-group-games-panel", "aria-label": `Jogos do Grupo ${group.name}` }, [
+      node("header", {}, [
+        node("span", {}, [
+          node("small", { text: "Calendário e resultados" }),
+          node("h3", { text: `Jogos do Grupo ${group.name}` }),
+        ]),
+        node("button", { type: "button", class: "competition-group-close", title: "Fechar", "aria-label": `Fechar jogos do Grupo ${group.name}`, text: "×", onclick: onClose }),
+      ]),
+      node("div", { class: "competition-group-matches" }, (group.matches || []).map(competitionMatchRow)),
+    ]);
+  }
+
+  function competitionGroupRow(groups) {
+    const row = node("div", { class: "competition-group-row" });
+    const panelHost = node("div", { class: "competition-group-panel-host", hidden: true });
+    let activeGroup = null;
+    let activeToggle = null;
+    const close = () => {
+      activeToggle?.setAttribute("aria-expanded", "false");
+      activeToggle?.closest(".competition-group-card")?.classList.remove("is-expanded");
+      activeGroup = null;
+      activeToggle = null;
+      panelHost.hidden = true;
+      panelHost.replaceChildren();
+    };
+    const toggle = (group, button) => {
+      if (activeGroup === group.name) { close(); return; }
+      close();
+      activeGroup = group.name;
+      activeToggle = button;
+      button.setAttribute("aria-expanded", "true");
+      button.closest(".competition-group-card")?.classList.add("is-expanded");
+      panelHost.replaceChildren(competitionGroupGamesPanel(group, close));
+      panelHost.hidden = false;
+    };
+    row.append(...groups.map(group => competitionGroupCard(group, toggle)), panelHost);
+    return row;
   }
 
   function bestThirdsTable(rows) {
@@ -4262,7 +4604,9 @@
       node("thead", {}, node("tr", {}, headers.map(header => node("th", { text: header, scope: "col" })))),
       node("tbody", {}, rows.map(team => {
         const rank = number(team.rank) || 0;
-        const status = rank <= 7 ? "Classificando" : rank === 8 ? "Última vaga" : "Fora agora";
+        const status = team.status || (state.competitionData?.group_stage_complete
+          ? rank <= 7 ? "Classificado" : rank === 8 ? "Última classificada" : "Eliminado"
+          : rank <= 7 ? "Dentro no momento" : rank === 8 ? "Última vaga" : "Fora agora");
         const className = rank <= 7 ? "competition-row-qualified" : rank === 8 ? "competition-row-third" : "competition-row-out";
         return node("tr", { class: className }, [
           node("td", { class: "competition-position", text: `${rank}º` }),
@@ -4272,35 +4616,68 @@
           node("td", { class: "competition-points", text: formatValue(team.points) }),
           node("td", { text: signedStandingValue(team.goal_difference) }),
           node("td", { text: formatValue(team.goals_for) }),
-          node("td", {}, node("span", { class: "competition-status", text: team.status || status })),
+          node("td", {}, node("span", { class: "competition-status", text: status })),
         ]);
       })),
     ]));
   }
 
-  function knockoutTeam(side) {
-    if (side?.defined) return competitionTeamLink(side.team_name, side.team_id, "knockout-team");
-    return node("span", { class: "knockout-team is-placeholder", text: side?.placeholder || "Aguardando definição", title: "Aguardando definição" });
+  function bestThirdsExperience(rows) {
+    return node("div", { class: "best-thirds-experience" }, [
+      node("div", { class: "best-thirds-context" }, [
+        node("p", { text: "As 8 melhores seleções em 3º lugar avançam para a Fase de 32." }),
+        node("p", { text: "Critério exibido: pontos, saldo de gols e gols pró." }),
+        node("small", { text: "Critérios adicionais podem depender de regras oficiais não exibidas aqui." }),
+      ]),
+      bestThirdsTable(rows),
+    ]);
+  }
+
+  function knockoutTeam(side, winnerName = null) {
+    if (side?.defined) {
+      const team = competitionTeamLink(side.team_name, side.team_id, `knockout-team${side.team_name === winnerName ? " is-winner" : ""}`);
+      return team;
+    }
+    const placeholder = translateTeamsInText(side?.placeholder || "A definir");
+    return node("span", { class: "knockout-team is-placeholder", text: placeholder, title: placeholder });
   }
 
   function knockoutMatchCard(match) {
     const hasScore = match?.home_score !== null && match?.home_score !== undefined
       && match?.away_score !== null && match?.away_score !== undefined;
+    const status = competitionMatchStatus(match);
+    const penaltyHome = number(match?.penalty_home_score);
+    const penaltyAway = number(match?.penalty_away_score);
+    let resultNote = null;
+    if (match?.decided_by === "penalties" && match?.winner_name) {
+      const homeWon = match.winner_name === match?.home?.team_name;
+      const winnerPenalties = homeWon ? penaltyHome : penaltyAway;
+      const loserPenalties = homeWon ? penaltyAway : penaltyHome;
+      resultNote = winnerPenalties !== null && loserPenalties !== null
+        ? `${displayTeamName(match.winner_name)} venceu nos pênaltis por ${formatValue(winnerPenalties)}–${formatValue(loserPenalties)}`
+        : `${displayTeamName(match.winner_name)} avançou nos pênaltis`;
+    } else if (match?.winner_name) {
+      resultNote = `${displayTeamName(match.winner_name)} classificado`;
+    }
     const card = node("article", {
-      class: `knockout-match${match?.match_id ? " is-clickable" : ""}`,
+      class: `knockout-match${match?.match_id ? " is-clickable" : ""}${match?.decided_by === "penalties" ? " is-penalties" : ""}`,
       role: match?.match_id ? "link" : null,
       tabIndex: match?.match_id ? 0 : -1,
     }, [
-      node("time", { dateTime: match?.kickoff_at || "", text: formatMatchDate(match?.kickoff_at) }),
-      node("div", { class: "knockout-side" }, [knockoutTeam(match?.home), node("strong", { text: hasScore ? formatValue(match.home_score) : "—" })]),
-      node("div", { class: "knockout-side" }, [knockoutTeam(match?.away), node("strong", { text: hasScore ? formatValue(match.away_score) : "—" })]),
+      node("div", { class: "knockout-match-meta" }, [
+        node("time", { dateTime: match?.kickoff_at || "", title: "Horários em Brasília", text: competitionKickoffLabel(match?.kickoff_at) }),
+        node("span", { text: match?.decided_by === "penalties" ? "Pênaltis" : status }),
+      ]),
+      node("div", { class: `knockout-side${match?.home?.team_name === match?.winner_name ? " is-winner" : ""}` }, [knockoutTeam(match?.home, match?.winner_name), node("strong", { text: hasScore ? formatValue(match.home_score) : "—" })]),
+      node("div", { class: `knockout-side${match?.away?.team_name === match?.winner_name ? " is-winner" : ""}` }, [knockoutTeam(match?.away, match?.winner_name), node("strong", { text: hasScore ? formatValue(match.away_score) : "—" })]),
+      resultNote ? node("small", { class: "knockout-result-note", text: resultNote }) : null,
     ]);
     if (match?.match_id) {
-      card.addEventListener("click", () => openMatchQuickView(match));
+      card.addEventListener("click", () => routeTo("matches", match.match_id));
       card.addEventListener("keydown", event => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
-          openMatchQuickView(match);
+          routeTo("matches", match.match_id);
         }
       });
     }
@@ -4309,54 +4686,75 @@
 
   function knockoutBoard(knockout) {
     return node("div", { class: "knockout-board" }, node("div", { class: "knockout-board-inner" },
-      (knockout.rounds || []).map(round => node("section", { class: "knockout-round" }, [
+      (knockout.rounds || []).map(round => node("section", { class: `knockout-round${round.matches?.length ? "" : " is-empty"}` }, [
         node("header", {}, [node("span", { text: "Fase" }), node("h3", { text: round.name })]),
         round.matches?.length
           ? node("div", { class: "knockout-round-matches" }, round.matches.map(knockoutMatchCard))
-          : node("div", { class: "knockout-empty", text: "Aguardando definição" }),
+          : node("div", { class: "knockout-empty", text: "Fase ainda a definir" }),
       ]))
     ));
   }
 
+  function competitionKnockoutContext(knockout) {
+    if (knockout?.notice) return knockout.notice;
+    if (knockout?.started) return "Mata-mata em andamento: acompanhe classificados e próximos confrontos.";
+    if (knockout?.group_stage_complete) return "Confrontos definidos para a Fase de 32.";
+    return "Confrontos serão atualizados conforme a fase de grupos avançar.";
+  }
+
   function renderCompetition(data) {
     state.competitionData = data;
-    const fragment = dashboardShell("Copa do Mundo 2026", "Classificação dos grupos, melhores terceiros, jogos e caminho até a final.", data);
+    const currentPhase = data.knockout?.current_phase || (data.group_stage_complete ? "Fase de 32" : "Fase de grupos");
+    const fragment = dashboardShell("Competição", "Classificação dos grupos, melhores terceiros e caminho até a final.", data);
     const groupsView = node("div", { class: "competition-view", "data-view": "groups" });
+    const thirdsView = node("div", { class: "competition-view", "data-view": "thirds", hidden: true });
     const knockoutView = node("div", { class: "competition-view", "data-view": "knockout", hidden: true });
     const tabs = [
-      node("button", { type: "button", class: "is-active", text: "Fase de grupos", "aria-selected": "true" }),
-      node("button", { type: "button", text: "Mata-mata", "aria-selected": "false" }),
+      node("button", { type: "button", class: "is-active", text: "Fase de grupos", "aria-selected": "true", "data-view": "groups" }),
+      node("button", { type: "button", text: "Melhores terceiros", "aria-selected": "false", "data-view": "thirds" }),
+      node("button", { type: "button", text: "Mata-mata", "aria-selected": "false", "data-view": "knockout" }),
     ];
     const navigation = node("nav", { class: "section-tabs competition-tabs", role: "tablist", "aria-label": "Navegação interna da competição" }, tabs);
 
     function selectView(view) {
-      const showGroups = view === "groups";
-      groupsView.hidden = !showGroups;
-      knockoutView.hidden = showGroups;
-      tabs[0].classList.toggle("is-active", showGroups);
-      tabs[1].classList.toggle("is-active", !showGroups);
-      tabs[0].setAttribute("aria-selected", String(showGroups));
-      tabs[1].setAttribute("aria-selected", String(!showGroups));
+      const views = { groups: groupsView, thirds: thirdsView, knockout: knockoutView };
+      Object.entries(views).forEach(([key, element]) => { element.hidden = key !== view; });
+      tabs.forEach(tab => {
+        const active = tab.dataset.view === view;
+        tab.classList.toggle("is-active", active);
+        tab.setAttribute("aria-selected", String(active));
+      });
     }
     tabs[0].onclick = () => selectView("groups");
-    tabs[1].onclick = () => selectView("knockout");
-    fragment.append(navigation);
+    tabs[1].onclick = () => selectView("thirds");
+    tabs[2].onclick = () => selectView("knockout");
+    fragment.append(
+      node("div", { class: "competition-edition-summary" }, [
+        node("span", { text: "12 grupos · 24 vagas diretas · 8 melhores terceiros" }),
+        node("strong", { text: `Fase atual: ${currentPhase}` }),
+      ]),
+      navigation,
+    );
 
     if (data.groups?.length) {
-      groupsView.append(section("Fase de grupos", `${data.groups.length} grupos`, node("div", { class: "competition-groups-grid" }, data.groups.map(competitionGroupCard))));
+      const rows = [];
+      for (let index = 0; index < data.groups.length; index += 2) rows.push(competitionGroupRow(data.groups.slice(index, index + 2)));
+      groupsView.append(section("Fase de grupos", `${data.groups.length} grupos`, node("div", { class: "competition-groups-grid" }, rows)));
     } else {
       groupsView.append(emptyState("Grupos ainda não disponíveis", "A classificação aparecerá assim que os grupos forem definidos."));
     }
     if (data.best_thirds?.length) {
-      groupsView.append(section("Melhores terceiros", "8 seleções avançam", bestThirdsTable(data.best_thirds), "best-thirds-section"));
+      thirdsView.append(section("Melhores terceiros", "8 seleções avançam", bestThirdsExperience(data.best_thirds), "best-thirds-section"));
+    } else {
+      thirdsView.append(emptyState("Melhores terceiros ainda não disponíveis", "A classificação das terceiras colocadas aparecerá com o avanço dos grupos."));
     }
 
     const knockout = data.knockout || {};
     knockoutView.append(section("Mata-mata", "Caminho até a final", node("div", { class: "knockout-shell" }, [
-      knockout.notice ? node("p", { class: "knockout-notice", text: knockout.notice }) : null,
+      node("p", { class: "knockout-notice", text: competitionKnockoutContext(knockout) }),
       knockoutBoard(knockout),
     ])));
-    fragment.append(groupsView, knockoutView);
+    fragment.append(groupsView, thirdsView, knockoutView);
     els.view.replaceChildren(fragment);
   }
 
@@ -4411,7 +4809,7 @@
     function drawResults() {
       const query = stateFilters.search.trim().toLocaleLowerCase("pt-BR");
       const rows = players.filter(player => (!query || `${personName(player)} ${displayTeamName(player.team_name)}`.toLocaleLowerCase("pt-BR").includes(query)) && (stateFilters.team === "all" || player.team_name === stateFilters.team) && (stateFilters.positionGroup === "all" || player.api_position_group === stateFilters.positionGroup) && (stateFilters.inferredPosition === "all" || resolvedPlayerPosition(player) === stateFilters.inferredPosition)).slice(0, 80);
-      results.replaceChildren(...rows.map(player => node("button", { type: "button", class: player.player_id === selectedId ? "is-selected" : "", onclick: () => selectPlayer(player) }, [flagNode(player.team_name), node("span", {}, [node("strong", { text: personName(player) }), node("small", { text: `${displayTeamName(player.team_name)} · ${resolvedPlayerPosition(player)}` })])])));
+      results.replaceChildren(...rows.map(player => node("button", { type: "button", class: player.player_id === selectedId ? "is-selected" : "", onclick: () => selectPlayer(player) }, [flagNode(player), node("span", {}, [node("strong", { text: personName(player) }), node("small", { text: `${displayTeamName(player.team_name)} · ${resolvedPlayerPosition(player)}` })])])));
     }
     function drawContext() {
       const options = [node("option", { value: "all", text: "Edição inteira" }), node("option", { value: "group_stage", text: "Fase de grupos" }), node("option", { value: "knockout", text: "Mata-mata" })];
@@ -4438,7 +4836,7 @@
     }
     function selectPlayer(player) {
       selectedId = player.player_id; selectedData = null; scopeValue = "all"; activeTab = "general"; clear.disabled = false; context.disabled = false;
-      selected.replaceChildren(flagNode(player.team_name), node("strong", { text: personName(player) }), node("span", { text: `${displayTeamName(player.team_name)} · ${resolvedPlayerPosition(player)}` }));
+      selected.replaceChildren(flagNode(player), node("strong", { text: personName(player) }), node("span", { text: `${displayTeamName(player.team_name)} · ${resolvedPlayerPosition(player)}` }));
       history.replaceState(null, "", `${routePath(state.year, "profile")}?type=player&id=${encodeURIComponent(selectedId)}`); drawResults(); drawContext(); load();
     }
     function clearSelection() { token += 1; selectedId = null; selectedData = null; clear.disabled = true; context.disabled = true; selected.textContent = "Escolha um jogador para iniciar a análise."; history.replaceState(null, "", `${routePath(state.year, "profile")}?type=player`); drawResults(); drawTabs(); drawDetail(); }
@@ -4459,7 +4857,7 @@
     const search = node("input", { type: "search", placeholder: "Buscar seleção", autocomplete: "off" });
     const selected = node("div", { class: "profile-selected-entity", text: "Escolha uma seleção para iniciar a análise." });
     const tabs = node("div", { class: "player-profile-tabs team-profile-tabs", role: "tablist", "aria-label": "Visualização da seleção" });
-    function drawResults() { const query = search.value.trim().toLocaleLowerCase("pt-BR"); results.replaceChildren(...teams.filter(team => !query || teamName(team).toLocaleLowerCase("pt-BR").includes(query)).map(team => node("button", { type: "button", class: team.team_id === selectedId ? "is-selected" : "", onclick: () => selectTeam(team) }, [flagNode(team.team_name), node("span", {}, [node("strong", { text: teamName(team) }), node("small", { text: `${team.group_name ? `Grupo ${team.group_name}` : "Copa 2026"} · ${team.classification_status || "Em disputa"}` })])]))); }
+    function drawResults() { const query = search.value.trim().toLocaleLowerCase("pt-BR"); results.replaceChildren(...teams.filter(team => !query || teamName(team).toLocaleLowerCase("pt-BR").includes(query)).map(team => node("button", { type: "button", class: team.team_id === selectedId ? "is-selected" : "", onclick: () => selectTeam(team) }, [flagNode(team), node("span", {}, [node("strong", { text: teamName(team) }), node("small", { text: `${team.group_name ? `Grupo ${team.group_name}` : "Copa 2026"} · ${team.classification_status || "Em disputa"}` })])]))); }
     function drawTabs() {
       const definitions = selectedData ? teamProfileTabs(selectedData) : [];
       if (!definitions.some(([key]) => key === activeTab)) activeTab = "general";
@@ -4472,7 +4870,7 @@
     }
     async function selectTeam(team) {
       selectedId = team.team_id; selectedData = null; activeTab = "general"; const current = ++token;
-      selected.replaceChildren(flagNode(team.team_name), node("strong", { text: teamName(team) }), node("span", { text: team.group_name ? `Grupo ${team.group_name}` : "Copa 2026" }));
+      selected.replaceChildren(flagNode(team), node("strong", { text: teamName(team) }), node("span", { text: team.group_name ? `Grupo ${team.group_name}` : "Copa 2026" }));
       history.replaceState(null, "", `${routePath(state.year, "profile")}?type=team&id=${encodeURIComponent(selectedId)}`); drawResults(); drawTabs(); drawDetail();
       try { const payload = await getJSON(`/editions/${state.year}/teams/${encodeURIComponent(selectedId)}`); if (current === token) { selectedData = payload; drawTabs(); drawDetail(); } }
       catch (error) { if (error?.name !== "AbortError") detail.replaceChildren(emptyState("Perfil indisponível", "Não foi possível carregar esta seleção.")); }
@@ -4556,7 +4954,7 @@
       ].filter(Boolean));
     }
     return node("article", { class: "team-profile-view" }, [
-      node("header", { class: "player-profile-identity team-profile-identity" }, [flagNode(team.team_name, "flag-large"), node("span", {}, [node("small", { text: [team.group_name ? `Grupo ${team.group_name}` : "Copa 2026", team.classification_status].filter(Boolean).join(" · ") }), node("h3", { text: teamName(team) }), node("p", { text: `${formatValue(team.played)} jogos · ${formatValue(team.wins)} vitórias · ${formatValue(team.goals_for)} gols · saldo de xG ${signedStandingValue(team.xg_difference)}` })])]),
+      node("header", { class: "player-profile-identity team-profile-identity" }, [flagNode(team, "flag-large"), node("span", {}, [node("small", { text: [team.group_name ? `Grupo ${team.group_name}` : "Copa 2026", team.classification_status].filter(Boolean).join(" · ") }), node("h3", { text: teamName(team) }), node("p", { text: `${formatValue(team.played)} jogos · ${formatValue(team.wins)} vitórias · ${formatValue(team.goals_for)} gols · saldo de xG ${signedStandingValue(team.xg_difference)}` })])]),
       profileSummaryLine([metricWithComparison("Jogos", team.played), metric("wins", "Vitórias"), metric("goals_for", "Gols"), metric("xg", "xG"), metric("xga", "xG cedido"), metric("xg_difference", "Saldo de xG")]),
       node("div", { class: "player-profile-content team-profile-content" }, content),
     ]);

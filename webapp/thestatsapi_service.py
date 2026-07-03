@@ -13,7 +13,9 @@ from .player_analytics import (
     calculate_player_radar,
     macroposition_for,
 )
+from .curation_repository import CurationRepository
 from .player_positions import (
+    apply_player_override,
     assign_benchmark_cohorts,
     infer_match_positions,
     radar_profile_group,
@@ -47,8 +49,14 @@ def number(value: Any) -> float | int | None:
 class TheStatsApiBronzeService:
     """Processed web contracts derived from TheStatsAPI Bronze raw files."""
 
-    def __init__(self, data_root: Path | str = Path("data")) -> None:
+    def __init__(
+        self,
+        data_root: Path | str = Path("data"),
+        *,
+        curation_repository: CurationRepository | None = None,
+    ) -> None:
         self.data_root = Path(data_root)
+        self.curation_repository = curation_repository
 
     def available(self, year: int) -> bool:
         return bool(self.fixtures(year))
@@ -56,7 +64,18 @@ class TheStatsApiBronzeService:
     def competition(self, year: int) -> dict[str, Any]:
         fixtures = self.match_items(year)
         standings = self.standings_by_group(year)
-        best_thirds = self.best_third_placed_teams(year, standings)
+        group_fixtures = [match for match in fixtures if match.get("group_name")]
+        group_stage_complete = bool(group_fixtures) and all(
+            match.get("home_score") is not None
+            and match.get("away_score") is not None
+            and self._is_effectively_finished(match)
+            for match in group_fixtures
+        )
+        best_thirds = self.best_third_placed_teams(
+            year, standings, group_stage_complete=group_stage_complete
+        )
+        if group_stage_complete:
+            self._finalize_group_statuses(standings, best_thirds)
         matches_by_group: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for match in fixtures:
             group_name = match.get("group_name")
@@ -75,6 +94,7 @@ class TheStatsApiBronzeService:
                     for name, rows in standings.items()
                 ],
                 "best_thirds": best_thirds,
+                "group_stage_complete": group_stage_complete,
                 "knockout": self.knockout_state(fixtures),
                 "notice": (
                     None
@@ -192,15 +212,28 @@ class TheStatsApiBronzeService:
                     continue
                 home_score = number(match.get("home_score"))
                 away_score = number(match.get("away_score"))
-                if home_score is None or away_score is None or home_score == away_score:
+                winner_name = match.get("winner_name")
+                decided_by = match.get("decided_by")
+                if home_score is None or away_score is None or not winner_name:
                     continue
-                home_won = home_score > away_score
+                home_won = winner_name == match["home"].get("team_name")
                 winner = match["home"] if home_won else match["away"]
                 eliminated = match["away"] if home_won else match["home"]
-                winner_name = winner.get("team_name")
                 eliminated_name = eliminated.get("team_name")
                 if not winner_name or not eliminated_name:
                     continue
+                if decided_by == "penalties":
+                    narrative = (
+                        f"{winner_name} avançou nos pênaltis após empate por "
+                        f"{int(home_score)}–{int(away_score)} contra {eliminated_name}."
+                    )
+                else:
+                    winner_score = home_score if home_won else away_score
+                    eliminated_score = away_score if home_won else home_score
+                    narrative = (
+                        f"{winner_name} avançou após vencer {eliminated_name} "
+                        f"por {int(winner_score)}–{int(eliminated_score)}."
+                    )
                 classified.append(
                     {
                         "match": match,
@@ -209,10 +242,9 @@ class TheStatsApiBronzeService:
                         "winner_id": winner.get("team_id"),
                         "eliminated_name": eliminated_name,
                         "eliminated_id": eliminated.get("team_id"),
-                        "narrative": (
-                            f"{winner_name} avançou após vencer {eliminated_name} "
-                            f"por {int(home_score)}–{int(away_score)}."
-                        ),
+                        "decided_by": decided_by,
+                        "score_label": match.get("score_label"),
+                        "narrative": narrative,
                     }
                 )
         classified.sort(
@@ -280,12 +312,12 @@ class TheStatsApiBronzeService:
             row for row in teams if float(row.get("played") or 0) >= 3
         ]
 
-        goals_per_100 = sorted(
+        goals_per_90 = sorted(
             player_rows(
                 eligible_minutes,
                 lambda row: float(row.get("goals") or 0)
                 / float(row.get("minutes_played") or 1)
-                * 100,
+                * 90,
             ),
             key=lambda row: row["value"],
             reverse=True,
@@ -319,10 +351,10 @@ class TheStatsApiBronzeService:
             key=lambda row: row["value"],
             reverse=True,
         )
-        efficiency = sorted(
+        goals_minus_xg = sorted(
             team_metric_rows(
-                [row for row in eligible_teams if float(row.get("xg") or 0) > 0],
-                lambda row: float(row.get("goals_for") or 0) / float(row.get("xg") or 1),
+                eligible_teams,
+                lambda row: float(row.get("goals_for") or 0) - float(row.get("xg") or 0),
             ),
             key=lambda row: row["value"],
             reverse=True,
@@ -395,19 +427,19 @@ class TheStatsApiBronzeService:
 
         return {
             "players": [
-                metric("goals_per_100", "Gols por 100 minutos", "Frequência de gols ajustada ao tempo em campo.", "Mínimo de 120 minutos e 1 gol", "player", "gols", goals_per_100),
+                metric("goals_per_90", "Gols por 90", "Frequência de gols ajustada a 90 minutos em campo.", "Mínimo de 120 minutos e 1 gol", "player", "gols/90", goals_per_90),
                 metric("xg_per_shot", "xG por finalização", "Qualidade média das chances finalizadas.", "Mínimo de 5 finalizações", "player", "xG", xg_per_shot),
                 metric("shot_conversion", "Conversão de chutes", "Percentual de finalizações transformadas em gol.", "Mínimo de 5 finalizações", "player", "%", conversion),
             ],
             "teams": [
                 metric("lowest_xga", "Menos xG cedido", "Defesas que concederam chances de menor qualidade.", "Mínimo de 3 jogos", "team", "xG", lowest_xga),
                 metric("shots_per_game", "Finalizações por jogo", "Volume ofensivo médio por partida.", "Mínimo de 3 jogos", "team", "chutes", shots_per_game),
-                metric("offensive_efficiency", "Eficiência ofensiva", "Relação entre gols marcados e xG produzido.", "Mínimo de 3 jogos e xG positivo", "team", "índice", efficiency),
+                metric("goals_minus_xg", "Gols - xG", "Diferença entre gols marcados e gols esperados.", "Mínimo de 3 jogos", "team", "gols - xG", goals_minus_xg),
             ],
             "matches": [
                 metric("most_events", "Maior volume de eventos", "Partidas com mais ações registradas.", "Somente jogos com eventos disponíveis", "match", "eventos", most_events),
-                metric("most_on_target", "Mais chutes no alvo", "Jogos que mais exigiram os goleiros.", "Somente jogos com mapa de chutes", "match", "chutes", most_on_target),
-                metric("most_balanced_xg", "Jogo mais equilibrado", "Menor diferença de xG entre as seleções.", "Somente jogos com xG para as duas equipes", "match", "xG", balanced),
+                metric("most_on_target", "Mais chutes no alvo", "Jogos que mais exigiram os goleiros.", "Somente jogos com mapa de chutes", "match", "no alvo", most_on_target),
+                metric("most_balanced_xg", "Jogo mais equilibrado", "Menor diferença de xG entre as seleções.", "Somente jogos com xG para as duas equipes", "match", "diferença de xG", balanced),
             ],
             "curiosities": [
                 metric("earliest_goal", "Gol mais cedo", "Os gols marcados mais próximos do início.", "Somente gols com minuto informado", "match", "min", earliest),
@@ -467,6 +499,11 @@ class TheStatsApiBronzeService:
             "xg",
             "xa",
             "rating",
+            "photo_url",
+            "photo_asset_path",
+            "photo_credit",
+            "photo_source_url",
+            "photo_alt_text",
         )
         return {key: row.get(key) for key in keys if row.get(key) is not None}
 
@@ -506,7 +543,23 @@ class TheStatsApiBronzeService:
         return {key: row.get(key) for key in keys if row.get(key) is not None}
 
     def matches(self, year: int) -> dict[str, Any]:
-        items = self.match_items(year)
+        source_items = self.match_items(year)
+        items = self._public_match_items(source_items)
+        finished = [item for item in items if item.get("public_status") == "Encerrado"]
+        upcoming = [
+            item for item in items
+            if item.get("public_status") in {"Agendado", "Hoje", "A definir"}
+        ]
+        goals = sum(
+            int(item.get("home_score") or 0) + int(item.get("away_score") or 0)
+            for item in finished
+        )
+        knockout = self.knockout_state(source_items)
+        stage_counts = Counter(item.get("stage") or "not_informed" for item in items)
+        stage_order = (
+            "Group Stage", "round_of_32", "round_of_16", "quarter_final",
+            "quarter_finals", "semi_final", "semi_finals", "third_place", "final",
+        )
         return json_safe(
             {
                 "year": year,
@@ -514,25 +567,99 @@ class TheStatsApiBronzeService:
                 "available": bool(items),
                 "summary": {
                     "matches": len(items),
-                    "finished": sum(1 for item in items if item.get("status") == "finished"),
-                    "goals": sum(
-                        int(item.get("home_score") or 0) + int(item.get("away_score") or 0)
-                        for item in items
-                        if item.get("status") == "finished"
-                    ),
+                    "finished": len(finished),
+                    "upcoming": len(upcoming),
+                    "goals": goals,
+                    "goals_per_match": round(goals / len(finished), 2) if finished else None,
+                    "current_phase": knockout.get("current_phase"),
                 },
                 "filters": self.match_filters(items),
                 "stage_distribution": [
-                    {"stage": stage, "matches": count}
-                    for stage, count in Counter(
-                        item.get("stage") or item.get("group_name") or "Não informada"
-                        for item in items
-                    ).items()
+                    {
+                        "stage": stage,
+                        "stage_label": self._public_stage_label(stage),
+                        "matches": stage_counts[stage],
+                    }
+                    for stage in stage_order
+                    if stage_counts.get(stage)
                 ],
                 "items": items,
                 "notice": None if items else "Calendário da Copa 2026 ainda não está disponível.",
             }
         )
+
+    @classmethod
+    def _public_match_items(cls, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        knockout = cls.knockout_state(rows)
+        knockout_by_id = {
+            str(match.get("match_id")): match
+            for round_ in knockout.get("rounds", [])
+            for match in round_.get("matches", [])
+            if match.get("match_id")
+        }
+        public_rows = []
+        for row in rows:
+            result = row.copy()
+            result["stage_label"] = cls._public_stage_label(row.get("stage"))
+            parsed = cls._match_datetime(row)
+            result["local_date"] = parsed.astimezone(HOME_TIMEZONE).date().isoformat() if parsed else None
+            bracket_match = knockout_by_id.get(str(row.get("match_id")))
+            if bracket_match:
+                for side_name in ("home", "away"):
+                    side = bracket_match.get(side_name) or {}
+                    defined = bool(side.get("defined") and side.get("team_name"))
+                    result[f"{side_name}_team"] = (
+                        side.get("team_name") if defined else side.get("placeholder") or "A definir"
+                    )
+                    result[f"{side_name}_team_id"] = side.get("team_id") if defined else None
+                    result[f"{side_name}_defined"] = defined
+                for field in (
+                    "winner_name", "decided_by", "score_label",
+                    "penalty_home_score", "penalty_away_score",
+                ):
+                    result[field] = bracket_match.get(field)
+            else:
+                result["home_defined"] = bool(result.get("home_team"))
+                result["away_defined"] = bool(result.get("away_team"))
+            result["public_status"] = cls._public_match_status(result, parsed)
+            public_rows.append(result)
+        return public_rows
+
+    @staticmethod
+    def _public_match_status(row: dict[str, Any], kickoff: datetime | None) -> str:
+        status = str(row.get("status") or "").strip().casefold()
+        now = datetime.now(timezone.utc)
+        stale = bool(kickoff and now - kickoff.astimezone(timezone.utc) > timedelta(hours=4))
+        has_score = row.get("home_score") is not None and row.get("away_score") is not None
+        if status in {"live", "in progress", "ao vivo"}:
+            if stale:
+                return "Encerrado" if has_score else "Aguardando atualização"
+            return "Ao vivo"
+        if status in {"finished", "finalizado", "encerrado"}:
+            return "Encerrado"
+        if stale and not has_score:
+            return "Aguardando atualização"
+        if not row.get("home_defined") or not row.get("away_defined"):
+            return "A definir"
+        if kickoff and kickoff.astimezone(HOME_TIMEZONE).date() == now.astimezone(HOME_TIMEZONE).date():
+            return "Hoje"
+        return "Agendado"
+
+    @staticmethod
+    def _public_stage_label(value: Any) -> str:
+        normalized = str(value or "").strip().casefold().replace("-", "_").replace(" ", "_")
+        labels = {
+            "group_stage": "Fase de grupos",
+            "round_of_32": "Fase de 32",
+            "round_of_16": "Oitavas",
+            "quarter_final": "Quartas",
+            "quarter_finals": "Quartas",
+            "semi_final": "Semifinais",
+            "semi_finals": "Semifinais",
+            "third_place": "Disputa de 3º lugar",
+            "final": "Final",
+        }
+        return labels.get(normalized, "Fase não informada")
 
     def match_detail(self, year: int, match_id: str) -> dict[str, Any]:
         detail = self._match_detail(year, match_id)
@@ -622,7 +749,7 @@ class TheStatsApiBronzeService:
                         float(player.get("minutes_played") or 0) > 0
                         and player.get("played") is not False
                     )
-                    team_name = player.get("team_name")
+                    team_name = player.get("api_team_name") or player.get("team_name")
                     opponent = (
                         match.get("away_team")
                         if team_name == match.get("home_team")
@@ -712,7 +839,9 @@ class TheStatsApiBronzeService:
     def profiles(self, year: int) -> dict[str, Any]:
         details = self._all_match_details(year)
         players = self._aggregate_player_analytics(self._aggregate_players(details))
-        teams = self.team_rows(year, self.standings_by_group(year), details)
+        teams = self._curate_teams(
+            self.team_rows(year, self.standings_by_group(year), details)
+        )
         return json_safe(
             {
                 "year": year,
@@ -731,7 +860,9 @@ class TheStatsApiBronzeService:
 
     def teams(self, year: int) -> dict[str, Any]:
         details = self._all_match_details(year)
-        rows = self.team_rows(year, self.standings_by_group(year), details)
+        rows = self._curate_teams(
+            self.team_rows(year, self.standings_by_group(year), details)
+        )
         shots = [shot for detail in details for shot in detail.get("shot_map", [])]
         return json_safe(
             {
@@ -790,13 +921,14 @@ class TheStatsApiBronzeService:
         radar = self._team_profile_radar(benchmarks)
         all_shots = [shot for detail in details for shot in detail.get("shot_map", [])]
         team_ids = {row.get("team_id") for row in teams if row.get("team_id")}
+        curated_team = self._curate_teams([team])[0]
         return json_safe(
             {
                 "year": year,
                 "source": SOURCE,
                 "available": True,
-                "team": team,
-                "summary": team,
+                "team": curated_team,
+                "summary": curated_team,
                 "matches": matches,
                 "players": sorted(players, key=lambda row: (row.get("minutes_played") or 0, row.get("rating") or 0), reverse=True),
                 "shots": shots,
@@ -986,6 +1118,8 @@ class TheStatsApiBronzeService:
         self,
         year: int,
         standings: dict[str, list[dict[str, Any]]] | None = None,
+        *,
+        group_stage_complete: bool = False,
     ) -> list[dict[str, Any]]:
         standings = standings or self.standings_by_group(year)
         thirds = [rows[2].copy() for rows in standings.values() if len(rows) >= 3]
@@ -996,13 +1130,39 @@ class TheStatsApiBronzeService:
         )
         for index, row in enumerate(ranked, start=1):
             row["rank"] = index
-            if index <= 7:
-                row["status"] = "Classificando"
+            if group_stage_complete and index <= 7:
+                row["status"] = "Classificado"
+            elif group_stage_complete and index == 8:
+                row["status"] = "Última classificada"
+            elif group_stage_complete:
+                row["status"] = "Eliminado"
+            elif index <= 7:
+                row["status"] = "Dentro no momento"
             elif index == 8:
                 row["status"] = "Última vaga"
             else:
                 row["status"] = "Fora agora"
         return ranked
+
+    @staticmethod
+    def _finalize_group_statuses(
+        standings: dict[str, list[dict[str, Any]]],
+        best_thirds: list[dict[str, Any]],
+    ) -> None:
+        qualified_thirds = {
+            str(team.get("team_id"))
+            for team in best_thirds
+            if number(team.get("rank")) is not None and number(team.get("rank")) <= 8
+        }
+        for teams in standings.values():
+            for team in teams:
+                position = number(team.get("position"))
+                if position is not None and position <= 2:
+                    team["classification_status"] = "Classificado"
+                elif position == 3 and str(team.get("team_id")) in qualified_thirds:
+                    team["classification_status"] = "Classificado como melhor terceiro"
+                else:
+                    team["classification_status"] = "Eliminado"
 
     def team_rows(
         self,
@@ -1156,6 +1316,7 @@ class TheStatsApiBronzeService:
                 if inference.get("role_confidence") in {"high", "medium"}
                 else inference.get("api_position_group") or player.get("position")
             )
+        player_rows = self._curate_players(player_rows)
         stats_comparison = self._stats_comparison(match, stats)
         reference = reference_distribution or build_reference_distribution(
             self._reference_player_rows(year)
@@ -1164,16 +1325,17 @@ class TheStatsApiBronzeService:
         for player in player_rows:
             player_id = player.get("player_id")
             player_name = player.get("player_name")
+            api_player_name = player.get("api_player_name") or player_name
             player["player_shots"] = [
                 shot
                 for shot in shot_map
                 if (player_id and shot.get("player_id") == player_id)
-                or (player_name and shot.get("player_name") == player_name)
+                or (api_player_name and shot.get("player_name") == api_player_name)
             ]
             player["player_events"] = [
                 event
                 for event in event_rows
-                if player_name and event.get("player_name") == player_name
+                if api_player_name and event.get("player_name") == api_player_name
             ]
         match_detail = {
             **match,
@@ -1253,6 +1415,7 @@ class TheStatsApiBronzeService:
         home = source.get("home_team") or lineups.get("home") or {}
         away = source.get("away_team") or lineups.get("away") or {}
         score = source.get("score") if isinstance(source.get("score"), dict) else {}
+        final_score = score.get("final_score") if isinstance(score.get("final_score"), dict) else {}
         venue_name, venue_city = self._venue_parts(
             source.get("venue") or source.get("stadium")
         )
@@ -1269,6 +1432,8 @@ class TheStatsApiBronzeService:
             "away_team": self._team_name(away),
             "home_score": score.get("home"),
             "away_score": score.get("away"),
+            "penalty_home_score": final_score.get("home"),
+            "penalty_away_score": final_score.get("away"),
             "status": source.get("status"),
             "matchday": source.get("matchday"),
             "xg_available": source.get("xg_available"),
@@ -1765,19 +1930,56 @@ class TheStatsApiBronzeService:
     @classmethod
     def knockout_state(cls, fixtures: list[dict[str, Any]]) -> dict[str, Any]:
         round_specs = (
-            ("round_of_32", "16 avos"),
+            ("round_of_32", "Fase de 32"),
             ("round_of_16", "Oitavas"),
             ("quarter_finals", "Quartas"),
             ("semi_finals", "Semifinais"),
             ("third_place", "Disputa de 3º lugar"),
             ("final", "Final"),
         )
-        matches_by_round: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        fixtures_by_round: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for fixture in fixtures:
             round_key = cls._knockout_round(fixture)
             if not round_key:
                 continue
-            matches_by_round[round_key].append(cls._knockout_match(fixture))
+            fixtures_by_round[round_key].append(fixture)
+
+        match_number_starts = {
+            "round_of_32": 73,
+            "round_of_16": 89,
+            "quarter_finals": 97,
+            "semi_finals": 101,
+            "third_place": 103,
+            "final": 104,
+        }
+        winner_matchups: dict[str, dict[str, Any]] = {}
+        matches_by_round: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for round_key, _ in round_specs:
+            ordered = sorted(
+                fixtures_by_round.get(round_key, []),
+                key=lambda item: str(item.get("match_date") or item.get("utc_date") or ""),
+            )
+            for index, fixture in enumerate(ordered):
+                match = cls._knockout_match(fixture, winner_matchups=winner_matchups)
+                matches_by_round[round_key].append(match)
+                match_number = match_number_starts[round_key] + index
+                home_label = cls._knockout_side_label(match["home"])
+                away_label = cls._knockout_side_label(match["away"])
+                if home_label and away_label:
+                    winner_side = None
+                    if match.get("winner_name"):
+                        winner_side = next(
+                            (
+                                side
+                                for side in (match["home"], match["away"])
+                                if side.get("team_name") == match["winner_name"]
+                            ),
+                            None,
+                        )
+                    winner_matchups[str(match_number)] = {
+                        "matchup": f"{home_label} x {away_label}",
+                        "winner": winner_side,
+                    }
 
         rounds = [
             {
@@ -1797,14 +1999,43 @@ class TheStatsApiBronzeService:
             for match in round_["matches"]
             for side in (match["home"], match["away"])
         ) or any(not round_["matches"] for round_ in rounds)
+        group_matches = [match for match in fixtures if match.get("group_name")]
+        group_stage_complete = bool(group_matches) and all(
+            match.get("home_score") is not None
+            and match.get("away_score") is not None
+            and cls._is_effectively_finished(match)
+            for match in group_matches
+        )
+        knockout_started = any(
+            cls._is_effectively_finished(match)
+            or str(match.get("status") or "").casefold() in {"live", "in_progress"}
+            for round_ in rounds
+            for match in round_["matches"]
+        )
+        current_round = next(
+            (
+                round_
+                for round_ in rounds
+                if round_["matches"]
+                and any(not cls._is_effectively_finished(match) for match in round_["matches"])
+            ),
+            next((round_ for round_ in reversed(rounds) if round_["matches"]), None),
+        )
+        if knockout_started:
+            notice = "Mata-mata em andamento: acompanhe classificados e próximos confrontos."
+        elif group_stage_complete:
+            notice = "Confrontos definidos para a Fase de 32."
+        elif incomplete:
+            notice = "Confrontos serão atualizados conforme a fase de grupos avançar."
+        else:
+            notice = "Caminho final da Copa definido até a decisão."
         return {
             "available": available,
             "rounds": rounds,
-            "notice": (
-                "Confrontos serão atualizados conforme a fase de grupos avançar."
-                if incomplete
-                else None
-            ),
+            "current_phase": current_round.get("name") if current_round else None,
+            "group_stage_complete": group_stage_complete,
+            "started": knockout_started,
+            "notice": notice,
         }
 
     @staticmethod
@@ -1818,9 +2049,11 @@ class TheStatsApiBronzeService:
             "round_of_16": "round_of_16",
             "oitavas": "round_of_16",
             "quarter_finals": "quarter_finals",
+            "quarter_final": "quarter_finals",
             "quarterfinals": "quarter_finals",
             "quartas": "quarter_finals",
             "semi_finals": "semi_finals",
+            "semi_final": "semi_finals",
             "semifinals": "semi_finals",
             "semifinais": "semi_finals",
             "third_place": "third_place",
@@ -1835,23 +2068,62 @@ class TheStatsApiBronzeService:
         return None
 
     @classmethod
-    def _knockout_match(cls, fixture: dict[str, Any]) -> dict[str, Any]:
+    def _knockout_match(
+        cls,
+        fixture: dict[str, Any],
+        *,
+        winner_matchups: dict[str, dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        home = cls._knockout_side(
+            fixture.get("home_team"), fixture.get("home_team_id"), winner_matchups
+        )
+        away = cls._knockout_side(
+            fixture.get("away_team"), fixture.get("away_team_id"), winner_matchups
+        )
+        home_score = number(fixture.get("home_score"))
+        away_score = number(fixture.get("away_score"))
+        penalty_home = number(fixture.get("penalty_home_score"))
+        penalty_away = number(fixture.get("penalty_away_score"))
+        winner_name = None
+        decided_by = None
+        score_label = None
+        if home_score is not None and away_score is not None:
+            if home_score != away_score:
+                home_won = home_score > away_score
+                winner_name = (home if home_won else away).get("team_name")
+                winner_score, loser_score = (home_score, away_score) if home_won else (away_score, home_score)
+                score_label = f"{int(winner_score)}–{int(loser_score)}"
+                decided_by = "regular"
+            elif penalty_home is not None and penalty_away is not None and penalty_home != penalty_away:
+                home_won = penalty_home > penalty_away
+                winner_name = (home if home_won else away).get("team_name")
+                winner_penalties, loser_penalties = (penalty_home, penalty_away) if home_won else (penalty_away, penalty_home)
+                score_label = (
+                    f"{int(home_score)}–{int(away_score)} "
+                    f"({int(winner_penalties)}–{int(loser_penalties)} nos pênaltis)"
+                )
+                decided_by = "penalties"
         return {
             "match_id": fixture.get("match_id"),
             "status": fixture.get("status"),
             "kickoff_at": fixture.get("match_date"),
             "home_score": fixture.get("home_score"),
             "away_score": fixture.get("away_score"),
-            "home": cls._knockout_side(
-                fixture.get("home_team"), fixture.get("home_team_id")
-            ),
-            "away": cls._knockout_side(
-                fixture.get("away_team"), fixture.get("away_team_id")
-            ),
+            "penalty_home_score": fixture.get("penalty_home_score"),
+            "penalty_away_score": fixture.get("penalty_away_score"),
+            "home": home,
+            "away": away,
+            "winner_name": winner_name,
+            "decided_by": decided_by,
+            "score_label": score_label,
         }
 
     @staticmethod
-    def _knockout_side(team_name: Any, team_id: Any) -> dict[str, Any]:
+    def _knockout_side(
+        team_name: Any,
+        team_id: Any,
+        winner_matchups: dict[str, dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         name = str(team_name or "").strip()
         placeholder = None
         group_position = re.fullmatch(r"([12])([A-L])", name, re.IGNORECASE)
@@ -1864,7 +2136,17 @@ class TheStatsApiBronzeService:
         elif reversed_position:
             placeholder = f"{reversed_position.group(2)}º Grupo {reversed_position.group(1).upper()}"
         elif winner:
-            placeholder = f"Vencedor da partida {winner.group(1)}"
+            source = (winner_matchups or {}).get(winner.group(1)) or {}
+            resolved_winner = source.get("winner")
+            if resolved_winner and resolved_winner.get("team_name"):
+                return {
+                    "team_name": resolved_winner["team_name"],
+                    "team_id": resolved_winner.get("team_id"),
+                    "placeholder": None,
+                    "defined": True,
+                }
+            matchup = source.get("matchup")
+            placeholder = f"Vencedor de {matchup}" if matchup else "A definir"
         defined = bool(name and not placeholder)
         return {
             "team_name": name if defined else None,
@@ -1872,6 +2154,10 @@ class TheStatsApiBronzeService:
             "placeholder": placeholder or ("Aguardando definição" if not defined else None),
             "defined": defined,
         }
+
+    @staticmethod
+    def _knockout_side_label(side: dict[str, Any]) -> str | None:
+        return side.get("team_name") if side.get("defined") else None
 
     @staticmethod
     def competition_summary(fixtures: list[dict[str, Any]], players: list[dict[str, Any]], teams: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1893,8 +2179,13 @@ class TheStatsApiBronzeService:
         return {
             "groups": sorted({str(item.get("group_name")) for item in items if item.get("group_name")}),
             "stages": sorted({str(item.get("stage")) for item in items if item.get("stage")}),
-            "dates": sorted({str(item.get("match_date"))[:10] for item in items if item.get("match_date")}),
-            "teams": sorted({team for item in items for team in (item.get("home_team"), item.get("away_team")) if team}),
+            "dates": sorted({str(item.get("local_date")) for item in items if item.get("local_date")}),
+            "teams": sorted({
+                item.get(f"{side}_team")
+                for item in items
+                for side in ("home", "away")
+                if item.get(f"{side}_defined") and item.get(f"{side}_team")
+            }),
             "statuses": sorted({str(item.get("status")) for item in items if item.get("status")}),
         }
 
@@ -1987,9 +2278,44 @@ class TheStatsApiBronzeService:
                     grouped[player["player_id"]].append(player)
         return sorted([self._merge_player_rows(rows) for rows in grouped.values()], key=lambda row: (row.get("goals") or 0, row.get("xg") or 0), reverse=True)
 
-    @staticmethod
-    def _aggregate_player_analytics(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        cohort_rows = assign_benchmark_cohorts(rows)
+    def _curate_players(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not self.curation_repository:
+            return [apply_player_override(row, None) for row in rows]
+        player_overrides = self.curation_repository.player_overrides_map()
+        team_overrides = self.curation_repository.team_overrides_map()
+        curated = []
+        for row in rows:
+            result = apply_player_override(
+                row,
+                player_overrides.get(str(row.get("player_id"))),
+            )
+            team_override = team_overrides.get(str(row.get("team_id")))
+            if team_override and team_override.get("display_name_override"):
+                result["api_team_name"] = row.get("team_name")
+                result["team_name"] = team_override["display_name_override"]
+            curated.append(result)
+        return curated
+
+    def _curate_teams(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not self.curation_repository:
+            return rows
+        overrides = self.curation_repository.team_overrides_map()
+        curated = []
+        for row in rows:
+            result = row.copy()
+            override = overrides.get(str(row.get("team_id")))
+            if override:
+                result["api_team_name"] = row.get("team_name")
+                if override.get("display_name_override"):
+                    result["team_name"] = override["display_name_override"]
+                for field in ("short_name_override", "flag_asset_path", "primary_color", "secondary_color"):
+                    if override.get(field):
+                        result[field] = override[field]
+            curated.append(result)
+        return curated
+
+    def _aggregate_player_analytics(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        cohort_rows = assign_benchmark_cohorts(self._curate_players(rows))
         reference = build_reference_distribution(cohort_rows)
         enriched = []
         for row in cohort_rows:

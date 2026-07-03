@@ -43,6 +43,40 @@ ROLE_LABELS = {
     "Pontas": "Média das pontas", "Atacantes": "Média dos atacantes",
 }
 
+PUBLIC_POSITION_ROLES = (
+    "Goleiro",
+    "Zagueiro",
+    "Lateral direito",
+    "Lateral esquerdo",
+    "Ala direito",
+    "Ala esquerdo",
+    "Volante",
+    "Meio-campista central",
+    "Meia ofensivo",
+    "Meia lateral direito",
+    "Meia lateral esquerdo",
+    "Ponta direita",
+    "Ponta esquerda",
+    "Segundo atacante",
+    "Centroavante",
+)
+POSITION_GROUPS = ("Goleiro", "Defensor", "Meio-campista", "Atacante")
+POSITION_SIDES = ("Esquerda", "Direita", "Centro", "Indefinido")
+REVIEW_STATUSES = ("pending", "reviewed", "needs_check", "auto_inferred")
+DOMINANT_FEET = ("Direito", "Esquerdo", "Ambidestro", "Não informado")
+
+
+def position_group_for_role(role: str | None) -> str | None:
+    if role == "Goleiro":
+        return "Goleiro"
+    if role and any(term in role for term in ("Zagueiro", "Lateral", "Ala")):
+        return "Defensor"
+    if role and any(term in role for term in ("Volante", "Meio-campista", "Meia")):
+        return "Meio-campista"
+    if role and any(term in role for term in ("Ponta", "atacante", "Centroavante")):
+        return "Atacante"
+    return None
+
 
 def _number(value: Any) -> float:
     try:
@@ -281,9 +315,45 @@ def summarize_tournament_positions(rows: list[dict[str, Any]]) -> dict[str, Any]
 
 
 def resolve_public_position(player: dict[str, Any]) -> str:
-    if player.get("role_confidence") in {"high", "medium"} and player.get("primary_inferred_role"):
-        return str(player["primary_inferred_role"])
+    inferred = player.get("primary_inferred_role") or player.get("inferred_role")
+    if player.get("role_confidence") in {"high", "medium"} and inferred:
+        return str(inferred)
     return api_position_group(player.get("api_position_group") or player.get("position")) or "Posição não informada"
+
+
+def apply_player_override(
+    player: dict[str, Any],
+    override: dict[str, Any] | None,
+) -> dict[str, Any]:
+    result = player.copy()
+    result.setdefault("api_player_name", player.get("player_name"))
+    result.setdefault("inferred_position_role", player.get("primary_inferred_role") or player.get("inferred_role"))
+    manual_role = (override or {}).get("manual_position_role")
+    if manual_role:
+        result["resolved_position"] = manual_role
+        result["resolved_side"] = (override or {}).get("manual_side") or role_side(str(manual_role))
+        result["position_resolution_source"] = "manual"
+    else:
+        result["resolved_position"] = resolve_public_position(player)
+        result["resolved_side"] = player.get("primary_inferred_side") or player.get("inferred_side") or "Indefinido"
+        result["position_resolution_source"] = (
+            "inferred"
+            if player.get("role_confidence") in {"high", "medium"} and result.get("inferred_position_role")
+            else "api"
+        )
+    if override:
+        if override.get("display_name_override"):
+            result["player_name"] = override["display_name_override"]
+        for field in (
+            "photo_url",
+            "photo_asset_path",
+            "photo_credit",
+            "photo_source_url",
+            "photo_alt_text",
+        ):
+            if override.get(field):
+                result[field] = override[field]
+    return result
 
 
 def _benchmark_family(role: str | None) -> str | None:
@@ -306,7 +376,7 @@ def _raw_benchmark_group(player: dict[str, Any]) -> str:
 
 
 def radar_profile_group(player: dict[str, Any]) -> str:
-    role = (
+    role = player.get("resolved_position") if player.get("position_resolution_source") == "manual" else (
         player.get("primary_inferred_role") or player.get("inferred_role")
         if player.get("role_confidence") in {"high", "medium"}
         else None
@@ -329,25 +399,33 @@ def radar_profile_group(player: dict[str, Any]) -> str:
 
 def assign_benchmark_cohorts(players: list[dict[str, Any]], minimum_sample: int = 5) -> list[dict[str, Any]]:
     eligible = [row for row in players if _number(row.get("minutes_played")) >= 30]
+
+    def reliable_role(row: dict[str, Any]) -> str | None:
+        if row.get("position_resolution_source") == "manual" and row.get("resolved_position"):
+            return str(row["resolved_position"])
+        if row.get("role_confidence") in {"high", "medium"} and row.get("primary_inferred_role"):
+            return str(row["primary_inferred_role"])
+        return None
+
     exact_counts = Counter(
-        str(row.get("primary_inferred_role"))
+        role
         for row in eligible
-        if row.get("primary_inferred_role") and row.get("role_confidence") in {"high", "medium"}
+        if (role := reliable_role(row))
     )
     family_counts = Counter(
         family
         for row in eligible
-        if row.get("role_confidence") in {"high", "medium"}
-        and (family := _benchmark_family(str(row.get("primary_inferred_role") or "")))
+        if (role := reliable_role(row))
+        and (family := _benchmark_family(role))
     )
     raw_counts = Counter(_raw_benchmark_group(row) for row in eligible)
     assigned = []
     for row in players:
-        role = str(row.get("primary_inferred_role") or "")
+        role = reliable_role(row) or ""
         family = _benchmark_family(role)
-        if row.get("role_confidence") in {"high", "medium"} and exact_counts[role] >= minimum_sample:
+        if role and exact_counts[role] >= minimum_sample:
             cohort, sample = role, exact_counts[role]
-        elif row.get("role_confidence") in {"high", "medium"} and family and family_counts[family] >= minimum_sample:
+        elif role and family and family_counts[family] >= minimum_sample:
             cohort, sample = family, family_counts[family]
         else:
             cohort = _raw_benchmark_group(row)

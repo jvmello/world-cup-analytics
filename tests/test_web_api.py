@@ -540,6 +540,8 @@ def test_competition_frontend_has_group_and_knockout_product_views() -> None:
         "Fase de grupos",
         "Mata-mata",
         "Melhores terceiros",
+        "Competição",
+        "Fase de 32",
         "Pos",
         "Seleção",
         "J",
@@ -551,13 +553,22 @@ def test_competition_frontend_has_group_and_knockout_product_views() -> None:
         "SG",
         "Pts",
         "Última vaga",
+        "Última classificada",
+        "Classificado",
+        "Classificado como melhor terceiro",
+        "Eliminado",
         "Possível vaga",
         "Fora agora",
     ):
         assert f'"{label}"' in render
-    assert 'onAction: () => routeTo("teams", teamId)' in render
-    assert 'onAction: () => routeTo("matches", match.match_id)' in render
+    assert 'goToProfile("team", teamId)' in render
+    assert 'routeTo("matches", match.match_id)' in render
     assert 'aria-selected' in render
+    assert 'text: "Melhores terceiros"' in render
+    assert 'text: "Mata-mata"' in render
+    assert 'text: "12 grupos · 24 vagas diretas · 8 melhores terceiros"' in render
+    assert '"16 avos"' not in render
+    assert '"Vencedor da partida' not in render
     assert "competition-group-table" in styles
     assert "best-thirds-table" in styles
     assert "knockout-board" in styles
@@ -566,7 +577,7 @@ def test_competition_frontend_has_group_and_knockout_product_views() -> None:
     assert "competition-row-out" in styles
 
 
-def test_competition_uses_expandable_groups_tooltips_and_quick_views() -> None:
+def test_competition_uses_full_width_group_games_tooltips_and_direct_navigation() -> None:
     app_js = (
         Path(__file__).parents[1] / "webapp/static/app.js"
     ).read_text(encoding="utf-8")
@@ -575,8 +586,13 @@ def test_competition_uses_expandable_groups_tooltips_and_quick_views() -> None:
         app_js.index("function renderPlayerDetail")
     ]
 
-    assert 'node("details", { class: "competition-group-games" }' in competition
+    assert 'node("details", { class: "competition-group-games" }' not in competition
     assert 'text: "Ver jogos do grupo"' in competition
+    assert "function competitionGroupRow" in competition
+    assert "function competitionGroupGamesPanel" in competition
+    assert "competition-group-row" in competition
+    assert "competition-group-games-panel" in competition
+    assert "competition-group-toggle" in competition
     assert "function teamGroupStatBreakdown" in competition
     assert "function showStatPopover" in competition
     assert '"GP": "gols pró, total de gols marcados."' in competition
@@ -585,12 +601,130 @@ def test_competition_uses_expandable_groups_tooltips_and_quick_views() -> None:
     assert '"Pts": "pontos conquistados."' in competition
     assert "function openTeamQuickView" in competition
     assert "function openMatchQuickView" in competition
-    assert 'actionLabel: "Ver seleção completa"' in competition
-    assert 'actionLabel: "Ver partida completa"' in competition
+    assert 'goToProfile("team", teamId)' in competition
+    assert 'routeTo("matches", match.match_id)' in competition
+    assert "function competitionKickoffLabel" in competition
+    assert "homeMatchIsLive(match)" in competition
+    assert 'return "Aguardando atualização"' in competition
+    assert 'text: "As 8 melhores seleções em 3º lugar avançam para a Fase de 32."' in competition
+    assert 'text: "Critério exibido: pontos, saldo de gols e gols pró."' in competition
+    assert "knockout-result-note" in competition
+    assert "Mata-mata em andamento" in competition
     render = competition[
         competition.index("function renderCompetition"):
     ]
     assert 'section("Estatísticas gerais"' not in render
+
+
+def test_completed_group_stage_uses_final_public_classification_statuses() -> None:
+    standings = {
+        "A": [
+            {"team_id": "a1", "position": 1, "classification_status": "Classificando"},
+            {"team_id": "a2", "position": 2, "classification_status": "Classificando"},
+            {"team_id": "a3", "position": 3, "classification_status": "Possível vaga"},
+            {"team_id": "a4", "position": 4, "classification_status": "Fora agora"},
+        ],
+        "B": [
+            {"team_id": "b1", "position": 1, "classification_status": "Classificando"},
+            {"team_id": "b2", "position": 2, "classification_status": "Classificando"},
+            {"team_id": "b3", "position": 3, "classification_status": "Possível vaga"},
+            {"team_id": "b4", "position": 4, "classification_status": "Fora agora"},
+        ],
+    }
+    thirds = [
+        {"team_id": "a3", "rank": 8, "status": "Última classificada"},
+        {"team_id": "b3", "rank": 9, "status": "Eliminado"},
+    ]
+
+    TheStatsApiBronzeService._finalize_group_statuses(standings, thirds)
+
+    assert [team["classification_status"] for team in standings["A"]] == [
+        "Classificado", "Classificado", "Classificado como melhor terceiro", "Eliminado",
+    ]
+    assert standings["B"][2]["classification_status"] == "Eliminado"
+
+
+def test_matches_frontend_is_a_compact_public_calendar() -> None:
+    root = Path(__file__).parents[1] / "webapp/static"
+    app_js = (root / "app.js").read_text(encoding="utf-8")
+    styles = (root / "styles.css").read_text(encoding="utf-8")
+    matches_surface = app_js[
+        app_js.index("function matchStageLabel"):
+        app_js.index("function renderShots")
+    ]
+    render = app_js[
+        app_js.index("function renderMatches"):
+        app_js.index("function renderShots")
+    ]
+
+    for function_name in (
+        "matchStageLabel",
+        "matchStageDistribution",
+        "matchCalendarRow",
+        "matchCalendarGroups",
+        "matchPublicStatus",
+        "matchFilterBar",
+    ):
+        assert f"function {function_name}" in app_js
+    for label in (
+        "Partidas", "Calendário", "Por data", "Por fase", "Limpar filtros",
+        "Hoje", "Próximos jogos", "Encerrados", "Horários em Brasília",
+        "Fase de grupos", "Fase de 32", "Oitavas", "Quartas", "Semifinais",
+        "Disputa de 3º lugar", "Final", "A definir", "Aguardando atualização",
+    ):
+        assert f'"{label}"' in render or f'"{label}"' in app_js
+    assert 'dashboardShell("Partidas"' in render
+    assert "matches-summary-strip" in render
+    assert "matches-calendar-list" in matches_surface
+    assert "matches-filter-disclosure" in matches_surface
+    assert "matches-grouping-control" in render
+    assert "score-grid" not in render
+    assert "matchCard(" not in render
+    assert '"Partida por partida"' not in render
+    assert '"Gols não informados"' not in render
+    assert '"Abrir partida"' not in render
+    assert 'routeTo("matches", match.match_id)' in matches_surface
+    assert 'goToProfile("team", teamId)' in matches_surface
+    assert 'body[data-page="matches"][data-skin="2026"] .matches-calendar-row' in styles
+    assert 'body[data-page="matches"][data-skin="2026"] .matches-filter-disclosure' in styles
+    assert "word-break: normal" in styles
+
+
+def test_matches_adapter_resolves_public_stages_and_future_sides() -> None:
+    rows = [
+        {
+            "match_id": "r32",
+            "match_date": "2026-06-28T19:00:00Z",
+            "stage": "round_of_32",
+            "home_team": "Brazil",
+            "home_team_id": "bra",
+            "away_team": "Japan",
+            "away_team_id": "jpn",
+            "home_score": 2,
+            "away_score": 1,
+            "status": "finished",
+        },
+        {
+            "match_id": "r16",
+            "match_date": "2026-07-04T19:00:00Z",
+            "stage": "round_of_16",
+            "home_team": "W73",
+            "away_team": "W74",
+            "home_score": None,
+            "away_score": None,
+            "status": "scheduled",
+        },
+    ]
+
+    public = TheStatsApiBronzeService._public_match_items(rows)
+
+    assert public[0]["stage_label"] == "Fase de 32"
+    assert public[1]["stage_label"] == "Oitavas"
+    assert public[1]["home_team"] == "Brazil"
+    assert public[1]["home_defined"] is True
+    assert public[1]["away_team"] == "A definir"
+    assert public[1]["away_defined"] is False
+    assert all(not str(item.get("home_team", "")).startswith("W") for item in public)
 
 
 def test_match_center_frontend_has_internal_nav_and_clear_filters() -> None:
@@ -832,6 +966,13 @@ def test_analytical_pages_separate_overviews_from_individual_profiles() -> None:
     ):
         assert f'"{label_text}"' in app_js
     assert "scatter-reference-line" in app_js
+    assert "function scatterEntityMarker" in app_js
+    assert 'kind: "player"' in app_js
+    assert 'kind: "team"' in app_js
+    assert "scatter-marker-image" in app_js
+    assert "scatter-marker-hitbox" in app_js
+    assert ".scatter-entity-marker" in styles
+    assert ".scatter-marker-image" in styles
     for label_text in (
         "xG × xA", "Finalizações × xG", "Produção por posição",
         "Gols × xG", "Finalizações feitas × sofridas",
@@ -1080,6 +1221,8 @@ def test_2026_home_is_a_compact_editorial_match_center() -> None:
     for function_name in (
         "homeSummaryStrip",
         "homePulse",
+        "homePulseHeadline",
+        "homeFriendlyKickoff",
         "homeBracketSummary",
         "compactMatchRow",
         "homeRankingPanel",
@@ -1102,6 +1245,7 @@ def test_2026_home_is_a_compact_editorial_match_center() -> None:
         assert heading in overview
 
     assert "home-summary-strip" in app_js
+    assert "home-pulse-headline" in app_js
     assert "home-match-row" in app_js
     assert "home-ranking-row" in app_js
     for tab in ("Jogadores", "Seleções", "Partidas", "Curiosidades"):
@@ -1169,11 +1313,10 @@ def test_2026_home_rankings_use_central_modal_and_semantic_xg_balance() -> None:
         '"Finalizações"',
         '"Maior xG"',
         '"Saldo de xG"',
-        '"Gols marcados"',
-        '"Mais finalizações"',
-        '"Maior xG total"',
     ):
         assert title in overview
+    assert '"Gols marcados"' not in overview
+    assert '"Maior xG total"' not in overview
 
     assert 'layout: "modal"' in overview
     assert "ranking-detail-head" in overview
@@ -1181,7 +1324,10 @@ def test_2026_home_rankings_use_central_modal_and_semantic_xg_balance() -> None:
     assert "homeRankingValueClass" in overview
     assert "is-positive" in overview
     assert "is-negative" in overview
-    assert 'round_of_32: "16 avos"' in overview
+    assert 'round_of_32: "Fase de 32"' in overview
+    assert '"16 avos"' not in overview
+    assert 'text: "Ver ranking completo"' in overview
+    assert 'text: "Horários em Brasília"' in overview
     assert "homeMatchIsLive" in overview
     assert '.quick-view-overlay.is-modal' in styles
     assert '.quick-view-drawer.is-modal' in styles
@@ -1191,6 +1337,18 @@ def test_2026_home_rankings_use_central_modal_and_semantic_xg_balance() -> None:
 
 def test_home_time_and_xg_ranking_contracts_are_complete() -> None:
     service = TheStatsApiBronzeService()
+    penalty_summary = service._match_summary(
+        {
+            "id": "penalties",
+            "home_team": {"id": "ger", "name": "Germany"},
+            "away_team": {"id": "par", "name": "Paraguay"},
+            "score": {"home": 1, "away": 1, "final_score": {"home": 4, "away": 5}},
+        },
+        {},
+    )
+    assert penalty_summary["penalty_home_score"] == 4
+    assert penalty_summary["penalty_away_score"] == 5
+
     stale_live = {
         "status": "in_progress",
         "match_date": "2026-06-29T01:00:00Z",
@@ -1241,6 +1399,20 @@ def test_home_pulse_reports_knockout_consequences_and_next_matchups() -> None:
             "away_score": 1,
         },
         {
+            "match_id": "penalties",
+            "stage": "round_of_32",
+            "status": "finished",
+            "match_date": "2026-06-29T20:30:00Z",
+            "home_team": "Germany",
+            "home_team_id": "ger",
+            "away_team": "Paraguay",
+            "away_team_id": "par",
+            "home_score": 1,
+            "away_score": 1,
+            "penalty_home_score": 4,
+            "penalty_away_score": 5,
+        },
+        {
             "match_id": "m2",
             "stage": "round_of_32",
             "status": "scheduled",
@@ -1255,9 +1427,9 @@ def test_home_pulse_reports_knockout_consequences_and_next_matchups() -> None:
             "stage": "round_of_16",
             "status": "scheduled",
             "match_date": "2026-07-04T19:00:00Z",
-            "home_team": "Brazil",
-            "home_team_id": "bra",
-            "away_team": "W2",
+            "home_team": "W73",
+            "home_team_id": None,
+            "away_team": "W75",
             "home_score": None,
             "away_score": None,
         },
@@ -1265,12 +1437,17 @@ def test_home_pulse_reports_knockout_consequences_and_next_matchups() -> None:
 
     pulse = service.home_pulse(fixtures, now=datetime(2026, 6, 30, 12, tzinfo=timezone.utc))
 
-    assert pulse["current_phase"] == "16 avos"
-    assert pulse["classified_recent"][0]["winner_name"] == "Brazil"
-    assert pulse["classified_recent"][0]["eliminated_name"] == "Japan"
-    assert "avançou" in pulse["classified_recent"][0]["narrative"]
+    assert pulse["current_phase"] == "Fase de 32"
+    penalty_result = next(item for item in pulse["classified_recent"] if item["winner_name"] == "Paraguay")
+    assert penalty_result["eliminated_name"] == "Germany"
+    assert penalty_result["decided_by"] == "penalties"
+    assert penalty_result["score_label"] == "1–1 (5–4 nos pênaltis)"
+    assert penalty_result["narrative"] == "Paraguay avançou nos pênaltis após empate por 1–1 contra Germany."
+    brazil_result = next(item for item in pulse["classified_recent"] if item["winner_name"] == "Brazil")
+    assert brazil_result["narrative"] == "Brazil avançou após vencer Japan por 2–1."
     assert pulse["next_matchups"][0]["home"]["team_name"] == "Brazil"
-    assert pulse["next_matchups"][0]["away"]["placeholder"] == "Vencedor da partida 2"
+    assert pulse["next_matchups"][0]["away"]["placeholder"] == "Vencedor de France x Sweden"
+    assert "partida 75" not in str(pulse)
 
 
 def test_home_discoveries_are_distinct_and_apply_minimum_samples() -> None:
@@ -1296,9 +1473,16 @@ def test_home_discoveries_are_distinct_and_apply_minimum_samples() -> None:
     discoveries = service.home_discoveries(players, teams, details)
 
     assert set(discoveries) == {"players", "teams", "matches", "curiosities"}
-    player_metric = next(item for item in discoveries["players"] if item["id"] == "goals_per_100")
+    player_metric = next(item for item in discoveries["players"] if item["id"] == "goals_per_90")
     assert player_metric["eligibility"] == "Mínimo de 120 minutos e 1 gol"
+    assert player_metric["title"] == "Gols por 90"
+    assert player_metric["rows"][0]["value"] == 1.5
     assert [row["player_name"] for row in player_metric["rows"]] == ["Eligible"]
+    on_target = next(item for item in discoveries["matches"] if item["id"] == "most_on_target")
+    assert on_target["unit"] == "no alvo"
+    balanced = next(item for item in discoveries["matches"] if item["id"] == "most_balanced_xg")
+    assert balanced["unit"] == "diferença de xG"
+    assert any(item["id"] == "goals_minus_xg" for item in discoveries["teams"])
     assert all(item["description"] for group in discoveries.values() for item in group)
 
 
@@ -1317,11 +1501,11 @@ def test_home_discoveries_keep_every_eligible_row_for_expanded_rankings() -> Non
     ]
 
     discoveries = TheStatsApiBronzeService.home_discoveries(players, [], [])
-    goals_per_100 = next(
-        metric for metric in discoveries["players"] if metric["id"] == "goals_per_100"
+    goals_per_90 = next(
+        metric for metric in discoveries["players"] if metric["id"] == "goals_per_90"
     )
 
-    assert len(goals_per_100["rows"]) == 12
+    assert len(goals_per_90["rows"]) == 12
 
 
 def test_thestatsapi_opening_match_sample_feeds_web_contract(
@@ -1585,9 +1769,9 @@ def test_thestatsapi_opening_match_sample_feeds_web_contract(
     assert competition["groups"][0]["teams"][2]["classification_status"] == "Possível vaga"
     assert competition["groups"][0]["teams"][3]["classification_status"] == "Fora agora"
     assert competition["best_thirds"][0]["rank"] == 1
-    assert competition["best_thirds"][0]["status"] == "Classificando"
+    assert competition["best_thirds"][0]["status"] == "Dentro no momento"
     assert [round_["name"] for round_ in competition["knockout"]["rounds"]] == [
-        "16 avos",
+        "Fase de 32",
         "Oitavas",
         "Quartas",
         "Semifinais",

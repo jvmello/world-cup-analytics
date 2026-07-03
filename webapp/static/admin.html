@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090d13">
+  <meta name="robots" content="noindex,nofollow">
+  <title>World Cup Analytics · Curadoria</title>
+  <link rel="stylesheet" href="/static/admin.css">
+  <script src="/static/admin.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#admin-content">Pular para o conteúdo</a>
+  <header class="admin-topbar">
+    <a class="admin-brand" href="/admin/teams" data-admin-link>
+      <span class="admin-brand-mark">26</span>
+      <span><strong>World Cup Analytics</strong><small>Curadoria interna</small></span>
+    </a>
+    <div class="admin-environment"><span></span>Área restrita</div>
+    <a class="public-link" href="/2026">Abrir produto público</a>
+  </header>
+  <div class="admin-layout">
+    <aside class="admin-sidebar" aria-label="Navegação de curadoria">
+      <nav>
+        <a href="/admin/teams" data-admin-link data-section="teams">Seleções</a>
+        <a href="/admin/players" data-admin-link data-section="players">Jogadores</a>
+        <a href="/admin/position-overrides" data-admin-link data-section="position-overrides">Overrides</a>
+      </nav>
+      <label class="actor-field"><span>Responsável</span><input id="admin-actor" value="local-admin" autocomplete="off"></label>
+    </aside>
+    <main id="admin-content" tabindex="-1" aria-live="polite" aria-busy="true"></main>
+  </div>
+  <div id="admin-toast" role="status" aria-live="polite"></div>
+</body>
+</html>
