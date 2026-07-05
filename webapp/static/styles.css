@@ -2545,6 +2545,19 @@ body[data-page="profile"][data-skin="2026"] .profile-standing {
   text-transform: uppercase;
 }
 
+body[data-page="profile"][data-skin="2026"] .profile-sample-badge {
+  display: inline-block;
+  margin-top: 3px;
+  border: 1px solid rgba(212, 184, 76, .45);
+  border-radius: 999px;
+  padding: 1px 6px;
+  color: var(--wc26-yellow);
+  font-size: 7px;
+  font-weight: 700;
+  font-style: normal;
+  text-transform: none;
+}
+
 body[data-page="profile"][data-skin="2026"] .profile-comparison-metric.is-positive small {
   color: var(--wc26-neon-mint);
 }
@@ -2567,6 +2580,59 @@ body[data-page="profile"][data-skin="2026"] .profile-metric-groups {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 12px;
+}
+
+body[data-page="profile"][data-skin="2026"] .profile-comparables {
+  margin-top: 6px;
+  border-top: 1px solid rgba(57, 223, 255, .28);
+  padding-top: 16px;
+}
+
+body[data-page="profile"][data-skin="2026"] .profile-comparables h3 {
+  margin: 0 0 4px;
+  font: 750 16px/1.1 Georgia, serif;
+}
+
+body[data-page="profile"][data-skin="2026"] .profile-comparables-note {
+  margin: 0 0 12px;
+  color: var(--wc26-text-muted);
+  font-size: 10px;
+}
+
+body[data-page="profile"][data-skin="2026"] .profile-comparables-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px;
+}
+
+body[data-page="profile"][data-skin="2026"] .profile-comparable-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--wc26-surface-alt);
+  color: var(--wc26-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+body[data-page="profile"][data-skin="2026"] .profile-comparable-item:hover,
+body[data-page="profile"][data-skin="2026"] .profile-comparable-item:focus-visible {
+  border-color: var(--wc26-teal);
+  outline: none;
+}
+
+body[data-page="profile"][data-skin="2026"] .profile-comparable-item strong {
+  display: block;
+  font-size: 13px;
+}
+
+body[data-page="profile"][data-skin="2026"] .profile-comparable-item small {
+  color: var(--wc26-text-muted);
+  font-size: 10px;
 }
 
 body[data-page="profile"][data-skin="2026"] .profile-metric-group {
@@ -2616,6 +2682,13 @@ body[data-page="profile"][data-skin="2026"] .radar-benchmark-area {
   stroke-dasharray: 4 3;
 }
 
+body[data-page="profile"][data-skin="2026"] .radar-leader-line {
+  fill: none;
+  stroke: rgba(255, 255, 255, .4);
+  stroke-width: 1;
+  stroke-dasharray: 1.5 2.5;
+}
+
 body[data-page="profile"][data-skin="2026"] .radar-legend,
 body[data-page="profile"][data-skin="2026"] .profile-chart-legend {
   display: flex;
@@ -2640,6 +2713,12 @@ body[data-page="profile"][data-skin="2026"] .profile-chart-legend span::before {
 body[data-page="profile"][data-skin="2026"] .radar-legend .is-benchmark::before,
 body[data-page="profile"][data-skin="2026"] .profile-chart-legend .is-benchmark::before {
   background: var(--wc26-text-muted);
+}
+
+body[data-page="profile"][data-skin="2026"] .radar-legend .is-leader::before {
+  background: transparent;
+  border-top: 1px dashed rgba(255, 255, 255, .5);
+  height: 0;
 }
 
 body[data-page="profile"][data-skin="2026"] .profile-chart-legend .is-against::before {

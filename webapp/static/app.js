@@ -2605,7 +2605,7 @@
     return favorable === false ? "Abaixo da média" : "Faixa inferior";
   }
 
-  function metricWithComparison(labelText, value, { unit = "", benchmark = null, benchmarkLabel = "Média comparativa", compactBenchmark = false, standingUniverse = "da posição", entityValueLabel = "Valor do jogador", universeDescription = "jogadores da mesma posição na competição" } = {}) {
+  function metricWithComparison(labelText, value, { unit = "", benchmark = null, benchmarkLabel = "Média comparativa", compactBenchmark = false, standingUniverse = "da posição", entityValueLabel = "Valor do jogador", universeDescription = "jogadores da mesma posição na competição", entityGames = null } = {}) {
     if (!metricAvailable(value)) return null;
     const formatted = `${formatValue(value)}${unit}`;
     if (!benchmark) return node("div", { class: "profile-comparison-metric" }, [node("dt", { text: labelText }), node("dd", { text: formatted })]);
@@ -2613,11 +2613,17 @@
     const favorable = delta === null ? null : benchmark.direction === "lower" ? delta < 0 : delta > 0;
     const reference = compactBenchmark ? "média" : benchmarkLabel.toLocaleLowerCase("pt-BR");
     const deltaText = delta === null ? null : `${delta > 0 ? "+" : ""}${formatValue(delta)}${unit} vs ${reference}`;
+    const standingText = percentile !== null ? profileStandingLabel(percentile, favorable, standingUniverse) : null;
+    const smallSample = number(entityGames) !== null && number(entityGames) < 5;
+    const sampleBadge = standingText && standingText !== "Próximo da média" && smallSample
+      ? node("span", { class: "profile-sample-badge", title: "Recorte com poucos jogos — interprete o percentil com cautela.", text: `amostra: ${formatValue(entityGames)} ${number(entityGames) === 1 ? "jogo" : "jogos"}` })
+      : null;
     const title = `${benchmarkLabel}: ${formatValue(average)}${unit} · ${entityValueLabel}: ${formatted} · Percentil: ${formatValue(percentile)} · Universo comparado: ${universeDescription} · Amostra: ${formatValue(benchmark.sample_size)}`;
     return node("div", { class: `profile-comparison-metric${favorable === true ? " is-positive" : favorable === false ? " is-negative" : ""}`, title }, [
       node("dt", { text: labelText }), node("dd", { text: formatted }),
       deltaText ? node("small", { text: deltaText }) : null,
-      percentile !== null ? node("span", { class: "profile-standing", text: profileStandingLabel(percentile, favorable, standingUniverse) }) : null,
+      standingText ? node("span", { class: "profile-standing", text: standingText }) : null,
+      sampleBadge,
     ]);
   }
 
@@ -2677,13 +2683,31 @@
     return node("div", { class: "team-production-chart" }, [node("div", { class: "svg-chart" }, svg), node("div", { class: "profile-chart-legend" }, [node("span", { class: "is-for", text: "xG criado" }), node("span", { class: "is-against", text: "xG cedido" }), benchmark ? node("span", { class: "is-benchmark", text: "Média da Copa" }) : null])]);
   }
 
-  function playerRadarFeature(player, radar, benchmarkRadar, benchmarkLabel) {
+  function profileComparablesBlock(items, kind) {
+    if (!items?.length) return null;
+    return node("section", { class: "profile-comparables" }, [
+      node("h3", { text: "Comparáveis" }),
+      node("p", { class: "profile-comparables-note", text: "Perfil estatístico mais próximo, pela distância entre os eixos do radar comparativo." }),
+      node("div", { class: "profile-comparables-list" }, items.map(item => node("button", {
+        type: "button", class: "profile-comparable-item", onclick: () => goToProfile(kind, item.id),
+      }, [
+        flagNode({ team_name: item.team_name }),
+        node("span", {}, [
+          node("strong", { text: kind === "player" ? item.name : displayTeamName(item.name) }),
+          kind === "player" ? node("small", { text: displayTeamName(item.team_name) }) : null,
+        ].filter(Boolean)),
+      ]))),
+    ]);
+  }
+
+  function playerRadarFeature(player, radar, benchmarkRadar, benchmarkLabel, leaderRadar = []) {
     if (radar.length < 4 || benchmarkRadar.length < 4) return null;
     const title = `${personName(player)} vs ${benchmarkLabel.toLocaleLowerCase("pt-BR")}`;
+    const leaderLabel = "Líder da posição";
     return node("section", { class: "profile-radar-feature" }, [
       node("header", {}, [node("h3", { text: "Radar comparativo" }), node("p", { text: title })]),
-      radarChart(radar, title, benchmarkRadar, benchmarkLabel, true),
-      node("p", { class: "profile-radar-note", text: `Escala 0–100. A linha cinza representa ${benchmarkLabel.toLocaleLowerCase("pt-BR")} da Copa.` }),
+      radarChart(radar, title, benchmarkRadar, benchmarkLabel, true, leaderRadar, leaderLabel),
+      node("p", { class: "profile-radar-note", text: `Escala 0–100. A linha cinza representa ${benchmarkLabel.toLocaleLowerCase("pt-BR")} da Copa${leaderRadar.length ? `; a linha pontilhada mostra o melhor valor observado na posição em cada eixo` : ""}.` }),
     ]);
   }
 
@@ -2695,7 +2719,7 @@
         metric("xg", "xG"), metric("shot_conversion", "Conversão", "%"),
       ]),
       node("section", { class: "profile-shot-map-section" }, [node("h3", { text: "Mapa de finalizações" }), playerShotMapPanel(shots)]),
-      playerShotMinuteChart(shots, data.shot_benchmark?.minute_bins),
+      node("div", { class: "player-distribution-grid" }, [playerShotMinuteChart(shots, data.shot_benchmark?.minute_bins), playerShotQualityChart(shots)]),
       node("div", { class: "player-distribution-grid" }, [
         distributionWithBenchmark(shots, data.shot_benchmark?.distributions?.body_part, "body_part", "Parte do corpo"),
         distributionWithBenchmark(shots, data.shot_benchmark?.distributions?.shot_type, "shot_type", "Situação da finalização"),
@@ -2712,7 +2736,8 @@
     const isMidfielder = player.macroposition === "Meio-campista" || positionLabel(player.position) === "MEI";
     const availableRadar = (data.radar || player.radar || []).filter(axis => metricAvailable(axis.value));
     const benchmarkRadar = (data.benchmark_radar || []).filter(axis => availableRadar.some(selected => selected.axis === axis.axis));
-    const metric = (key, labelText, unit = "", compactBenchmark = false) => metricWithComparison(labelText, player[key], { unit, benchmark: benchmarks.metrics?.[key], benchmarkLabel, compactBenchmark });
+    const leaderRadar = (data.leader_radar || []).filter(axis => availableRadar.some(selected => selected.axis === axis.axis));
+    const metric = (key, labelText, unit = "", compactBenchmark = false) => metricWithComparison(labelText, player[key], { unit, benchmark: benchmarks.metrics?.[key], benchmarkLabel, compactBenchmark, entityGames: number(player.games) });
     const metricGroupRows = (title, rows) => rows.length ? node("section", { class: "profile-metric-group" }, [node("header", {}, [node("h4", { text: title }), node("small", { text: `Comparativo: ${benchmarkLabel}` })]), node("dl", { class: "profile-comparison-grid" }, rows)]) : null;
     const metricGroup = (title, definitions) => metricGroupRows(title, definitions.map(([key, labelText, unit]) => metric(key, labelText, unit, true)).filter(Boolean));
     const duelsGroup = () => {
@@ -2739,7 +2764,7 @@
     } else if (activeTab === "match_log") {
       content = playerMatchLogTable(data.match_log || []);
     } else {
-      const radarFeature = playerRadarFeature(player, availableRadar, benchmarkRadar, benchmarkLabel);
+      const radarFeature = playerRadarFeature(player, availableRadar, benchmarkRadar, benchmarkLabel, leaderRadar);
       content = node("div", { class: "player-profile-general" }, [
         profileQuickRead(personName(player), quickMetrics, benchmarks),
         radarFeature,
@@ -2758,6 +2783,7 @@
           metricGroup("Passe", [["accurate_passes", "Passes certos", ""], ["pass_accuracy", "Precisão de passe", "%"], ["long_pass_accuracy", "Bolas longas certas", "%"]]),
           metricGroup("Defesa", [["tackles", "Desarmes", ""], ["interceptions", "Interceptações", ""], ["clearances", "Cortes", ""]]),
         ]).filter(Boolean)),
+        profileComparablesBlock(data.comparable_players, "player"),
       ].filter(Boolean));
     }
     return node("article", { class: "player-profile-view" }, [
@@ -2859,6 +2885,31 @@
       svg.append(svgNode("text", { x: x + (barWidth - 16) / 2, y: height - 16, class: "chart-axis", "text-anchor": "middle" }, bin.label));
     });
     return node("article", { class: "player-distribution-panel" }, [node("h3", { text: "Finalizações por minuto" }), node("div", { class: "svg-chart" }, svg)]);
+  }
+
+  function playerShotQualityChart(shots) {
+    if (!shots.length) return emptyState("Distribuição de qualidade indisponível", "Não há finalizações neste recorte.");
+    const ranges = [[0, .1, "Baixo · <0,1 xG"], [.1, .3, "Médio · 0,1–0,3 xG"], [.3, Infinity, "Alto · >0,3 xG"]];
+    const bins = ranges.map(([start, end, labelText]) => {
+      const rows = shots.filter(shot => { const xg = Math.max(0, number(shot.xg ?? shot.statsbomb_xg) || 0); return xg >= start && xg < end; });
+      return { label: labelText, shots: rows.length, goals: rows.filter(shot => shot.is_goal).length, xg: rows.reduce((total, shot) => total + Math.max(0, number(shot.xg ?? shot.statsbomb_xg) || 0), 0) };
+    });
+    const width = 720, height = 250, pad = 40, max = Math.max(...bins.map(bin => bin.shots), 1), barWidth = (width - pad * 2) / bins.length;
+    const svg = svgNode("svg", { viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": "Finalizações por faixa de qualidade de chance" });
+    bins.forEach((bin, index) => {
+      const h = bin.shots / max * (height - pad * 2);
+      const x = pad + index * barWidth + 8, y = height - pad - h;
+      const bar = svgNode("rect", { x, y, width: barWidth - 16, height: h, rx: 2, class: "player-minute-bar", tabindex: "0" });
+      svg.append(attachChartTooltip(bar, `${bin.label} · ${bin.shots} finalizações · ${bin.goals} gols · ${formatValue(bin.xg)} xG total`));
+      if (bin.shots) svg.append(svgNode("text", { x: x + (barWidth - 16) / 2, y: Math.max(18, y - 8), class: "player-minute-value", "text-anchor": "middle" }, String(bin.shots)));
+      if (bin.goals) svg.append(svgNode("circle", { cx: x + (barWidth - 16) / 2, cy: Math.max(pad, y - 7), r: 4 + bin.goals, class: "player-minute-goal" }));
+      svg.append(svgNode("text", { x: x + (barWidth - 16) / 2, y: height - 16, class: "chart-axis", "text-anchor": "middle" }, bin.label));
+    });
+    return node("article", { class: "player-distribution-panel" }, [
+      node("h3", { text: "Finalizações por qualidade de chance" }),
+      node("p", { class: "profile-radar-note", text: "Revela se o volume de finalizações vem de chances de qualidade ou de tentativas de baixa probabilidade." }),
+      node("div", { class: "svg-chart" }, svg),
+    ]);
   }
 
   function playerShotDistributions(shots) {
@@ -3665,7 +3716,7 @@
     ]);
   }
 
-  function radarChart(profile = [], title = "Radar do jogador", benchmark = [], benchmarkLabel = "Média comparativa", large = false) {
+  function radarChart(profile = [], title = "Radar do jogador", benchmark = [], benchmarkLabel = "Média comparativa", large = false, leader = [], leaderLabel = "Líder") {
     const axes = profile.filter(item => item?.value !== undefined && item?.value !== null);
     if (axes.length < 3) return emptyState("Radar indisponível", "Este jogador ainda não tem dimensões suficientes para uma comparação contextual.");
     const size = large ? 360 : 260;
@@ -3691,6 +3742,12 @@
       const valueRadius = radius * Math.max(0, Math.min(100, benchmarkByAxis.get(point.axis.axis) ?? 50)) / 100;
       return { ...point, x: center + Math.cos(point.angle) * valueRadius, y: center + Math.sin(point.angle) * valueRadius };
     });
+    const leaderByAxis = new Map(leader.map(axis => [axis.axis, number(axis.value)]));
+    const hasLeader = points.length > 0 && points.every(point => leaderByAxis.get(point.axis.axis) !== undefined);
+    const leaderPoints = hasLeader ? points.map(point => {
+      const valueRadius = radius * Math.max(0, Math.min(100, leaderByAxis.get(point.axis.axis))) / 100;
+      return { ...point, x: center + Math.cos(point.angle) * valueRadius, y: center + Math.sin(point.angle) * valueRadius };
+    }) : [];
     const svg = svgNode("svg", { viewBox: `0 0 ${size} ${size}`, role: "img", "aria-label": title });
     svg.append(svgNode("title", {}, title));
     [0.33, 0.66, 1].forEach(scale => {
@@ -3701,16 +3758,18 @@
       svg.append(svgNode("line", { x1: center, y1: center, x2: point.gridX, y2: point.gridY, class: "radar-axis" }));
       svg.append(svgNode("text", { x: point.labelX, y: point.labelY + 3, class: "radar-label", "text-anchor": point.labelX < center - 8 ? "end" : point.labelX > center + 8 ? "start" : "middle" }, axisLabel(point.axis)));
     });
+    if (hasLeader) svg.append(svgNode("polygon", { points: leaderPoints.map(point => `${point.x},${point.y}`).join(" "), class: "radar-leader-line" }));
     if (benchmark.length) svg.append(svgNode("polygon", { points: benchmarkPoints.map(point => `${point.x},${point.y}`).join(" "), class: "radar-benchmark-area" }));
     svg.append(svgNode("polygon", { points: points.map(point => `${point.x},${point.y}`).join(" "), class: "radar-area" }));
     points.forEach(point => {
       const benchmarkValue = benchmarkByAxis.get(point.axis.axis);
+      const leaderValue = leaderByAxis.get(point.axis.axis);
       const composition = (point.axis.available_metrics || []).filter(Boolean);
-      const tooltip = `${axisLabel(point.axis)}: ${formatValue(point.axis.value)}/100${benchmarkValue !== undefined ? ` · ${benchmarkLabel}: ${formatValue(benchmarkValue)}/100` : ""}${composition.length ? ` · Composição: ${composition.join(", ")}` : ""}`;
+      const tooltip = `${axisLabel(point.axis)}: ${formatValue(point.axis.value)}/100${benchmarkValue !== undefined ? ` · ${benchmarkLabel}: ${formatValue(benchmarkValue)}/100` : ""}${leaderValue !== undefined ? ` · ${leaderLabel}: ${formatValue(leaderValue)}/100` : ""}${composition.length ? ` · Composição: ${composition.join(", ")}` : ""}`;
       const dot = svgNode("circle", { cx: point.x, cy: point.y, r: 3.5, class: "radar-dot", tabindex: "0", "aria-label": tooltip });
       svg.append(attachChartTooltip(dot, tooltip));
     });
-    return node("div", { class: "radar-comparison" }, [node("div", { class: "radar-wrap" }, svg), benchmark.length ? node("div", { class: "radar-legend" }, [node("span", { class: "is-selected", text: "Selecionado" }), node("span", { class: "is-benchmark", text: benchmarkLabel })]) : null]);
+    return node("div", { class: "radar-comparison" }, [node("div", { class: "radar-wrap" }, svg), benchmark.length ? node("div", { class: "radar-legend" }, [node("span", { class: "is-selected", text: "Selecionado" }), node("span", { class: "is-benchmark", text: benchmarkLabel }), hasLeader ? node("span", { class: "is-leader", text: leaderLabel }) : null].filter(Boolean)) : null]);
   }
 
   const metricAvailable = value => value !== null && value !== undefined && value !== "";
@@ -5256,13 +5315,14 @@
     return node("p", { class: "profile-quick-read team-profile-reading", text: `${teamName(team)} registrou ${facts.join(", ")}.${readings.length ? ` No comparativo com a Copa, teve ${readings.join(" e ")}.` : ""}` });
   }
 
-  function teamRadarFeature(team, radar, benchmarkRadar, benchmarkLabel) {
+  function teamRadarFeature(team, radar, benchmarkRadar, benchmarkLabel, leaderRadar = []) {
     if (radar.length < 4 || benchmarkRadar.length < 4) return null;
     const title = `${teamName(team)} vs média das seleções da Copa`;
+    const leaderLabel = "Líder da Copa";
     return node("section", { class: "profile-radar-feature team-radar-feature" }, [
       node("header", {}, [node("h3", { text: "Perfil comparativo" }), node("p", { text: title })]),
-      radarChart(radar, title, benchmarkRadar, benchmarkLabel, true),
-      node("p", { class: "profile-radar-note", text: "Escala 0–100 calculada pelo mesmo método para a seleção e para a média da Copa." }),
+      radarChart(radar, title, benchmarkRadar, benchmarkLabel, true, leaderRadar, leaderLabel),
+      node("p", { class: "profile-radar-note", text: `Escala 0–100 calculada pelo mesmo método para a seleção e para a média da Copa${leaderRadar.length ? "; a linha pontilhada mostra o melhor valor observado na Copa em cada eixo" : ""}.` }),
     ]);
   }
 
@@ -5272,7 +5332,7 @@
     return node("div", { class: "profile-shot-experience team-shot-experience" }, [
       profileSummaryLine([metric("shots", "Finalizações"), metric("goals_for", "Gols"), metric("xg", "xG"), metric("conversion", "Conversão", "%")]),
       node("section", { class: "profile-shot-map-section" }, [node("h3", { text: "Mapa de finalizações" }), playerShotMapPanel(shots, { color })]),
-      playerShotMinuteChart(shots, data.shot_benchmark?.minute_bins),
+      node("div", { class: "player-distribution-grid" }, [playerShotMinuteChart(shots, data.shot_benchmark?.minute_bins), playerShotQualityChart(shots)]),
       node("div", { class: "player-distribution-grid" }, [
         distributionWithBenchmark(shots, data.shot_benchmark?.distributions?.body_part, "body_part", "Parte do corpo"),
         distributionWithBenchmark(shots, data.shot_benchmark?.distributions?.shot_type, "shot_type", "Situação da finalização"),
@@ -5294,13 +5354,14 @@
     if (!data?.available) return emptyState("Seleção não encontrada", data?.notice || "Não há dados suficientes.");
     const team = data.team || {};
     const benchmarks = data.benchmarks || {}, benchmarkLabel = benchmarks.label || "Média da Copa";
-    const metric = (key, labelText, unit = "", compactBenchmark = false) => metricWithComparison(labelText, team[key], { unit, benchmark: benchmarks.metrics?.[key], benchmarkLabel, compactBenchmark, standingUniverse: "das seleções", entityValueLabel: "Valor da seleção", universeDescription: "todas as seleções da Copa" });
+    const metric = (key, labelText, unit = "", compactBenchmark = false) => metricWithComparison(labelText, team[key], { unit, benchmark: benchmarks.metrics?.[key], benchmarkLabel, compactBenchmark, standingUniverse: "das seleções", entityValueLabel: "Valor da seleção", universeDescription: "todas as seleções da Copa", entityGames: number(team.played) });
     const metricGroup = (title, definitions) => {
       const rows = definitions.map(([key, labelText, unit]) => metric(key, labelText, unit, true)).filter(Boolean);
       return rows.length ? node("section", { class: "profile-metric-group" }, [node("header", {}, [node("h4", { text: title }), node("small", { text: "Referência: média das seleções da Copa" })]), node("dl", { class: "profile-comparison-grid" }, rows)]) : null;
     };
     const radar = (data.radar || []).filter(axis => metricAvailable(axis.value));
     const benchmarkRadar = (data.benchmark_radar || []).filter(axis => radar.some(selected => selected.axis === axis.axis));
+    const leaderRadar = (data.leader_radar || []).filter(axis => radar.some(selected => selected.axis === axis.axis));
     let content;
     if (activeTab === "match_log") {
       content = teamMatchLogTable(data.matches || [], benchmarks);
@@ -5309,7 +5370,7 @@
     } else {
       content = node("div", { class: "team-profile-general" }, [
         teamProfileQuickRead(team, benchmarks),
-        teamRadarFeature(team, radar, benchmarkRadar, benchmarkLabel),
+        teamRadarFeature(team, radar, benchmarkRadar, benchmarkLabel, leaderRadar),
         node("div", { class: "profile-metric-groups" }, [
           // Mirrors the radar's "Ataque" and "Finalização" axes together — both are covered here
           // so the correspondence stays visible without a near-empty single-metric block.
@@ -5318,6 +5379,7 @@
           metricGroup("Controle", [["average_possession", "Posse média", "%"], ["pass_accuracy", "Precisão de passe", "%"], ["recoveries_per_game", "Recuperações por jogo", ""], ["tackles_per_game", "Desarmes por jogo", ""]]),
           metricGroup("Eficiência", [["goals_minus_xg", "Gols acima do xG", ""], ["xg_difference", "Saldo de xG", ""], ["conversion", "Conversão", "%"]]),
         ].filter(Boolean)),
+        profileComparablesBlock(data.comparable_teams, "team"),
       ].filter(Boolean));
     }
     return node("article", { class: "team-profile-view" }, [

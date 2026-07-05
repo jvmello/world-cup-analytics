@@ -765,6 +765,80 @@ def test_team_rows_aggregate_discipline_and_stage_membership() -> None:
     assert '"Disciplina"' in ranking_explorer_body
 
 
+def test_radar_leader_and_nearest_by_radar_helpers() -> None:
+    """Regression: radar leader reference line (adendo #5) and "Comparáveis" suggestion (adendo
+    #6) are derived purely from the radar scores already computed for benchmarking peers — no
+    new data. Confirm the max-per-axis and nearest-neighbour math directly."""
+    peers = [
+        {"player_id": "p1", "player_name": "Peer One", "team_name": "A", "radar": [{"axis": "Ataque", "value": 80}, {"axis": "Defesa", "value": 20}, {"axis": "Passe", "value": 50}]},
+        {"player_id": "p2", "player_name": "Peer Two", "team_name": "B", "radar": [{"axis": "Ataque", "value": 60}, {"axis": "Defesa", "value": 90}, {"axis": "Passe", "value": 55}]},
+    ]
+    leader = TheStatsApiBronzeService._radar_leader(peers)
+    assert {axis["axis"]: axis["value"] for axis in leader} == {"Ataque": 80, "Defesa": 90, "Passe": 55}
+
+    summary = {"player_id": "self", "radar": [{"axis": "Ataque", "value": 62}, {"axis": "Defesa", "value": 88}, {"axis": "Passe", "value": 54}]}
+    nearest = TheStatsApiBronzeService._nearest_by_radar(summary, peers, id_key="player_id", name_key="player_name")
+    assert nearest[0]["name"] == "Peer Two"  # closer on Ataque/Defesa/Passe than Peer One
+    assert nearest[0]["id"] == "p2"
+
+
+def test_profile_screens_get_rotated_shot_map_full_radar_and_adendo_features() -> None:
+    root = Path(__file__).parents[1] / "webapp/static"
+    app_js = (root / "app.js").read_text(encoding="utf-8")
+    styles = (root / "styles.css").read_text(encoding="utf-8")
+    service_src = (Path(__file__).parents[1] / "webapp/thestatsapi_service.py").read_text(encoding="utf-8")
+
+    # 1: both profiles reuse the same rotated/cropped playerShotMap (built for match-detail),
+    # not the old horizontal shared shotMap() with its team-mirroring hack
+    shot_panel_body = app_js[app_js.index("function playerShotMapPanel("):app_js.index("function playerShotMap(shots")]
+    assert "playerShotMap(filtered" in shot_panel_body
+    assert "120 - rawX" not in shot_panel_body and "120 - number(shot.x)" not in shot_panel_body
+    assert "function playerShotMap(shots, { color = null } = {})" in app_js
+    team_shot_body = app_js[app_js.index("function teamShotExperience("):app_js.index("function teamShotExperience(") + 500]
+    assert "teamColor(" in team_shot_body, "team profile must keep a single team color on its shot map"
+
+    # 2 & 3: no radar axis without a matching metric block — 6 outfield player blocks, 5 team blocks
+    player_groups_body = app_js[app_js.index('node("div", { class: "profile-metric-groups" }, (isGoalkeeper'):app_js.index("profileComparablesBlock(data.comparable_players")]
+    for title in ("Finalização", "Criação", "Participação", "Passe", "Defesa"):
+        assert f'"{title}"' in player_groups_body
+    assert "duelsGroup()" in player_groups_body
+    duels_group_body = app_js[app_js.index("const duelsGroup ="):app_js.index("const duelsGroup =") + 700]
+    assert '"Duelos"' in duels_group_body
+    assert '"Passe": (("pass_accuracy"' not in service_src, "Passe axis must be folded into Controle, not left as a separate unlabeled axis"
+    assert '"Controle": (("average_possession"' in service_src
+
+    # 5: radar leader line wired into radarChart and both profile radar features
+    radar_chart_signature = app_js[app_js.index("function radarChart("):app_js.index("function radarChart(") + 200]
+    assert "leader" in radar_chart_signature
+    assert "radar-leader-line" in app_js and "radar-leader-line" in styles
+    assert "leaderRadar" in app_js
+    assert "data.leader_radar" in app_js
+    assert '"leader_radar": self._radar_leader(peers)' in service_src
+    assert "all_team_radars" in service_src
+
+    # 6: Comparáveis block wired for both entity types
+    assert "function profileComparablesBlock(" in app_js
+    assert 'profileComparablesBlock(data.comparable_players, "player")' in app_js
+    assert 'profileComparablesBlock(data.comparable_teams, "team")' in app_js
+    assert '"comparable_players": self._nearest_by_radar' in service_src
+    assert '"comparable_teams": self._nearest_by_radar' in service_src
+
+    # 7: shot-quality (xG per shot) histogram, distinct from and alongside the per-minute one
+    assert "function playerShotQualityChart(" in app_js
+    quality_body = app_js[app_js.index("function playerShotQualityChart("):app_js.index("function playerShotQualityChart(") + 900]
+    assert "Baixo" in quality_body and "Médio" in quality_body and "Alto" in quality_body
+    assert "playerShotMinuteChart(shots" in app_js and "playerShotQualityChart(shots)" in app_js
+
+    # 8: small-sample badge on extreme percentile displays
+    assert "function metricWithComparison(" in app_js
+    metric_with_comparison_body = app_js[app_js.index("function metricWithComparison("):app_js.index("function metricWithComparison(") + 1400]
+    assert "entityGames" in metric_with_comparison_body
+    assert "profile-sample-badge" in metric_with_comparison_body
+    assert 'standingText !== "Próximo da média"' in metric_with_comparison_body
+    assert "entityGames: number(player.games)" in app_js
+    assert "entityGames: number(team.played)" in app_js
+
+
 def test_competition_frontend_has_group_and_knockout_product_views() -> None:
     root = Path(__file__).parents[1] / "webapp/static"
     app_js = (root / "app.js").read_text(encoding="utf-8")

@@ -857,11 +857,13 @@ class TheStatsApiBronzeService:
                 "shot_map": shots,
                 "radar": summary.get("radar", []),
                 "benchmark_radar": benchmark_radar,
+                "leader_radar": self._radar_leader(peers),
                 "radar_dimensions": summary.get("radar_dimensions", {}),
                 "benchmarks": benchmarks,
                 "shot_benchmark": self._shot_profile_benchmark(scoped_shots, peer_ids, player_id),
                 "context": {"scope": scope, "match_id": match_id},
                 "available_matches": available_matches,
+                "comparable_players": self._nearest_by_radar(summary, peers, id_key="player_id", name_key="player_name"),
             }
         )
 
@@ -931,23 +933,23 @@ class TheStatsApiBronzeService:
         matches.sort(
             key=lambda row: (str(row.get("match_date") or "9999"), str(row.get("match_id") or ""))
         )
-        benchmarks = self._metric_benchmarks(
-            teams,
-            team,
-            {
-                "played": "higher", "wins": "higher",
-                "goals_for": "higher", "goals_against": "lower", "goal_difference": "higher",
-                "xg": "higher", "xga": "lower", "xg_difference": "higher",
-                "shots": "higher", "shots_against": "lower", "shots_on_target": "higher",
-                "goals_per_game": "higher", "goals_against_per_game": "lower",
-                "xg_per_game": "higher", "xga_per_game": "lower", "shots_per_game": "higher",
-                "shots_against_per_game": "lower", "conversion": "higher", "pass_accuracy": "higher",
-                "average_possession": "higher", "recoveries_per_game": "higher", "tackles_per_game": "higher",
-                "goals_minus_xg": "higher",
-            },
-            "Média da Copa",
-        )
+        team_metric_directions = {
+            "played": "higher", "wins": "higher",
+            "goals_for": "higher", "goals_against": "lower", "goal_difference": "higher",
+            "xg": "higher", "xga": "lower", "xg_difference": "higher",
+            "shots": "higher", "shots_against": "lower", "shots_on_target": "higher",
+            "goals_per_game": "higher", "goals_against_per_game": "lower",
+            "xg_per_game": "higher", "xga_per_game": "lower", "shots_per_game": "higher",
+            "shots_against_per_game": "lower", "conversion": "higher", "pass_accuracy": "higher",
+            "average_possession": "higher", "recoveries_per_game": "higher", "tackles_per_game": "higher",
+            "goals_minus_xg": "higher",
+        }
+        benchmarks = self._metric_benchmarks(teams, team, team_metric_directions, "Média da Copa")
         radar = self._team_profile_radar(benchmarks)
+        all_team_radars = [
+            {"team_id": row.get("team_id"), "team_name": row.get("team_name"), "radar": self._team_profile_radar(self._metric_benchmarks(teams, row, team_metric_directions, "Média da Copa"))}
+            for row in teams
+        ]
         all_shots = [shot for detail in details for shot in detail.get("shot_map", [])]
         team_ids = {row.get("team_id") for row in teams if row.get("team_id")}
         curated_team = self._curate_teams([team])[0]
@@ -965,7 +967,13 @@ class TheStatsApiBronzeService:
                 "benchmarks": benchmarks,
                 "radar": radar,
                 "benchmark_radar": [{"axis": axis["axis"], "value": 50} for axis in radar],
+                "leader_radar": self._radar_leader(all_team_radars),
                 "shot_benchmark": self._shot_profile_benchmark(all_shots, team_ids, team_id, entity_key="team_id"),
+                "comparable_teams": self._nearest_by_radar(
+                    {"team_id": team_id, "radar": radar},
+                    all_team_radars,
+                    id_key="team_id", name_key="team_name",
+                ),
             }
         )
 
@@ -2622,6 +2630,54 @@ class TheStatsApiBronzeService:
             "Centroavante": "Média dos centroavantes",
         }
         return labels.get(macroposition, f"Média da função {macroposition}")
+
+    @staticmethod
+    def _radar_leader(peers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Best value actually achieved by any peer in the same comparison population, per radar
+        axis — a third reference point beyond "selected vs average" showing the distance to the
+        absolute top, computed from the same per-peer radar scores already used for benchmarking."""
+        by_axis: dict[str, float] = {}
+        for peer in peers:
+            for axis in peer.get("radar") or []:
+                value = number(axis.get("value"))
+                name = axis.get("axis")
+                if value is None or not name:
+                    continue
+                if name not in by_axis or value > by_axis[name]:
+                    by_axis[name] = value
+        return [{"axis": axis, "value": value} for axis, value in by_axis.items()]
+
+    @staticmethod
+    def _nearest_by_radar(
+        summary: dict[str, Any],
+        peers: list[dict[str, Any]],
+        *,
+        id_key: str,
+        name_key: str,
+        limit: int = 3,
+    ) -> list[dict[str, Any]]:
+        """Suggest comparable entities by Euclidean distance between radar axis scores — a
+        derived reading of the same aggregation already used for benchmarking, no new data."""
+        own_axes = {axis.get("axis"): number(axis.get("value")) for axis in summary.get("radar") or [] if number(axis.get("value")) is not None}
+        if len(own_axes) < 3:
+            return []
+        candidates = []
+        for peer in peers:
+            if peer.get(id_key) == summary.get(id_key):
+                continue
+            peer_axes = {axis.get("axis"): number(axis.get("value")) for axis in peer.get("radar") or [] if number(axis.get("value")) is not None}
+            shared = [axis for axis in own_axes if axis in peer_axes]
+            if len(shared) < 3:
+                continue
+            distance = sum((own_axes[axis] - peer_axes[axis]) ** 2 for axis in shared) ** 0.5
+            candidates.append({
+                "id": peer.get(id_key),
+                "name": peer.get(name_key),
+                "team_name": peer.get("team_name"),
+                "distance": round(distance, 1),
+            })
+        candidates.sort(key=lambda item: item["distance"])
+        return candidates[:limit]
 
     @staticmethod
     def _team_profile_radar(benchmarks: dict[str, Any]) -> list[dict[str, Any]]:
