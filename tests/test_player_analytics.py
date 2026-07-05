@@ -8,6 +8,7 @@ from webapp.player_analytics import (
     robust_score,
     weighted_dimension_score,
 )
+from webapp.player_positions import radar_profile_group
 
 
 def test_robust_score_handles_missing_flat_inverted_and_clipped_values() -> None:
@@ -110,4 +111,34 @@ def test_radar_can_use_inferred_benchmark_cohort_without_changing_role_weights()
 
     assert "Pontas" in reference
     assert result["macroposition"] == "Meia ofensivo/Ponta"
+    assert any(axis["axis"] == "Ataque" for axis in result["radar"])
+
+
+def test_reference_distribution_groups_by_inferred_role_without_benchmark_cohort() -> None:
+    """Regression: match-center radar was empty for wingers/attacking-mids/fullbacks because the
+    reference pool (raw API position only) and the per-match lookup (inferred role) used
+    different bucket vocabularies, so "Meia ofensivo/Ponta" and "Lateral/Ala" never matched
+    anything in the reference distribution even though real stats were available."""
+    winger_rows = [
+        {
+            "position": "M",
+            "inferred_role": "Meia ofensivo",
+            "role_confidence": "high",
+            "minutes_played": 79,
+            "shots": shots,
+            "xg": xg,
+        }
+        for shots, xg in ((2, 0.2), (4, 0.8), (6, 1.4), (3, 0.5), (5, 1.0))
+    ]
+    reference = build_reference_distribution(winger_rows)
+
+    assert "Meia ofensivo/Ponta" in reference
+    assert "Lateral/Ala" not in reference
+
+    target = winger_rows[-1]
+    macroposition = radar_profile_group(target)
+    result = calculate_player_radar(target, reference, macroposition)
+
+    assert macroposition == "Meia ofensivo/Ponta"
+    assert result["radar"], "radar should not be empty when the reference pool shares the inferred-role bucket"
     assert any(axis["axis"] == "Ataque" for axis in result["radar"])

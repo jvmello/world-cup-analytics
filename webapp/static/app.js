@@ -297,12 +297,13 @@
     period_start: "Início do período",
     period_end: "Fim do período",
     penalty: "Pênalti",
+    shot_post: "Na trave",
   };
   const EVENT_ICONS = {
     goal: "●", penalty: "●", shot_on_target: "◎", shot_off_target: "○",
     shot_blocked: "×", foul: "!", yellow_card: "■", red_card: "■",
     substitution: "⇄", corner_kick: "⚑", offside: "↥", var: "◇",
-    added_time: "+", period_start: "▶", period_end: "■",
+    added_time: "+", period_start: "▶", period_end: "■", shot_post: "▲",
   };
   const NARRATIVE_EVENT_TYPES = new Set([
     "goal", "penalty", "var", "red_card", "yellow_card", "substitution", "shot_on_target",
@@ -322,17 +323,20 @@
   const personName = item => first(item, ["player_name", "name", "label"], item?.team_name ? teamName(item) : "Não informado");
   const POSITION_CODES = {
     g: "GOL", gk: "GOL", gol: "GOL", goalkeeper: "GOL", goleiro: "GOL",
-    d: "DEF", df: "DEF", def: "DEF", defender: "DEF", defesa: "DEF", zagueiro: "DEF", lateral: "DEF",
+    d: "DEF", df: "DEF", def: "DEF", defender: "DEF", defesa: "DEF", defensor: "DEF", zagueiro: "DEF", lateral: "DEF", ala: "DEF",
+    lateral_direito: "DEF", lateral_esquerdo: "DEF", ala_direito: "DEF", ala_esquerdo: "DEF",
     m: "MEI", mf: "MEI", mei: "MEI", midfielder: "MEI", meio: "MEI", meio_campo: "MEI", volante: "MEI",
+    meio_campista_central: "MEI", meia_ofensivo: "MEI", meia_lateral_direito: "MEI", meia_lateral_esquerdo: "MEI",
     f: "ATA", fw: "ATA", ata: "ATA", forward: "ATA", atacante: "ATA", ponta: "ATA", centroavante: "ATA",
+    ponta_direita: "ATA", ponta_esquerda: "ATA", segundo_atacante: "ATA",
   };
 
   function positionLabel(value) {
     if (!value) return "—";
     const normalized = String(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim().replace(/[\s-]+/g, "_");
     if (POSITION_CODES[normalized]) return POSITION_CODES[normalized];
-    const prefix = Object.keys(POSITION_CODES).find(key => normalized.startsWith(`${key}_`));
-    return prefix ? POSITION_CODES[prefix] : String(value).slice(0, 3).toUpperCase();
+    const prefix = Object.keys(POSITION_CODES).find(key => normalized.startsWith(`${key}_`) || normalized.endsWith(`_${key}`));
+    return prefix ? POSITION_CODES[prefix] : "—";
   }
 
   function resolvedPlayerPosition(player, compact = false) {
@@ -446,14 +450,13 @@
     if (!value) return "Data não informada";
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "Data não informada";
-    return new Intl.DateTimeFormat("pt-BR", {
-      timeZone: "America/Sao_Paulo",
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(date).replace(",", ",");
+    const dayMonthYear = new Intl.DateTimeFormat("pt-BR", {
+      timeZone: "America/Sao_Paulo", day: "2-digit", month: "short", year: "numeric",
+    }).format(date).replace(/ de /g, " ").replace(/\./g, "");
+    const time = new Intl.DateTimeFormat("pt-BR", {
+      timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit",
+    }).format(date);
+    return `${dayMonthYear}, ${time}`;
   }
 
   function minuteLabel(goal) {
@@ -518,17 +521,34 @@
     ));
   }
 
+  function scorePill(homeValue, awayValue, { size = "md", homeName = "", awayName = "" } = {}) {
+    return node("span", {
+      class: `score-pill score-pill-${size}`,
+      "aria-label": `${homeName ? `${displayTeamName(homeName)} ` : ""}${formatValue(homeValue)}, ${awayName ? `${displayTeamName(awayName)} ` : ""}${formatValue(awayValue)}`,
+    }, [
+      node("strong", { text: formatValue(homeValue) }),
+      node("span", { class: "score-pill-sep", "aria-hidden": "true", text: ":" }),
+      node("strong", { text: formatValue(awayValue) }),
+    ]);
+  }
+
   function scoreCard(match, { hero = false } = {}) {
     const home = first(match, ["home_team"], "Mandante");
     const away = first(match, ["away_team"], "Visitante");
     const stage = first(match, ["competition_stage", "group_name", "stage"], "Partida");
-    const stageLabel = /^[A-Z]$/i.test(String(stage)) ? `Grupo ${stage}` : stage;
+    const stageLabel = /^[A-Z]$/i.test(String(stage)) ? `Grupo ${stage}` : matchStageLabel(stage);
     const date = first(match, ["match_date", "date"], null);
     const goals = Array.isArray(match?.goals) ? match.goals : [];
     const stadium = first(match, ["stadium", "venue"], null);
     const venueCity = first(match, ["venue_city"], null);
     const stadiumLabel = stadium && venueCity ? `${stadium} · ${venueCity}` : stadium;
     const referee = first(match, ["referee", "main_referee"], null);
+    const penalties = metricAvailable(match?.penalty_home_score) && metricAvailable(match?.penalty_away_score);
+    const status = penalties ? "Pênaltis" : competitionMatchStatus(match);
+    const hasScore = metricAvailable(match?.home_score) && metricAvailable(match?.away_score);
+    const teamSurface = (name, id) => id
+      ? node("button", { type: "button", class: "score-team-link", onclick: () => goToProfile("team", id) }, teamLabel(name))
+      : teamLabel(name);
     const detailRows = [
       !hero ? ["Data", formatMatchDate(date)] : null,
       stadiumLabel ? ["Estádio", stadiumLabel] : null,
@@ -536,20 +556,23 @@
     ].filter(Boolean);
     return node("article", { class: `score-card${hero ? " match-score-card" : ""}`, style: matchPalette(home, away) }, [
       node("div", { class: "score-meta" }, [
-        node("span", { text: stageLabel }),
+        node("span", {}, [node("strong", { text: stageLabel }), node("em", { class: `match-status is-${status.toLowerCase().replace(/\s+/g, "-")}`, text: status })]),
         node("time", { dateTime: date || "", text: formatMatchDate(date).replace(", ", " · ") }),
       ]),
       node("div", { class: "score-line" }, [
-        node("strong", {}, teamLabel(home)),
-        node("span", { class: "score", text: `${formatValue(match?.home_score)} : ${formatValue(match?.away_score)}`, "aria-label": `${displayTeamName(home)} ${formatValue(match?.home_score)}, ${displayTeamName(away)} ${formatValue(match?.away_score)}` }),
-        node("strong", {}, teamLabel(away)),
+        node("strong", {}, teamSurface(home, match?.home_team_id)),
+        hasScore
+          ? scorePill(match?.home_score, match?.away_score, { size: hero ? "lg" : "md", homeName: home, awayName: away })
+          : node("span", { class: "score-pending", text: "×" }),
+        node("strong", {}, teamSurface(away, match?.away_team_id)),
       ]),
+      penalties ? node("p", { class: "score-penalties", text: `${formatValue(match.penalty_home_score)}–${formatValue(match.penalty_away_score)} nos pênaltis` }) : null,
       goals.length ? node("ol", { class: "score-goals", "aria-label": "Gols da partida" }, goals.map(goal => node("li", {
         class: goal.team_name === away ? "away" : "home",
       }, [
         node("span", { class: "goal-minute", text: minuteLabel(goal) }),
         node("span", { text: personName(goal) }),
-      ]))) : node("p", { class: "score-venue", text: "Gols não informados" }),
+      ]))) : null,
       node("dl", { class: `score-details${hero ? " score-details-compact" : ""}` }, detailRows.map(([key, value]) =>
         node("div", {}, [node("dt", { text: key }), node("dd", { text: value })])
       )),
@@ -834,12 +857,12 @@
       const cx = Math.max(1, Math.min(119, x));
       const cy = Math.max(1, Math.min(79, y));
       const xg = Math.max(0, number(item?.statsbomb_xg ?? item?.xg) || 0);
-      const size = compactMarkers ? Math.max(.8, Math.min(2.5, .8 + xg * 3)) : Math.max(1.1, Math.min(3.8, 1.1 + xg * 5));
+      const size = compactMarkers ? Math.max(.8, Math.min(2.2, .8 + xg * 2.6)) : Math.max(1, Math.min(3.1, 1 + xg * 4));
       const key = shotKey(item);
       const selected = selectedKey === key;
       const marker = goal
         ? svgNode("polygon", {
-          points: starPoints(cx, cy, size * (compactMarkers ? 1.65 : 2), 0.28),
+          points: starPoints(cx, cy, size * (compactMarkers ? 1.25 : 1.2), 0.22),
           class: `shot-point team-${teamIndex} is-goal${selected ? " is-selected" : ""}`,
           style: `--team-color:${teamColor(item?.team_name, teamIndex)}`,
           tabindex: "0",
@@ -868,7 +891,7 @@
       const outcome = SHOT_OUTCOME_LABELS[String(item?.shot_outcome || "").toLowerCase()] || (goal ? "Gol" : "Finalização");
       const bodyPart = BODY_PART_LABELS[String(item?.body_part || "").toLowerCase()] || "Parte do corpo não informada";
       const shotType = SHOT_TYPE_LABELS[String(item?.shot_type || "").toLowerCase()] || "Situação não informada";
-      const tooltip = `${formatValue(item?.minute)}' · ${outcome} · xG ${formatValue(xg)} · ${bodyPart} · ${shotType}`;
+      const tooltip = `${formatValue(item?.minute)}' · ${personName(item)} · ${teamName(item)} · ${outcome} · xG ${formatValue(xg)} · ${bodyPart} · ${shotType}`;
       svg.append(attachChartTooltip(marker, tooltip));
     });
     return node("div", { class: "pitch-wrap" }, [
@@ -939,7 +962,7 @@
         const cy = height - pad - point.value / maxValue * (height - pad * 2);
         const marker = point.item.is_goal
           ? svgNode("polygon", {
-            points: starPoints(cx, cy, 8, 0.28),
+            points: starPoints(cx, cy, 6, 0.22),
             class: `xg-point team-${teamIndex % 2} is-goal`,
             style: `fill:${color}`,
             tabindex: "0",
@@ -959,6 +982,13 @@
         const chance = shotXg !== null ? ` · chance de ${formatValue(shotXg)} xG` : "";
         const tooltip = `Fluxo de xG · ${displayTeamName(team)} · ${formatValue(point.minute)}'${player}${chance} · acumulado ${formatValue(point.value)} xG`;
         svg.append(attachChartTooltip(marker, tooltip));
+        if (point.item.is_goal) {
+          svg.append(svgNode("text", {
+            x: cx + 8,
+            y: cy - 8,
+            class: "xg-goal-label",
+          }, `${formatValue(point.minute)}' ${point.item.player_name || "Gol"}`));
+        }
       });
     });
     return node("div", { class: "svg-chart" }, [
@@ -1209,9 +1239,7 @@
     const hasScore = match?.home_score !== null && match?.home_score !== undefined
       && match?.away_score !== null && match?.away_score !== undefined;
     const date = match?.kickoff_at || match?.match_date;
-    const center = hasScore
-      ? `${formatValue(match.home_score)}–${formatValue(match.away_score)}`
-      : date ? homeFriendlyKickoff(date) : "A definir";
+    const centerText = date ? homeFriendlyKickoff(date) : "A definir";
     const outcome = match?.decided_by === "penalties" && match?.winner_name
       ? `${displayTeamName(match.winner_name)} nos pênaltis`
       : null;
@@ -1222,7 +1250,9 @@
       onclick: canOpen ? () => openMatchQuickView({ ...match, stage: phase || match.stage }) : null,
     }, [
       knockoutSideNode(match?.home, "home"),
-      node("strong", { class: "home-bracket-center", text: center }),
+      hasScore
+        ? scorePill(match.home_score, match.away_score, { size: "sm", homeName: match?.home?.team_name, awayName: match?.away?.team_name })
+        : node("strong", { class: "home-bracket-center", text: centerText }),
       knockoutSideNode(match?.away, "away"),
       outcome ? node("small", { class: "home-bracket-outcome", text: outcome }) : null,
     ]);
@@ -1243,16 +1273,26 @@
       node("article", { class: "home-pulse-column" }, [
         node("header", {}, [node("small", { text: "Consequências" }), node("h3", { text: "Quem avançou" })]),
         classified.length
-          ? node("div", { class: "home-pulse-list" }, classified.map(item => node("button", {
-            type: "button", class: "home-pulse-story", onclick: () => openMatchQuickView(item.match),
-          }, [
-            flagNode(item.winner_name),
-            node("span", {}, [
-              node("strong", { text: displayTeamName(item.winner_name) }),
-              node("small", { text: homeQualifiedStory(item) }),
-              node("em", { text: [item.phase, item.score_label].filter(Boolean).join(" · ") }),
-            ]),
-          ])))
+          ? node("div", { class: "home-pulse-list" }, classified.map(item => {
+            const home = item.match?.home, away = item.match?.away;
+            const hasScore = metricAvailable(item.match?.home_score) && metricAvailable(item.match?.away_score);
+            return node("button", {
+              type: "button", class: "home-pulse-story", onclick: () => openMatchQuickView(item.match),
+            }, [
+              node("div", { class: "home-pulse-story-score" }, [
+                knockoutSideNode(home, "home"),
+                hasScore
+                  ? scorePill(item.match.home_score, item.match.away_score, { size: "sm", homeName: home?.team_name, awayName: away?.team_name })
+                  : null,
+                knockoutSideNode(away, "away"),
+              ]),
+              node("span", {}, [
+                node("strong", { text: displayTeamName(item.winner_name) }),
+                node("small", { text: homeQualifiedStory(item) }),
+                node("em", { text: [item.phase, item.score_label].filter(Boolean).join(" · ") }),
+              ]),
+            ]);
+          }))
           : node("p", { class: "home-empty-line", text: "As próximas classificações aparecerão aqui." }),
       ]),
       node("article", { class: "home-pulse-column" }, [
@@ -1325,25 +1365,39 @@
     return labels[stage] || "Copa do Mundo 2026";
   }
 
+  function compactMatchSide(side, rawName, className) {
+    if (side) {
+      return side.defined && side.team_name
+        ? teamLabel(side.team_name, className)
+        : node("span", { class: `${className} is-placeholder`, text: translateTeamsInText(side.placeholder || "A definir") });
+    }
+    return teamLabel(rawName, className);
+  }
+
+  function compactMatchSideLabel(side, rawName) {
+    if (side) return side.defined && side.team_name ? displayTeamName(side.team_name) : translateTeamsInText(side.placeholder || "A definir");
+    return displayTeamName(rawName);
+  }
+
   function compactMatchRow(match, { featured = false } = {}) {
-    const home = match?.home_team;
-    const away = match?.away_team;
+    const homeName = match?.home?.team_name || match?.home_team;
+    const awayName = match?.away?.team_name || match?.away_team;
     const context = homeStageLabel(match);
     return node("button", {
       type: "button",
       class: `home-match-row${featured ? " is-featured" : ""}`,
-      style: matchPalette(home, away),
+      style: matchPalette(homeName, awayName),
       onclick: () => openMatchQuickView(match),
-      "aria-label": `${displayTeamName(home)} contra ${displayTeamName(away)}. ${homeMatchStatus(match)}.`,
+      "aria-label": `${compactMatchSideLabel(match?.home, match?.home_team)} contra ${compactMatchSideLabel(match?.away, match?.away_team)}. ${homeMatchStatus(match)}.`,
     }, [
       node("span", { class: "home-match-meta" }, [
         node("b", { text: homeMatchStatus(match) }),
         node("time", { dateTime: match?.match_date || "", title: "Horários em Brasília", text: homeFriendlyKickoff(match?.match_date) }),
       ]),
       node("span", { class: "home-match-scoreline" }, [
-        teamLabel(home, "home-match-team home"),
+        compactMatchSide(match?.home, match?.home_team, "home-match-team home"),
         node("strong", { class: "home-match-score", text: homeMatchCenter(match) }),
-        teamLabel(away, "home-match-team away"),
+        compactMatchSide(match?.away, match?.away_team, "home-match-team away"),
       ]),
       node("span", { class: "home-match-context", text: context }),
     ]);
@@ -1682,6 +1736,9 @@
       { category: "Sem bola", id: "tackles", title: "Desarmes", description: "Total de desarmes realizados.", value: row => number(row.tackles), unit: "desarmes" },
       { category: "Sem bola", id: "interceptions", title: "Interceptações", description: "Total de interceptações.", value: row => number(row.interceptions), unit: "interc." },
       { category: "Sem bola", id: "clearances", title: "Cortes", description: "Total de cortes defensivos.", value: row => number(row.clearances), unit: "cortes" },
+      { category: "Disciplina", id: "fouls_per_game", title: "Menos faltas por jogo", description: "Faltas médias cometidas por partida.", eligibility: "Mínimo de 2 jogos", eligible: row => number(row.played) >= 2, value: row => number(row.fouls_per_game), unit: "por jogo", ascending: true },
+      { category: "Disciplina", id: "yellow_cards_per_game", title: "Menos cartões amarelos por jogo", description: "Cartões amarelos médios recebidos por partida.", eligibility: "Mínimo de 2 jogos", eligible: row => number(row.played) >= 2, value: row => number(row.yellow_cards_per_game), unit: "por jogo", ascending: true },
+      { category: "Disciplina", id: "red_cards", title: "Menos cartões vermelhos", description: "Total de cartões vermelhos recebidos na competição.", value: row => number(row.red_cards), unit: "vermelhos", ascending: true },
     ];
   }
 
@@ -1691,7 +1748,11 @@
       .map(row => ({ ...row, analysis_value: definition.value(row) }))
       .filter(row => {
         const value = number(row.analysis_value);
-        return value !== null && value !== 0;
+        // For "lower is better" metrics (fewest fouls, fewest cards conceded, etc.) zero is
+        // usually the headline-worthy value, not a sign of "no data" — only exclude zero for
+        // regular (higher-is-better) metrics, where it typically means no contribution at all.
+        if (value === null) return false;
+        return definition.ascending || value !== 0;
       })
       .sort((left, right) => definition.ascending ? left.analysis_value - right.analysis_value : right.analysis_value - left.analysis_value);
   }
@@ -1847,6 +1908,8 @@
       { id: "goals", label: "Gols × xG", description: "Quem converteu acima ou abaixo da produção esperada.", render: () => playerScatterPlot(rows, { onSelect }) },
       { id: "creation", label: "xG × xA", description: "Quem combinou presença para finalizar e capacidade de criação.", render: () => playerSecondaryScatterPlot(rows, "creation", onSelect) },
       { id: "volume", label: "Finalizações × xG", description: "Como volume e qualidade das chances se relacionam.", render: () => playerSecondaryScatterPlot(rows, "volume", onSelect) },
+      { id: "shot_efficiency", label: "Finalizações × Conversão", description: "Identifica quem tem poucas chances e alto aproveitamento — leitura diferente de Gols x xG.", render: () => playerSecondaryScatterPlot(rows, "shot_efficiency", onSelect) },
+      { id: "duels", label: "Duelos disputados × % ganhos", description: "Eficiência em disputas físicas na competição.", render: () => playerSecondaryScatterPlot(rows, "duels", onSelect) },
     ];
     let active = modes[0];
     const host = node("div", { class: "player-comparison-chart" });
@@ -1872,10 +1935,21 @@
   function playerOverviewExperience(data) {
     const players = (data.items || []).filter(player => player.player_id && number(player.minutes_played) > 0);
     if (!players.length) return null;
-    const filters = { positionGroup: "all", inferredPosition: "all", team: "all", minMinutes: 90, minShots: 3, minGames: 1 };
-    const comparisonHost = node("div"), positionHost = node("div"), rankingHost = node("div");
+    const filters = { qualified: true, positionGroup: "all", inferredPosition: "all", team: "all", minMinutes: 90, minShots: 3, minGames: 1 };
+    const comparisonHost = node("div"), positionHost = node("div"), rankingHost = node("div"), creationHost = node("div");
     const tableHost = node("div");
     const count = node("span");
+    const qualifiedToggle = node("div", { class: "segmented-control overview-qualified-toggle", role: "tablist", "aria-label": "Elegibilidade dos jogadores" }, [
+      node("button", { type: "button", text: "Qualificados", role: "tab", onclick: () => { filters.qualified = true; drawToggle(); draw(); } }),
+      node("button", { type: "button", text: "Todos", role: "tab", onclick: () => { filters.qualified = false; drawToggle(); draw(); } }),
+    ]);
+    function drawToggle() {
+      qualifiedToggle.querySelectorAll("button").forEach((button, index) => {
+        const selected = (index === 0) === filters.qualified;
+        button.classList.toggle("is-active", selected);
+        button.setAttribute("aria-selected", String(selected));
+      });
+    }
     const controls = node("div", { class: "overview-filter-grid" }, [
       overviewSelect("Grupo bruto", "positionGroup", [["all", "Todos"], ...(data.filters?.position_groups || []).map(value => [value, value])]),
       overviewSelect("Posição inferida", "inferredPosition", [["all", "Todas"], ...(data.filters?.inferred_positions || []).map(value => [value, value])]),
@@ -1890,12 +1964,25 @@
       return node("label", {}, [node("span", { text: labelText }), node("input", { type: "number", min: 0, step, value: filters[key], oninput: event => { filters[key] = Math.max(0, number(event.target.value) || 0); draw(); } })]);
     }
     function filtered() {
-      return players.filter(player => (filters.positionGroup === "all" || player.api_position_group === filters.positionGroup) && (filters.inferredPosition === "all" || resolvedPlayerPosition(player) === filters.inferredPosition) && (filters.team === "all" || player.team_name === filters.team) && number(player.minutes_played) >= filters.minMinutes && number(player.shots) >= filters.minShots && number(player.games) >= filters.minGames);
+      return players.filter(player => {
+        if (filters.positionGroup !== "all" && player.api_position_group !== filters.positionGroup) return false;
+        if (filters.inferredPosition !== "all" && resolvedPlayerPosition(player) !== filters.inferredPosition) return false;
+        if (filters.team !== "all" && player.team_name !== filters.team) return false;
+        if (!filters.qualified) return true;
+        if (number(player.minutes_played) < filters.minMinutes) return false;
+        if (number(player.games) < filters.minGames) return false;
+        // Shot-volume eligibility doesn't apply to goalkeepers — they rarely take shots at all,
+        // and the "Qualificados" default would silently drop the whole position otherwise.
+        const isGoalkeeper = positionLabel(player.position) === "GOL";
+        if (!isGoalkeeper && number(player.shots) < filters.minShots) return false;
+        return true;
+      });
     }
     function draw() {
       const rows = filtered(); count.textContent = `${rows.length} jogadores`;
       comparisonHost.replaceChildren(playerComparisonMap(rows, player => goToProfile("player", player.player_id)));
       positionHost.replaceChildren(playerPositionDistribution(rows));
+      creationHost.replaceChildren(playerCreationProfile(rows) || emptyState("Perfil de criação indisponível", "Não há dados de criação suficientes neste recorte."));
       tableHost.replaceChildren(playerOverviewTable(rows, { onSelect: player => goToProfile("player", player.player_id) }));
       const rankings = playerRankingPanels(rows);
       rankingHost.replaceChildren(rankings || emptyState("Sem rankings neste recorte", "Ajuste os filtros para encontrar jogadores elegíveis."));
@@ -1904,14 +1991,16 @@
     const highlights = playerEditionHighlights(players);
     const root = node("div", { class: "player-overview-experience" }, [
       compactAnalysisSummary([["Jogadores", data.summary?.players], ["Gols", data.summary?.goals], ["Finalizações", data.summary?.shots], ["xG total", data.summary?.xg]]),
-      controls,
+      node("div", { class: "overview-filter-toolbar" }, [qualifiedToggle, controls]),
       highlights ? section("Destaques da edição", "Nomes que definem o recorte", highlights) : null,
       section("Mapa de comparação", count, comparisonHost),
-      section("Produção por posição", "Distribuição ofensiva entre as funções", positionHost),
+      section("Produção por posição", "Distribuição ofensiva e defensiva entre as funções", positionHost),
       shotBreakdown ? section("Perfil das finalizações", "Gols por parte do corpo e situação", shotBreakdown) : null,
+      section("Perfil de criação", "Passes para finalização e cruzamentos na competição", creationHost),
       section("Rankings de jogadores", "Top 5 · escolha uma categoria", rankingHost),
       section("Lista de jogadores", "Clique em uma linha para abrir o Perfil", analysisTableDisclosure("Tabela completa de jogadores", tableHost)),
-    ]);
+    ].filter(Boolean));
+    drawToggle();
     draw();
     return root;
   }
@@ -2038,9 +2127,9 @@
   }
 
   function teamRankingExplorer(teams) {
-    const category = definition => ({ Ataque: "Ataque", Defesa: "Defesa", Domínio: "Eficiência", "Posse e passe": "Controle", "Sem bola": "Defesa" }[definition.category] || definition.category);
+    const category = definition => ({ Ataque: "Ataque", Defesa: "Defesa", Domínio: "Eficiência", "Posse e passe": "Controle", "Sem bola": "Defesa", Disciplina: "Disciplina" }[definition.category] || definition.category);
     const definitions = teamMetricDefinitions();
-    const categories = ["Ataque", "Defesa", "Eficiência", "Controle"].filter(name => definitions.some(definition => category(definition) === name && analysisMetricRows(teams, definition).length));
+    const categories = ["Ataque", "Defesa", "Eficiência", "Controle", "Disciplina"].filter(name => definitions.some(definition => category(definition) === name && analysisMetricRows(teams, definition).length));
     if (!categories.length) return null;
     let activeCategory = categories[0], activeMetric = null;
     const tabs = node("div", { class: "segmented-control analysis-ranking-tabs", role: "tablist", "aria-label": "Categorias de ranking" }), select = node("select", { "aria-label": "Métrica do ranking" }), host = node("div", { class: "team-ranking-single" });
@@ -2052,19 +2141,23 @@
     return node("div", { class: "analysis-ranking-explorer team-ranking-explorer" }, [node("div", { class: "team-ranking-controls" }, [tabs, node("label", {}, [node("span", { text: "Métrica" }), select])]), host]);
   }
 
+  const STAGE_FILTER_ORDER = ["Fase de grupos", "Fase de 32", "Oitavas", "Quartas", "Semifinais", "Disputa de 3º lugar", "Final"];
+
   function teamAnalysisExperience(data) {
     const teams = (data.items || []).filter(team => team.team_id);
     if (!teams.length) return null;
-    const filters = { group: "all", status: "all", minGames: 1 };
+    const filters = { group: "all", status: "all", stage: "all", minGames: 1 };
     const comparisonHost = node("div"), productionHost = node("div"), rankingHost = node("div"), count = node("span");
     const groups = [...new Set(teams.map(team => team.group_name).filter(Boolean))].sort();
     const statuses = [...new Set(teams.map(team => team.classification_status || team.status).filter(Boolean))].sort();
+    const stages = [...new Set(teams.flatMap(team => team.stages || []))].sort((left, right) => STAGE_FILTER_ORDER.indexOf(left) - STAGE_FILTER_ORDER.indexOf(right));
     const controls = node("div", { class: "overview-filter-grid team-overview-filters" }, [
       node("label", {}, [node("span", { text: "Grupo" }), node("select", { onchange: event => { filters.group = event.target.value; draw(); } }, [node("option", { value: "all", text: "Todos" }), ...groups.map(group => node("option", { value: group, text: `Grupo ${group}` }))])]),
+      node("label", {}, [node("span", { text: "Fase" }), node("select", { onchange: event => { filters.stage = event.target.value; draw(); } }, [node("option", { value: "all", text: "Todas" }), ...stages.map(stage => node("option", { value: stage, text: stage }))])]),
       node("label", {}, [node("span", { text: "Status na competição" }), node("select", { onchange: event => { filters.status = event.target.value; draw(); } }, [node("option", { value: "all", text: "Todos" }), ...statuses.map(status => node("option", { value: status, text: status }))])]),
       node("label", {}, [node("span", { text: "Jogos mínimos" }), node("input", { type: "number", min: 0, step: 1, value: filters.minGames, oninput: event => { filters.minGames = Math.max(0, number(event.target.value) || 0); draw(); } })]),
     ]);
-    function filtered() { return teams.filter(team => (filters.group === "all" || team.group_name === filters.group) && (filters.status === "all" || (team.classification_status || team.status) === filters.status) && number(team.played) >= filters.minGames); }
+    function filtered() { return teams.filter(team => (filters.group === "all" || team.group_name === filters.group) && (filters.status === "all" || (team.classification_status || team.status) === filters.status) && (filters.stage === "all" || (team.stages || []).includes(filters.stage)) && number(team.played) >= filters.minGames); }
     function draw() {
       const rows = filtered(); count.textContent = `${rows.length} seleções`;
       comparisonHost.replaceChildren(teamComparisonMap(rows, team => goToProfile("team", team.team_id)));
@@ -2378,18 +2471,41 @@
     return node("div", { class: "svg-chart analytical-scatter-chart" }, svg);
   }
 
+  function playerDuelsDisputed(player) {
+    return (number(player.duels_won) || 0) + (number(player.duels_lost) || 0);
+  }
+
+  const PLAYER_SCATTER_CONFIGS = {
+    creation: {
+      xValue: player => player.xg, yValue: player => player.xa,
+      xLabel: "xG", yLabel: "xA",
+      ariaLabel: "Dispersão de xG por xA dos jogadores",
+      tooltip: player => `${personName(player)} · ${displayTeamName(player.team_name)} · ${resolvedPlayerPosition(player)} · ${formatValue(player.xg)} xG · ${formatValue(player.xa)} xA · ${formatValue(player.goals)} gols · ${formatValue(player.assists)} assistências · ${formatValue(player.minutes_played)} min`,
+    },
+    volume: {
+      xValue: player => player.shots, yValue: player => player.xg,
+      xLabel: "Finalizações", yLabel: "xG",
+      ariaLabel: "Dispersão de finalizações por xG dos jogadores",
+      tooltip: player => `${personName(player)} · ${displayTeamName(player.team_name)} · ${resolvedPlayerPosition(player)} · ${formatValue(player.shots)} finalizações · ${formatValue(player.xg)} xG · ${formatValue(player.minutes_played)} min`,
+    },
+    shot_efficiency: {
+      xValue: player => player.shots, yValue: player => player.shot_conversion,
+      xLabel: "Finalizações", yLabel: "Conversão (%)",
+      ariaLabel: "Dispersão de finalizações por percentual de conversão dos jogadores",
+      tooltip: player => `${personName(player)} · ${displayTeamName(player.team_name)} · ${resolvedPlayerPosition(player)} · ${formatValue(player.shots)} finalizações · ${formatValue(player.shot_conversion)}% conversão · ${formatValue(player.goals)} gols · ${formatValue(player.minutes_played)} min`,
+    },
+    duels: {
+      xValue: playerDuelsDisputed,
+      yValue: player => { const disputed = playerDuelsDisputed(player); return disputed > 0 ? (number(player.duels_won) || 0) / disputed * 100 : null; },
+      xLabel: "Duelos disputados", yLabel: "% de duelos ganhos",
+      ariaLabel: "Dispersão de duelos disputados por percentual de duelos ganhos dos jogadores",
+      tooltip: player => `${personName(player)} · ${displayTeamName(player.team_name)} · ${resolvedPlayerPosition(player)} · ${formatValue(player.duels_won)} ganhos de ${formatValue(playerDuelsDisputed(player))} disputados · ${formatValue(player.minutes_played)} min`,
+    },
+  };
+
   function playerSecondaryScatterPlot(rows, mode, onSelect) {
-    const creation = mode === "creation";
-    return analysisScatterPlot(rows, {
-      entity: "player", onSelect, quadrants: true,
-      xValue: player => creation ? player.xg : player.shots,
-      yValue: player => creation ? player.xa : player.xg,
-      xLabel: creation ? "xG" : "Finalizações", yLabel: creation ? "xA" : "xG",
-      ariaLabel: creation ? "Dispersão de xG por xA dos jogadores" : "Dispersão de finalizações por xG dos jogadores",
-      tooltip: player => creation
-        ? `${personName(player)} · ${displayTeamName(player.team_name)} · ${resolvedPlayerPosition(player)} · ${formatValue(player.xg)} xG · ${formatValue(player.xa)} xA · ${formatValue(player.goals)} gols · ${formatValue(player.assists)} assistências · ${formatValue(player.minutes_played)} min`
-        : `${personName(player)} · ${displayTeamName(player.team_name)} · ${resolvedPlayerPosition(player)} · ${formatValue(player.shots)} finalizações · ${formatValue(player.xg)} xG · ${formatValue(player.minutes_played)} min`,
-    });
+    const config = PLAYER_SCATTER_CONFIGS[mode] || PLAYER_SCATTER_CONFIGS.creation;
+    return analysisScatterPlot(rows, { entity: "player", onSelect, quadrants: true, ...config });
   }
 
   function teamSecondaryScatterPlot(rows, mode, onSelect) {
@@ -2406,7 +2522,10 @@
   }
 
   function playerPositionDistribution(rows) {
-    const metrics = [["goals", "Gols"], ["xg", "xG"], ["shots", "Finalizações"]];
+    const metrics = [
+      ["goals", "Gols"], ["xg", "xG"], ["shots", "Finalizações"], ["assists", "Assistências"],
+      ["tackles", "Desarmes"], ["interceptions", "Interceptações"], ["clearances", "Cortes"], ["defensive_actions", "Ações defensivas"],
+    ];
     const host = node("div");
     const select = node("select", { "aria-label": "Métrica por posição" }, metrics.map(([value, labelText]) => node("option", { value, text: labelText })));
     const draw = () => {
@@ -2430,6 +2549,21 @@
         node("header", {}, [node("span", {}, [node("h3", { text: title }), node("p", { text: "Finalizações convertidas na competição." })])]),
         horizontalBars(breakdowns[key], "goals", { name: item => labels[String(item.label).toLowerCase()] || label(item.label), limit: 8 }),
       ]));
+    return panels.length ? node("div", { class: "analysis-chart-grid" }, panels) : null;
+  }
+
+  function playerCreationProfile(rows) {
+    const panels = [
+      ["key_passes", "Passes para finalização", "passes"],
+      ["accurate_crosses", "Cruzamentos certos", "cruzamentos"],
+    ].map(([metric, title, unit]) => {
+      const eligible = rows.filter(player => number(player[metric]) > 0);
+      if (!eligible.length) return null;
+      return node("article", { class: "analysis-chart-panel" }, [
+        node("header", {}, [node("span", {}, [node("h3", { text: title }), node("p", { text: "Top jogadores na competição." })])]),
+        horizontalBars(eligible, metric, { name: personName, limit: 8, unit: ` ${unit}` }),
+      ]);
+    }).filter(Boolean);
     return panels.length ? node("div", { class: "analysis-chart-grid" }, panels) : null;
   }
 
@@ -2579,9 +2713,15 @@
     const availableRadar = (data.radar || player.radar || []).filter(axis => metricAvailable(axis.value));
     const benchmarkRadar = (data.benchmark_radar || []).filter(axis => availableRadar.some(selected => selected.axis === axis.axis));
     const metric = (key, labelText, unit = "", compactBenchmark = false) => metricWithComparison(labelText, player[key], { unit, benchmark: benchmarks.metrics?.[key], benchmarkLabel, compactBenchmark });
-    const metricGroup = (title, definitions) => {
-      const rows = definitions.map(([key, labelText, unit]) => metric(key, labelText, unit, true)).filter(Boolean);
-      return rows.length ? node("section", { class: "profile-metric-group" }, [node("header", {}, [node("h4", { text: title }), node("small", { text: `Comparativo: ${benchmarkLabel}` })]), node("dl", { class: "profile-comparison-grid" }, rows)]) : null;
+    const metricGroupRows = (title, rows) => rows.length ? node("section", { class: "profile-metric-group" }, [node("header", {}, [node("h4", { text: title }), node("small", { text: `Comparativo: ${benchmarkLabel}` })]), node("dl", { class: "profile-comparison-grid" }, rows)]) : null;
+    const metricGroup = (title, definitions) => metricGroupRows(title, definitions.map(([key, labelText, unit]) => metric(key, labelText, unit, true)).filter(Boolean));
+    const duelsGroup = () => {
+      const rows = [metric("duels_won", "Duelos vencidos", "", true), metric("aerial_won", "Duelos aéreos vencidos", "", true)].filter(Boolean);
+      const won = number(player.duels_won), lost = number(player.duels_lost);
+      if (won !== null && lost !== null && won + lost > 0) {
+        rows.push(metricWithComparison("Aproveitamento em duelos", Math.round((won / (won + lost)) * 1000) / 10, { unit: "%", compactBenchmark: true }));
+      }
+      return metricGroupRows("Duelos", rows);
     };
     const summaryDefinitions = isGoalkeeper
       ? [["minutes_played", "Minutos", " min"], ["games", "Jogos", ""], ["saves", "Defesas", ""], ["saves_per_90", "Defesas por 90", ""], ["rating", "Rating", ""]]
@@ -2606,17 +2746,17 @@
         node("div", { class: "profile-metric-groups" }, (isGoalkeeper ? [
           metricGroup("Defesa do gol", [["saves", "Defesas", ""], ["saves_per_90", "Defesas por 90", ""], ["rating", "Rating médio", ""]]),
           metricGroup("Distribuição", [["accurate_passes", "Passes certos", ""], ["pass_accuracy", "Precisão de passe", "%"], ["long_pass_accuracy", "Bolas longas certas", "%"]]),
-        ] : isDefender ? [
-          metricGroup("Defesa e duelos", [["defensive_actions_per_90", "Ações defensivas por 90", ""], ["duels_won", "Duelos vencidos", ""], ["tackles", "Desarmes", ""], ["interceptions", "Interceptações", ""], ["clearances", "Cortes", ""]]),
-          metricGroup("Passe", [["accurate_passes", "Passes certos", ""], ["pass_accuracy", "Precisão de passe", "%"]]),
-        ] : isMidfielder ? [
+        ] : [
+          // Same 6 blocks for every outfield position (Ataque, Criação, Participação, Duelos,
+          // Passe, Defesa), matching the 6 axes of the radar 1:1 — a block that has no data for
+          // this player's sample simply hides itself (metricGroup returns null when empty),
+          // rather than showing a position a fixed subset that leaves some radar axes orphaned.
+          metricGroup("Finalização", [["goals_per_90", "Gols por 90", ""], ["xg_per_90", "xG por 90", ""], ["shots_per_90", "Finalizações por 90", ""], ["xg_per_shot", "xG por finalização", ""]]),
           metricGroup("Criação", [["assists", "Assistências", ""], ["xa_per_90", "xA por 90", ""], ["key_passes_per_90", "Passes para finalização por 90", ""]]),
           metricGroup("Participação", [["goal_involvements", "Participações em gols", ""], ["goal_involvements_per_90", "Participações por 90", ""], ["rating", "Rating médio", ""]]),
-          metricGroup("Passe e defesa", [["pass_accuracy", "Precisão de passe", "%"], ["defensive_actions_per_90", "Ações defensivas por 90", ""], ["duels_won", "Duelos vencidos", ""]]),
-        ] : [
-          metricGroup("Finalização", [["goals_per_90", "Gols por 90", ""], ["xg_per_90", "xG por 90", ""], ["shots_per_90", "Finalizações por 90", ""], ["xg_per_shot", "xG por finalização", ""]]),
-          metricGroup("Criação", [["assists", "Assistências", ""], ["xa", "xA", ""], ["key_passes", "Passes para finalização", ""]]),
-          metricGroup("Participação", [["goal_involvements", "Participações em gols", ""], ["goal_involvements_per_90", "Participações por 90", ""], ["rating", "Rating médio", ""]]),
+          duelsGroup(),
+          metricGroup("Passe", [["accurate_passes", "Passes certos", ""], ["pass_accuracy", "Precisão de passe", "%"], ["long_pass_accuracy", "Bolas longas certas", "%"]]),
+          metricGroup("Defesa", [["tackles", "Desarmes", ""], ["interceptions", "Interceptações", ""], ["clearances", "Cortes", ""]]),
         ]).filter(Boolean)),
       ].filter(Boolean));
     }
@@ -2661,7 +2801,7 @@
     }));
   }
 
-  function playerShotMapPanel(shots) {
+  function playerShotMapPanel(shots, { color = null } = {}) {
     if (!shots.length) return emptyState("Mapa de finalizações indisponível", "Não há chutes registrados neste recorte.");
     const state = { mode: "all", body: "all", type: "all", match: "all" };
     const output = node("div");
@@ -2686,11 +2826,7 @@
           && (state.type === "all" || shot.shot_type === state.type)
           && (state.match === "all" || String(shot.match_id) === state.match);
       });
-      const normalized = filtered.map(shot => {
-        const away = shot.team_name && shot.team_name === shot.away_team;
-        return { ...shot, x: away && number(shot.x) !== null ? 120 - number(shot.x) : shot.x, home_team: shot.team_name, away_team: null };
-      });
-      output.replaceChildren(shotMap(normalized, { compactMarkers: true }));
+      output.replaceChildren(playerShotMap(filtered, { color }) || emptyState("Mapa de finalizações indisponível", "Não há chutes neste recorte."));
     }
     bodySelect.onchange = event => { state.body = event.target.value; draw(); };
     typeSelect.onchange = event => { state.type = event.target.value; draw(); };
@@ -2755,24 +2891,11 @@
   function matchPublicStatus(match) {
     if (match?.public_status) return match.public_status;
     const status = competitionMatchStatus(match);
-    if (["Encerrado", "Ao vivo", "Aguardando atualização"].includes(status)) return status;
+    if (["Encerrado", "Ao vivo", "Aguardando resultado"].includes(status)) return status;
     if (!match?.home_defined || !match?.away_defined) return "A definir";
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
     if (match?.local_date === today) return "Hoje";
     return "Agendado";
-  }
-
-  function matchStageDistribution(rows, onSelect) {
-    const max = Math.max(...rows.map(item => number(item.matches) || 0), 1);
-    return node("div", { class: "matches-stage-distribution" }, rows.map(item => node("button", {
-      type: "button",
-      class: "matches-stage-row",
-      onclick: () => onSelect(item.stage),
-      title: `Filtrar por ${item.stage_label || matchStageLabel(item.stage)}`,
-    }, [
-      node("span", {}, [node("strong", { text: item.stage_label || matchStageLabel(item.stage) }), node("small", { text: `${formatValue(item.matches)} partidas` })]),
-      node("span", { class: "matches-stage-track", "aria-hidden": "true" }, node("span", { style: `width:${(number(item.matches) || 0) / max * 100}%` })),
-    ])));
   }
 
   function matchTeamLink(teamNameValue, teamId, defined) {
@@ -2802,7 +2925,9 @@
       ]),
       node("div", { class: "matches-calendar-scoreline" }, [
         matchTeamLink(match?.home_team, match?.home_team_id, match?.home_defined),
-        node("strong", { text: score }),
+        hasScore && (finished || live)
+          ? scorePill(match?.home_score, match?.away_score, { size: "sm", homeName: match?.home_team, awayName: match?.away_team })
+          : node("strong", { text: score }),
         matchTeamLink(match?.away_team, match?.away_team_id, match?.away_defined),
       ]),
       node("span", { class: "matches-calendar-status", text: status }),
@@ -2844,16 +2969,33 @@
 
   function matchFilterBar({ rows, filters, stages, selected, onChange }) {
     const selects = {};
-    const statusOptions = ["Encerrado", "Próximos", "Hoje", "Ao vivo", "A definir", "Aguardando atualização"]
+    const pillGroups = {};
+    const statusOptions = ["Encerrado", "Próximos", "Hoje", "Ao vivo", "A definir", "Aguardando resultado"]
       .filter(value => value === "Próximos" || rows.some(match => matchPublicStatus(match) === value));
-    const definitions = [
-      ["Fase", "stage", stages.map(item => [item.stage, item.stage_label])],
+
+    const refreshPills = () => {
+      Object.entries(pillGroups).forEach(([key, group]) => {
+        group.querySelectorAll("button").forEach(button => button.classList.toggle("is-active", button.dataset.value === String(selected[key])));
+      });
+    };
+    const pillGroup = (key, options) => {
+      const group = node("div", { class: "matches-filter-pills", role: "group" }, [
+        node("button", { type: "button", "data-value": "all", class: "is-active", text: "Todos", onclick: () => { selected[key] = "all"; refreshPills(); onChange(); } }),
+        ...options.map(([value, display]) => node("button", {
+          type: "button", "data-value": value, text: display,
+          onclick: () => { selected[key] = value; refreshPills(); onChange(); },
+        })),
+      ]);
+      pillGroups[key] = group;
+      return group;
+    };
+
+    const secondaryDefinitions = [
       ["Grupo", "group", (filters.groups || []).map(value => [value, `Grupo ${value}`])],
       ["Seleção", "team", (filters.teams || []).map(value => [value, displayTeamName(value)])],
-      ["Status", "status", statusOptions.map(value => [value, value])],
       ["Data", "date", (filters.dates || []).map(value => [value, matchCalendarDayLabel(value)])],
     ];
-    const fields = definitions.map(([labelText, key, values]) => {
+    const secondaryFields = secondaryDefinitions.map(([labelText, key, values]) => {
       const select = node("select", { onchange: event => { selected[key] = event.target.value; onChange(); } }, [
         node("option", { value: "all", text: "Todos" }),
         ...values.map(([value, display]) => node("option", { value, text: display })),
@@ -2861,23 +3003,30 @@
       selects[key] = select;
       return node("label", {}, [node("span", { text: labelText }), select]);
     });
+    const hasSecondaryValues = secondaryDefinitions.some(([, , values]) => values.length);
+
     const setShortcut = (key, value) => {
       Object.keys(selected).filter(item => item !== "grouping").forEach(item => { selected[item] = "all"; if (selects[item]) selects[item].value = "all"; });
       selected[key] = value;
       if (selects[key]) selects[key].value = value;
+      refreshPills();
       onChange();
     };
     const clear = () => setShortcut("status", "all");
-    const element = node("details", { class: "matches-filter-disclosure", open: true }, [
-      node("summary", {}, [node("span", { text: "Filtros" }), node("small", { text: "Refine o calendário" })]),
-      node("div", { class: "matches-filter-panel" }, [
-        node("div", { class: "matches-filter-grid" }, fields),
-        node("div", { class: "matches-filter-actions" }, [
-          node("button", { type: "button", text: "Hoje", onclick: () => setShortcut("date", new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date())) }),
-          node("button", { type: "button", text: "Próximos jogos", onclick: () => setShortcut("status", "Próximos") }),
-          node("button", { type: "button", text: "Encerrados", onclick: () => setShortcut("status", "Encerrado") }),
-          node("button", { type: "button", class: "is-clear", text: "Limpar filtros", onclick: clear }),
-        ]),
+    const element = node("div", { class: "matches-filter-bar" }, [
+      node("div", { class: "matches-filter-primary" }, [
+        node("div", { class: "matches-filter-pill-row" }, [node("small", { text: "Fase" }), pillGroup("stage", stages.map(item => [item.stage, item.stage_label]))]),
+        node("div", { class: "matches-filter-pill-row" }, [node("small", { text: "Status" }), pillGroup("status", statusOptions.map(value => [value, value]))]),
+      ]),
+      hasSecondaryValues ? node("details", { class: "matches-filter-more" }, [
+        node("summary", { text: "Mais filtros" }),
+        node("div", { class: "matches-filter-grid" }, secondaryFields),
+      ]) : null,
+      node("div", { class: "matches-filter-actions" }, [
+        node("button", { type: "button", text: "Hoje", onclick: () => setShortcut("date", new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date())) }),
+        node("button", { type: "button", text: "Próximos jogos", onclick: () => setShortcut("status", "Próximos") }),
+        node("button", { type: "button", text: "Encerrados", onclick: () => setShortcut("status", "Encerrado") }),
+        node("button", { type: "button", class: "is-clear", text: "Limpar filtros", onclick: clear }),
       ]),
     ]);
     element.matchSelects = selects;
@@ -2904,7 +3053,7 @@
       const rows = data.items.filter(match => {
         const status = matchPublicStatus(match);
         const teams = [match.home_team, match.away_team];
-        const upcoming = !["Encerrado", "Aguardando atualização"].includes(status);
+        const upcoming = !["Encerrado", "Aguardando resultado"].includes(status);
         return (selected.group === "all" || match.group_name === selected.group)
           && (selected.stage === "all" || match.stage === selected.stage)
           && (selected.team === "all" || teams.includes(selected.team))
@@ -2914,12 +3063,6 @@
       resultMeta.textContent = `${rows.length} ${rows.length === 1 ? "partida" : "partidas"}`;
       calendarHost.replaceChildren(rows.length ? matchCalendarGroups(rows, selected.grouping) : emptyState("Nenhuma partida neste recorte", "Ajuste ou limpe os filtros para voltar ao calendário."));
     };
-    const stageDistribution = matchStageDistribution(data.stage_distribution || [], stage => {
-      selected.stage = stage;
-      if (filterBar?.matchSelects?.stage) filterBar.matchSelects.stage.value = stage;
-      drawMatches();
-    });
-    fragment.append(section("Distribuição por fase", `${(data.stage_distribution || []).length} fases`, stageDistribution, "matches-stage-section"));
     filterBar = matchFilterBar({ rows: data.items, filters: data.filters || {}, stages: data.stage_distribution || [], selected, onChange: drawMatches });
     const grouping = node("div", { class: "matches-grouping-control", role: "group", "aria-label": "Agrupar calendário" }, [
       node("button", { type: "button", class: "is-active", text: "Por data" }),
@@ -3083,15 +3226,23 @@
     ) || null;
   }
 
+  function lineupPositionCode(player, matchPlayer) {
+    return positionLabel(resolvedPlayerPosition(matchPlayer || player));
+  }
+
   function lineupPlayerRow(player, className = "", detail = null, matchPlayer = null) {
     const row = node("li", { class: className }, [
       node("span", { class: "shirt-number", text: player.jersey_number || "–" }),
       node("strong", { text: player.name || player.player_name }),
       detail
         ? node("span", { class: "lineup-entry-detail", text: detail })
-        : node("span", { text: positionLabel(player.position) }),
+        : node("span", { text: lineupPositionCode(player, matchPlayer) }),
     ]);
     return makePlayerSurfaceInteractive(row, matchPlayer);
+  }
+
+  function lineupUnit(player, matchPlayer) {
+    return { GOL: "Goleiro", DEF: "Defesa", MEI: "Meio-campo", ATA: "Ataque" }[lineupPositionCode(player, matchPlayer)] || "Ataque";
   }
 
   function lineupPanel(side, matchPlayers = [], events = []) {
@@ -3099,17 +3250,22 @@
     const players = side.starting_xi || [];
     const subs = side.substitutes || [];
     const enteredMinutes = substitutionEntryMinutes(side, events);
+    const grouped = new Map();
+    players.forEach(player => {
+      const matchPlayer = matchLineupPlayer(player, side.team_name, matchPlayers);
+      const unit = lineupUnit(player, matchPlayer);
+      if (!grouped.has(unit)) grouped.set(unit, []);
+      grouped.get(unit).push({ player, matchPlayer });
+    });
     return node("article", { class: "lineup-card" }, [
       node("div", { class: "chart-card-head" }, [
         node("p", { class: "eyebrow", text: side.formation ? `Formação ${side.formation}` : "Escalação" }),
-        node("h3", {}, side.team_name ? teamLabel(side.team_name) : "Equipe"),
+        node("h3", {}, side.team_name ? node("button", { type: "button", class: "lineup-team-link", onclick: () => side.team_id && goToProfile("team", side.team_id) }, teamLabel(side.team_name)) : "Equipe"),
       ]),
-      node("ol", { class: "lineup-list" }, players.map(player => lineupPlayerRow(
-        player,
-        "",
-        null,
-        matchLineupPlayer(player, side.team_name, matchPlayers),
-      ))),
+      node("div", { class: "lineup-units" }, ["Goleiro", "Defesa", "Meio-campo", "Ataque"].filter(unit => grouped.has(unit)).map(unit => node("section", { class: "lineup-unit" }, [
+        node("h4", { text: unit }),
+        node("ol", { class: "lineup-list" }, grouped.get(unit).map(({ player, matchPlayer }) => lineupPlayerRow(player, "", null, matchPlayer))),
+      ]))),
       subs.length ? node("details", { class: "data-disclosure lineup-subs" }, [
         node("summary", {}, [node("span", { text: "Banco de reservas" }), node("strong", { text: `${subs.length} jogadores` })]),
         node("ol", { class: "lineup-list" }, subs.map(player => {
@@ -3149,7 +3305,24 @@
   function eventDescription(event) {
     const type = String(event?.type || "").toLowerCase();
     const player = event?.player_name || null;
-    if (type === "goal") return player || "Gol confirmado";
+    if (type === "goal") return [
+      player || "Gol confirmado",
+      event?.assist_name ? `assistência de ${event.assist_name}` : null,
+      metricAvailable(event?.xg) ? `${formatValue(event.xg)} xG` : null,
+    ].filter(Boolean).join(" · ");
+    if (type === "substitution") {
+      const incoming = event?.player_in_name || player;
+      if (incoming && event?.player_out_name) return `${displayTeamName(event?.team_name)} · ${incoming} entrou no lugar de ${event.player_out_name}`;
+      if (incoming) return `${displayTeamName(event?.team_name)} · ${incoming} entrou`;
+    }
+    if (type === "var") return [
+      event?.team_name ? displayTeamName(event.team_name) : null,
+      event?.decision || event?.detail || "Revisão registrada",
+    ].filter(Boolean).join(" · ");
+    if (type === "shot_on_target") return [
+      player,
+      metricAvailable(event?.xg) ? `${formatValue(event.xg)} xG` : null,
+    ].filter(Boolean).join(" · ") || "Finalização no alvo";
     return [event?.team_name ? displayTeamName(event.team_name) : null, player].filter(Boolean).join(" · ") || "Lance registrado";
   }
 
@@ -3195,13 +3368,20 @@
       .filter(minute => minute !== null));
     (match?.goals || []).forEach(goal => {
       const minute = number(goal?.minute);
-      if (minute !== null && goalMinutes.has(minute)) return;
+      const existing = events.find(event => String(event?.type).toLowerCase() === "goal" && number(event?.minute) === minute);
+      if (existing) {
+        if (!metricAvailable(existing.xg) && metricAvailable(goal.xg)) existing.xg = goal.xg;
+        if (!existing.player_name) existing.player_name = goal.player_name;
+        if (!existing.team_name) existing.team_name = goal.team_name;
+        return;
+      }
       events.push({
         minute,
         extra_time: goal?.extra_time,
         type: "goal",
         team_name: goal?.team_name,
         player_name: goal?.player_name,
+        xg: goal?.xg,
       });
       if (minute !== null) goalMinutes.add(minute);
     });
@@ -3249,9 +3429,25 @@
       ["Momentos", "#match-moments"],
       ["Escalações", "#match-lineups"],
     ];
-    return node("nav", { class: "match-subnav", "aria-label": "Navegação da partida" }, links.map(([labelText, href]) =>
-      node("a", { href, text: labelText })
+    return node("nav", { class: "match-subnav", "aria-label": "Navegação da partida" }, links.map(([labelText, href], index) =>
+      node("a", { class: `match-subnav-link${index === 0 ? " is-active" : ""}`, href, text: labelText, onclick: event => {
+        event.preventDefault();
+        document.querySelector(href)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      } })
     ));
+  }
+
+  function activateMatchSubnav(nav) {
+    state.matchSubnavObserver?.disconnect();
+    const links = [...nav.querySelectorAll(".match-subnav-link")];
+    const sections = links.map(link => document.querySelector(link.getAttribute("href"))).filter(Boolean);
+    if (!sections.length || !("IntersectionObserver" in window)) return;
+    state.matchSubnavObserver = new IntersectionObserver(entries => {
+      const visible = entries.filter(entry => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+      if (!visible) return;
+      links.forEach(link => link.classList.toggle("is-active", link.getAttribute("href") === `#${visible.target.id}`));
+    }, { rootMargin: "-18% 0px -68% 0px", threshold: [0, .2, .5] });
+    sections.forEach(sectionNode => state.matchSubnavObserver.observe(sectionNode));
   }
 
   function matchStoryPanel(story = []) {
@@ -3261,12 +3457,15 @@
     );
   }
 
+  const LOWER_IS_BETTER_METRICS = ["fouls", "yellow_cards", "red_cards", "big_chances_missed", "offsides", "dispossessed"];
+
   function comparisonBars(rows, className = "") {
     if (!rows?.length) return emptyState("Visão geral indisponível", "As métricas comparativas ainda não estão disponíveis para esta partida.");
     return node("div", { class: `comparison-stack ${className}`.trim() }, rows.map(row => {
-      const title = `${metricName(row.metric)} · ${displayTeamName(row.home_team)}: ${formatValue(row.home_value)} · ${displayTeamName(row.away_team)}: ${formatValue(row.away_value)}`;
+      const lowerIsBetter = LOWER_IS_BETTER_METRICS.includes(row.metric);
+      const title = `${metricName(row.metric)} · ${displayTeamName(row.home_team)}: ${formatValue(row.home_value)} · ${displayTeamName(row.away_team)}: ${formatValue(row.away_value)}${lowerIsBetter ? " · Menor é melhor" : ""}`;
       return node("div", {
-        class: "comparison-row",
+        class: `comparison-row${lowerIsBetter ? " is-lower-better" : ""}`,
         tabIndex: 0,
         "aria-label": title,
         "data-tooltip": title,
@@ -3289,6 +3488,28 @@
         node("strong", { class: "comparison-value", text: formatValue(row.away_value) }),
       ]);
     }));
+  }
+
+  function overviewCompleteTable(rows) {
+    return node("div", { class: "table-wrap overview-complete-table", tabindex: "0", role: "region", "aria-label": "Métricas completas da partida" }, [
+      node("table", {}, [
+        node("thead", {}, node("tr", {}, [
+          node("th", { text: "Métrica" }),
+          node("th", { text: displayTeamName(rows[0]?.home_team) }),
+          node("th", { text: displayTeamName(rows[0]?.away_team) }),
+          node("th", { text: "Leitura" }),
+        ])),
+        node("tbody", {}, rows.map(row => {
+          const lower = LOWER_IS_BETTER_METRICS.includes(row.metric);
+          return node("tr", {}, [
+            node("th", { scope: "row", text: metricName(row.metric) }),
+            node("td", { text: formatValue(row.home_value) }),
+            node("td", { text: formatValue(row.away_value) }),
+            node("td", { class: "overview-reading", text: lower ? "Menor é melhor" : "Maior valor em destaque" }),
+          ]);
+        })),
+      ]),
+    ]);
   }
 
   function unifiedComparisonRows(data, match) {
@@ -3349,13 +3570,18 @@
         ))
       : comparisonBars(rows.slice(0, 10));
     return node("div", { class: "match-overview-content" }, [
+      node("div", { class: "comparison-team-legend", style: matchPalette(match?.home_team, match?.away_team) }, [
+        node("span", {}, [node("i", { class: "legend-dot is-home" }), teamLabel(match?.home_team)]),
+        node("span", {}, [node("i", { class: "legend-dot is-away" }), teamLabel(match?.away_team)]),
+        node("small", { text: "Em faltas e cartões, menor é melhor." }),
+      ]),
       primary,
       rows.length > 10 ? node("details", { class: "overview-disclosure" }, [
         node("summary", {}, [
           node("span", { text: "Ver métricas completas" }),
           node("strong", { text: `${rows.length} indicadores` }),
         ]),
-        comparisonBars(rows, "comparison-stack-secondary"),
+        overviewCompleteTable(rows),
       ]) : null,
     ]);
   }
@@ -3368,6 +3594,7 @@
   }
 
   function impactMetricLine(player) {
+    if (player.impact_reasons?.length) return player.impact_reasons.slice(0, 3).join(" · ");
     return [
       number(player.goals) ? pluralCount(number(player.goals), "gol", "gols") : null,
       number(player.xg) ? `${formatValue(player.xg)} xG` : null,
@@ -3382,14 +3609,14 @@
 
   function impactPanel(players, matchPlayers = []) {
     return node("div", { class: "impact-section" }, [
-      node("p", { class: "section-intro", text: "Índice contextual 0–100 calculado pelas dimensões disponíveis para a função." }),
+      node("p", { class: "section-intro", text: "Índice 0–100 de influência nesta partida, com peso para ações decisivas e contexto da função." }),
       node("div", { class: "card-grid" }, players.slice(0, 3).map((player, index) => {
         const fullPlayer = matchPlayers.find(candidate => candidate.player_id === player.player_id)
           || matchPlayers.find(candidate => candidate.player_name === player.player_name && candidate.team_name === player.team_name);
         const card = node("article", { class: "card impact-card" }, [
           node("span", { class: "card-kicker", text: `#${index + 1}` }),
           node("h3", { text: player.player_name }),
-          node("p", { class: "impact-role", text: [player.team_name ? displayTeamName(player.team_name) : null, resolvedPlayerPosition(player)].filter(Boolean).join(" · ") }),
+          node("p", { class: "impact-role", text: [player.impact_category, player.team_name ? displayTeamName(player.team_name) : null, resolvedPlayerPosition(player)].filter(Boolean).join(" · ") }),
           node("strong", { class: "impact-inline-score", text: `${formatValue(player.impact_score)}/100` }),
           node("p", { class: "impact-metrics", text: impactMetricLine(player) }),
         ]);
@@ -3408,12 +3635,12 @@
     });
     const official = (data.stats_comparison || []).find(row => row.metric === "expected_goals");
     const byShot = teams.map(team => `${displayTeamName(team)} ${formatValue(Math.round(shotTotals[team] * 100) / 100)} xG`).join(" · ");
-    if (!official) return `Fluxo por chute: ${byShot}.`;
+    if (!official) return `xG do mapa de chutes: ${byShot}.`;
     const officialValues = Object.fromEntries(teams.map(team => [team, Math.max(0, number(official[team]) || 0)]));
     const differs = teams.some(team => Math.abs(officialValues[team] - shotTotals[team]) >= 0.01);
     if (!differs) return `xG acumulado dos chutes: ${byShot}.`;
     const overview = teams.map(team => `${displayTeamName(team)} ${formatValue(officialValues[team])} xG`).join(" · ");
-    return `Fluxo por chute: ${byShot}. Visão geral: ${overview}.`;
+    return `xG do mapa de chutes: ${byShot}. xG agregado da visão geral: ${overview}. Pequenas diferenças refletem a fonte de cada cálculo.`;
   }
 
   function finalizationsPanel(data, match) {
@@ -3493,9 +3720,9 @@
     return `${formatValue(value)}% (${formatValue(numerator)}/${formatValue(denominator)})`;
   }
 
-  function modalMetric(labelText, value) {
+  function modalMetric(labelText, value, title = null) {
     if (!metricAvailable(value)) return null;
-    return { label: labelText, value: typeof value === "number" ? formatValue(value) : value };
+    return { label: labelText, value: typeof value === "number" ? formatValue(value) : value, title };
   }
 
   function modalStatSection(title, metrics) {
@@ -3658,8 +3885,8 @@
     const contextual = metricAvailable(player.profile_score) ? `${formatValue(player.profile_score)}/100` : null;
     const base = [
       modalMetric("Minutos", player.minutes_played),
-      modalMetric("Perfil contextual", contextual),
-      modalMetric("Rating", player.rating),
+      modalMetric("Perfil contextual", contextual, "Score calculado pelo produto (0–100) para comparar o jogador com outros da mesma função nesta partida. Não é um campo da fonte de dados."),
+      modalMetric("Rating", player.rating, "Nota original informada pela TheStatsAPI para esta partida."),
     ];
     let priorities;
     if (player.macroposition === "Goleiro") {
@@ -3789,28 +4016,121 @@
     ]);
   }
 
-  function playerShotsPanel(player) {
-    const shots = player.player_shots || [];
-    if (!shots.length) return null;
-    return node("section", { class: "player-modal-section player-actions-section" }, [
-      node("h3", { text: "Finalizações" }),
-      shotMap(shots),
-      node("ol", { class: "player-shot-list" }, shots.map(shot => node("li", {}, [
-        node("time", { text: `${formatValue(shot.minute)}'` }),
-        node("strong", { text: SHOT_OUTCOME_LABELS[String(shot.shot_outcome || "").toLowerCase()] || "Finalização" }),
-        modalMetric("", shot.xg)?.value ? node("span", { text: `${formatValue(shot.xg)} xG` }) : null,
-        shot.body_part ? node("span", { text: BODY_PART_LABELS[String(shot.body_part).toLowerCase()] || shot.body_part }) : null,
-      ]))),
+  function playerShotMap(shots, { color = null } = {}) {
+    const clean = shots
+      .map(shot => ({ shot, x: number(shot.x), y: number(shot.y) }))
+      .filter(item => item.x !== null && item.y !== null);
+    if (!clean.length) return null;
+    const width = 100, height = 50;
+    const svg = svgNode("svg", {
+      viewBox: `0 0 ${width} ${height}`,
+      role: "img",
+      "aria-label": `Metade ofensiva do campo com ${clean.length} finalizações do jogador`,
+    });
+    svg.append(svgNode("title", {}, "Mapa de finalizações do jogador — apenas a metade ofensiva do campo, gol no topo."));
+    svg.append(svgNode("rect", { x: 0, y: 0, width, height, class: "pitch-line pitch-crop" }));
+    const markings = [
+      ["rect", { x: 20, y: 0, width: 60, height: 16 }],
+      ["rect", { x: 37, y: 0, width: 26, height: 5.5 }],
+      ["circle", { cx: 50, cy: 10.5, r: 0.7 }],
+    ];
+    markings.forEach(([tag, attrs]) => svg.append(svgNode(tag, { ...attrs, class: "pitch-line" })));
+    svg.append(svgNode("line", { x1: 0, y1: height - .5, x2: width, y2: height - .5, class: "pitch-crop-edge" }));
+    clean.forEach(({ shot, x, y }) => {
+      const goal = Boolean(shot.is_goal);
+      const cx = Math.max(1, Math.min(width - 1, y));
+      const cy = Math.max(1, Math.min(height - 1, x));
+      const xg = Math.max(0, number(shot.xg ?? shot.statsbomb_xg) || 0);
+      const size = Math.max(1, Math.min(3.2, 1 + xg * 4));
+      const colorStyle = color ? { style: `--team-color:${color}` } : {};
+      const marker = goal
+        ? svgNode("polygon", {
+          points: starPoints(cx, cy, size * 1.3, 0.22),
+          class: "shot-point is-player-shot is-goal",
+          ...colorStyle,
+          tabindex: "0",
+          role: "img",
+          "aria-label": `${formatValue(shot.minute)}', gol, xG ${formatValue(xg)}`,
+        })
+        : svgNode("circle", {
+          cx, cy, r: size,
+          class: "shot-point is-player-shot",
+          ...colorStyle,
+          tabindex: "0",
+          role: "img",
+          "aria-label": `${formatValue(shot.minute)}', finalização, xG ${formatValue(xg)}`,
+        });
+      const outcome = SHOT_OUTCOME_LABELS[String(shot.shot_outcome || "").toLowerCase()] || (goal ? "Gol" : "Finalização");
+      const bodyPart = BODY_PART_LABELS[String(shot.body_part || "").toLowerCase()] || "Parte do corpo não informada";
+      const tooltip = `${formatValue(shot.minute)}' · ${outcome} · xG ${formatValue(xg)} · ${bodyPart}`;
+      svg.append(attachChartTooltip(marker, tooltip));
+    });
+    return node("div", { class: "pitch-wrap player-pitch-wrap" }, [
+      svg,
+      node("div", { class: "chart-legend" }, [
+        node("span", { class: "shot-symbol-legend", text: "Círculo = chute · Estrela = gol · Tamanho = xG" }),
+      ]),
     ]);
   }
 
-  function playerEventsPanel(player) {
-    const events = sortedEvents(player.player_events || []).slice(0, 10);
-    if (!events.length) return null;
-    return node("section", { class: "player-modal-section" }, [
-      node("h3", { text: "Eventos principais" }),
-      eventTimeline(events, "player-event-timeline"),
-    ]);
+  const SHOT_RESULT_TO_EVENT_TYPE = { save: "shot_on_target", block: "shot_blocked", miss: "shot_off_target", post: "shot_post" };
+
+  function playerTimelineEntries(player) {
+    const shotEntries = (player.player_shots || []).map(shot => {
+      const outcome = String(shot.shot_outcome || "").toLowerCase();
+      return {
+        kind: "shot",
+        minute: number(shot.minute),
+        type: shot.is_goal ? "goal" : (SHOT_RESULT_TO_EVENT_TYPE[outcome] || "shot_on_target"),
+        shot,
+      };
+    });
+    const eventEntries = sortedEvents(player.player_events || []).map(event => ({
+      kind: "event",
+      minute: number(event.minute),
+      type: String(event.type || "").toLowerCase(),
+      event,
+    }));
+    return [...shotEntries, ...eventEntries].sort((a, b) => (a.minute ?? 0) - (b.minute ?? 0));
+  }
+
+  function playerTimelineDescription(entry, player) {
+    if (entry.kind === "shot") {
+      const shot = entry.shot;
+      return [
+        metricAvailable(shot.xg) ? `${formatValue(shot.xg)} xG` : null,
+        shot.body_part ? (BODY_PART_LABELS[String(shot.body_part).toLowerCase()] || shot.body_part) : null,
+      ].filter(Boolean).join(" · ") || null;
+    }
+    const event = entry.event;
+    if (entry.type === "substitution") {
+      const isIncoming = event.player_in_name === player.player_name;
+      if (isIncoming && event.player_out_name) return `Entrou no lugar de ${event.player_out_name}`;
+      if (!isIncoming && event.player_in_name) return `Saiu, entrou ${event.player_in_name}`;
+      return isIncoming ? "Entrou em campo" : "Substituído";
+    }
+    if (entry.type === "var") return event?.decision || event?.detail || "Revisão registrada";
+    return null;
+  }
+
+  function playerActionsPanel(player) {
+    const entries = playerTimelineEntries(player);
+    const map = playerShotMap(player.player_shots || []);
+    if (!entries.length && !map) return null;
+    return node("section", { class: "player-modal-section player-actions-section" }, [
+      node("h3", { text: "Finalizações e momentos" }),
+      map,
+      entries.length ? node("ol", { class: "event-timeline player-event-timeline" }, entries.map(entry => node("li", {
+        class: `event-item event-${entry.type.replace(/[^a-z0-9_-]/g, "")}`,
+      }, [
+        node("time", { text: `${formatValue(entry.minute)}'` }),
+        node("span", { class: "event-icon", text: EVENT_ICONS[entry.type] || "·", "aria-hidden": "true" }),
+        node("div", { class: "event-copy" }, [
+          node("strong", { text: EVENT_LABELS[entry.type] || "Lance da partida" }),
+          (() => { const description = playerTimelineDescription(entry, player); return description ? node("span", { text: description }) : null; })(),
+        ]),
+      ]))) : null,
+    ].filter(Boolean));
   }
 
   function openPlayerModal(player) {
@@ -3838,7 +4158,7 @@
         node("div", { class: "player-modal-identity" }, [
           flagNode(player, "flag-large"),
           node("div", {}, [
-            node("p", { class: "eyebrow", text: displayTeamName(player.team_name) }),
+            node("p", { class: "eyebrow", text: player.opponent_name ? `${displayTeamName(player.team_name)} vs ${displayTeamName(player.opponent_name)}` : displayTeamName(player.team_name) }),
             node("h2", { id: "player-modal-title", text: player.player_name }),
             node("p", { class: "player-modal-role", text: resolvedPlayerPosition(player) }),
           ]),
@@ -3850,19 +4170,24 @@
       minutesWarning ? node("p", { class: "player-modal-warning", text: "Poucos minutos: interprete o perfil com cautela." }) : null,
       node("section", { class: "player-modal-section" }, [
         node("h3", { text: "Resumo da atuação" }),
-        node("dl", { class: "player-quick-grid" }, quickMetrics.map(metric => node("div", {}, [node("dt", { text: metric.label }), node("dd", { text: metric.value })]))),
+        node("dl", { class: "player-quick-grid" }, quickMetrics.map(metric => node("div", { title: metric.title }, [node("dt", { text: metric.label }), node("dd", { text: metric.value })]))),
       ]),
       node("section", { class: "player-modal-section" }, [
         node("div", { class: "player-modal-section-head" }, [
-          node("h3", { text: "Perfil contextual" }),
+          node("h3", { title: "Score calculado pelo produto para comparar o jogador com outros da mesma função — diferente do Rating, que é o campo original da fonte de dados.", text: "Perfil contextual" }),
           node("span", { text: player.macroposition || "Função" }),
         ]),
         playerRadarPanel(player),
       ]),
       playerPerformanceHighlights(player),
       node("div", { class: "player-modal-section-grid" }, playerDetailedSections(player)),
-      playerShotsPanel(player),
-      playerEventsPanel(player),
+      playerActionsPanel(player),
+      player.player_id ? node("footer", { class: "player-modal-notes" }, node("button", {
+        type: "button",
+        class: "action-link",
+        text: "Ver perfil completo",
+        onclick: () => { close(); goToProfile("player", player.player_id); },
+      })) : null,
     ].filter(Boolean);
     dialog.append(node("div", { class: "player-modal-shell" }, content));
     dialog.addEventListener("click", event => {
@@ -3895,6 +4220,7 @@
       { key: "position", label: "Pos.", value: player => resolvedPlayerPosition(player, true) },
       { key: "minutes_played", label: "Min.", value: player => number(player.minutes_played) },
       { key: "impact_score", label: "Impacto", value: player => number(player.impact_score) },
+      { key: "goals", label: "Gols", value: player => number(player.goals) },
       { key: "xg", label: "xG", value: player => number(player.xg) },
       { key: "xa", label: "xA", value: player => number(player.xa) },
       { key: "accurate_passes", label: "Passes", value: player => number(player.accurate_passes) },
@@ -3966,7 +4292,10 @@
         ]),
         radarChart(selected.radar || [], `${selected.player_name} na partida`),
         node("p", { class: "player-summary", text: playerSummary(selected) }),
-        node("button", { type: "button", class: "action-link player-detail-action", text: "Ver estatísticas completas", onclick: () => openPlayerModal(selected) }),
+        node("div", { class: "player-detail-actions" }, [
+          node("button", { type: "button", class: "action-link", text: "Ver estatísticas completas", onclick: () => openPlayerModal(selected) }),
+          selected.player_id ? node("button", { type: "button", class: "action-link", text: "Ver perfil completo", onclick: () => goToProfile("player", selected.player_id) }) : null,
+        ]),
         node("dl", { class: "feature-stats compact" }, [
           ["Gols", selected.goals],
           ["xG", selected.xg],
@@ -3984,21 +4313,34 @@
           class: player.player_id === selected.player_id ? "is-selected" : "",
           title: `${player.player_name} · impacto ${formatValue(player.impact_score)}/100`,
         }, columns.map(column => column.render
-          ? node("td", {}, column.render(player))
-          : node("td", { text: formatValue(column.value(player)) })
+          ? node("td", { "data-label": column.label }, column.render(player))
+          : node("td", { "data-label": column.label, text: formatValue(column.value(player)) })
         ));
-        return makePlayerSurfaceInteractive(tr, player, () => {
+        tr.tabIndex = 0;
+        tr.setAttribute("role", "button");
+        tr.setAttribute("aria-label", `Selecionar ${player.player_name}; clique duas vezes para abrir o perfil`);
+        tr.addEventListener("click", () => {
+          selected = player;
+          drawRows();
+          drawDetail();
+        });
+        tr.addEventListener("dblclick", () => goToProfile("player", player.player_id));
+        tr.addEventListener("keydown", event => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
             selected = player;
             drawRows();
             drawDetail();
+          }
         });
+        return tr;
       }));
     }
 
     drawHeader();
     drawRows();
     drawDetail();
-    return node("div", { class: "player-explorer" }, [table, detail]);
+    return node("div", { class: "player-explorer" }, [withHorizontalScrollFade(table, { wrapClass: "player-table-scroll-wrap", bg: "var(--surface)" }), detail]);
   }
 
   function interactiveShotMap(rows = []) {
@@ -4076,7 +4418,7 @@
         : `${filtered.length} chutes · ${goals} gols · ${formatValue(xg)} xG`;
       const content = [
         activeFilters.length ? node("p", { class: "shot-filter-status", text: `Filtro ativo: ${activeFilters.join(" · ")}` }) : null,
-        node("p", { class: "shot-summary", text: summary }),
+        node("p", { class: "shot-summary", text: summary.replace(/ xG$/, " xG por chutes") }),
         shotMap(filtered, {
           selectedKey: selected.shot,
           onSelect: shot => {
@@ -4098,8 +4440,9 @@
     state.matchPlayers = data.players || [];
     document.body.classList.add("is-match-center");
     const fragment = document.createDocumentFragment();
+    const subnav = matchSubnav();
     fragment.append(matchCenterHero(match));
-    fragment.append(matchSubnav());
+    fragment.append(subnav);
     const message = first(data, ["notice", "message", "warning"]);
     if (message && !technicalTextPattern.test(message)) fragment.append(node("aside", { class: "notice", text: message }));
     fragment.append(section("História do jogo", null, matchStoryPanel(data.match_story || []), "", "match-summary"));
@@ -4116,6 +4459,7 @@
     ].filter(Boolean);
     if (lineups.length) fragment.append(section("Escalações", "Titulares e banco", node("div", { class: "lineup-grid" }, lineups), "", "match-lineups"));
     els.view.replaceChildren(fragment);
+    activateMatchSubnav(subnav);
   }
 
   function renderAvailability(data) {
@@ -4492,10 +4836,10 @@
       && match?.away_score !== null && match?.away_score !== undefined;
     if (/live|ao vivo|in progress/.test(status)) {
       if (homeMatchIsLive(match)) return "Ao vivo";
-      return hasScore && isStale ? "Encerrado" : "Aguardando atualização";
+      return hasScore && isStale ? "Encerrado" : "Aguardando resultado";
     }
     if (/finished|finalizado|encerrado/.test(status)) return "Encerrado";
-    if (isStale && !hasScore) return "Aguardando atualização";
+    if (isStale && !hasScore) return "Aguardando resultado";
     return match?.match_id ? "Agendado" : "A definir";
   }
 
@@ -4605,7 +4949,7 @@
       node("tbody", {}, rows.map(team => {
         const rank = number(team.rank) || 0;
         const status = team.status || (state.competitionData?.group_stage_complete
-          ? rank <= 7 ? "Classificado" : rank === 8 ? "Última classificada" : "Eliminado"
+          ? rank <= 8 ? "Classificado" : "Eliminado"
           : rank <= 7 ? "Dentro no momento" : rank === 8 ? "Última vaga" : "Fora agora");
         const className = rank <= 7 ? "competition-row-qualified" : rank === 8 ? "competition-row-third" : "competition-row-out";
         return node("tr", { class: className }, [
@@ -4668,8 +5012,13 @@
         node("time", { dateTime: match?.kickoff_at || "", title: "Horários em Brasília", text: competitionKickoffLabel(match?.kickoff_at) }),
         node("span", { text: match?.decided_by === "penalties" ? "Pênaltis" : status }),
       ]),
-      node("div", { class: `knockout-side${match?.home?.team_name === match?.winner_name ? " is-winner" : ""}` }, [knockoutTeam(match?.home, match?.winner_name), node("strong", { text: hasScore ? formatValue(match.home_score) : "—" })]),
-      node("div", { class: `knockout-side${match?.away?.team_name === match?.winner_name ? " is-winner" : ""}` }, [knockoutTeam(match?.away, match?.winner_name), node("strong", { text: hasScore ? formatValue(match.away_score) : "—" })]),
+      node("div", { class: "knockout-match-line" }, [
+        node("div", { class: `knockout-side${match?.home?.team_name === match?.winner_name ? " is-winner" : ""}` }, knockoutTeam(match?.home, match?.winner_name)),
+        hasScore
+          ? scorePill(match.home_score, match.away_score, { size: "sm", homeName: match?.home?.team_name, awayName: match?.away?.team_name })
+          : node("strong", { class: "knockout-center", text: "×" }),
+        node("div", { class: `knockout-side${match?.away?.team_name === match?.winner_name ? " is-winner" : ""}` }, knockoutTeam(match?.away, match?.winner_name)),
+      ]),
       resultNote ? node("small", { class: "knockout-result-note", text: resultNote }) : null,
     ]);
     if (match?.match_id) {
@@ -4684,8 +5033,21 @@
     return card;
   }
 
+  function withHorizontalScrollFade(scrollable, { wrapClass = "", bg = "var(--bg)" } = {}) {
+    const fade = node("div", { class: "scroll-fade-edge", "aria-hidden": "true", style: `--scroll-fade-bg:${bg}` });
+    const wrap = node("div", { class: `scroll-fade-wrap ${wrapClass}`.trim() }, [scrollable, fade]);
+    const updateScrollFade = () => {
+      const hasMoreToScroll = scrollable.scrollWidth - scrollable.clientWidth - scrollable.scrollLeft > 4;
+      wrap.classList.toggle("has-scroll", hasMoreToScroll);
+    };
+    scrollable.addEventListener("scroll", updateScrollFade, { passive: true });
+    window.addEventListener("resize", updateScrollFade, { passive: true });
+    requestAnimationFrame(updateScrollFade);
+    return wrap;
+  }
+
   function knockoutBoard(knockout) {
-    return node("div", { class: "knockout-board" }, node("div", { class: "knockout-board-inner" },
+    const board = node("div", { class: "knockout-board" }, node("div", { class: "knockout-board-inner" },
       (knockout.rounds || []).map(round => node("section", { class: `knockout-round${round.matches?.length ? "" : " is-empty"}` }, [
         node("header", {}, [node("span", { text: "Fase" }), node("h3", { text: round.name })]),
         round.matches?.length
@@ -4693,6 +5055,7 @@
           : node("div", { class: "knockout-empty", text: "Fase ainda a definir" }),
       ]))
     ));
+    return withHorizontalScrollFade(board, { wrapClass: "knockout-board-wrap" });
   }
 
   function competitionKnockoutContext(knockout) {
@@ -4905,9 +5268,10 @@
 
   function teamShotExperience(data, metric) {
     const shots = data.shot_map || [];
+    const color = teamColor(data.team?.team_name || shots[0]?.team_name);
     return node("div", { class: "profile-shot-experience team-shot-experience" }, [
       profileSummaryLine([metric("shots", "Finalizações"), metric("goals_for", "Gols"), metric("xg", "xG"), metric("conversion", "Conversão", "%")]),
-      node("section", { class: "profile-shot-map-section" }, [node("h3", { text: "Mapa de finalizações" }), playerShotMapPanel(shots)]),
+      node("section", { class: "profile-shot-map-section" }, [node("h3", { text: "Mapa de finalizações" }), playerShotMapPanel(shots, { color })]),
       playerShotMinuteChart(shots, data.shot_benchmark?.minute_bins),
       node("div", { class: "player-distribution-grid" }, [
         distributionWithBenchmark(shots, data.shot_benchmark?.distributions?.body_part, "body_part", "Parte do corpo"),
@@ -4947,9 +5311,12 @@
         teamProfileQuickRead(team, benchmarks),
         teamRadarFeature(team, radar, benchmarkRadar, benchmarkLabel),
         node("div", { class: "profile-metric-groups" }, [
-          metricGroup("Ataque", [["goals_per_game", "Gols por jogo", ""], ["xg_per_game", "xG por jogo", ""], ["shots_per_game", "Finalizações por jogo", ""], ["conversion", "Conversão", "%"]]),
+          // Mirrors the radar's "Ataque" and "Finalização" axes together — both are covered here
+          // so the correspondence stays visible without a near-empty single-metric block.
+          metricGroup("Ataque e Finalização", [["goals_per_game", "Gols por jogo", ""], ["xg_per_game", "xG por jogo", ""], ["shots_per_game", "Finalizações por jogo", ""], ["conversion", "Conversão", "%"]]),
           metricGroup("Defesa", [["goals_against", "Gols sofridos", ""], ["goals_against_per_game", "Gols sofridos por jogo", ""], ["xga_per_game", "xG cedido por jogo", ""], ["shots_against_per_game", "Finalizações sofridas por jogo", ""]]),
           metricGroup("Controle", [["average_possession", "Posse média", "%"], ["pass_accuracy", "Precisão de passe", "%"], ["recoveries_per_game", "Recuperações por jogo", ""], ["tackles_per_game", "Desarmes por jogo", ""]]),
+          metricGroup("Eficiência", [["goals_minus_xg", "Gols acima do xG", ""], ["xg_difference", "Saldo de xG", ""], ["conversion", "Conversão", "%"]]),
         ].filter(Boolean)),
       ].filter(Boolean));
     }

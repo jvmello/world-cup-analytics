@@ -27,6 +27,14 @@ SOURCE = "TheStatsAPI"
 DEFAULT_OPENING_MATCH_ID = "mt_153637999"
 HOME_TIMEZONE = ZoneInfo("America/Sao_Paulo")
 
+# Shot outcomes already carried by the shotmap product (with richer detail: xG, body part,
+# on-target vs blocked vs post) — excluded from a player's events timeline to avoid showing the
+# same finalization twice (once via events/timeline, once via shotmap).
+SHOT_COVERED_EVENT_TYPES = {
+    "goal", "shot_on_target", "shot_off_target", "shot_blocked",
+    "penalty_scored", "penalty_missed", "penalty_saved",
+}
+
 
 def json_safe(value: Any) -> Any:
     if isinstance(value, dict):
@@ -200,9 +208,17 @@ class TheStatsApiBronzeService:
             if populated and current_index + 1 < len(populated)
             else None
         )
+        resolved_knockout_by_id = {
+            resolved_match.get("match_id"): resolved_match
+            for round_ in knockout["rounds"]
+            for resolved_match in round_["matches"]
+            if resolved_match.get("match_id")
+        }
         today = reference.astimezone(HOME_TIMEZONE).date()
         today_matches = [
-            match for match in fixtures if cls._local_match_date(match) == today
+            cls._with_resolved_sides(match, resolved_knockout_by_id)
+            for match in fixtures
+            if cls._local_match_date(match) == today
         ]
 
         classified = []
@@ -258,6 +274,19 @@ class TheStatsApiBronzeService:
             "next_phase": next_round["name"] if next_round else None,
             "next_matchups": (next_round or current_round or {}).get("matches", [])[:4],
         }
+
+    @staticmethod
+    def _with_resolved_sides(
+        fixture: dict[str, Any],
+        resolved_knockout_by_id: dict[Any, dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Attach the same resolved home/away placeholder objects the bracket uses, so "Agenda de
+        hoje" never shows raw winner codes (W75) for knockout matches whose opponents aren't
+        decided yet — group-stage fixtures (never placeholders) pass through unchanged."""
+        resolved = resolved_knockout_by_id.get(fixture.get("match_id"))
+        if not resolved:
+            return fixture
+        return {**fixture, "home": resolved["home"], "away": resolved["away"]}
 
     @classmethod
     def home_knockout_summary(
@@ -633,12 +662,12 @@ class TheStatsApiBronzeService:
         has_score = row.get("home_score") is not None and row.get("away_score") is not None
         if status in {"live", "in progress", "ao vivo"}:
             if stale:
-                return "Encerrado" if has_score else "Aguardando atualização"
+                return "Encerrado" if has_score else "Aguardando resultado"
             return "Ao vivo"
         if status in {"finished", "finalizado", "encerrado"}:
             return "Encerrado"
         if stale and not has_score:
-            return "Aguardando atualização"
+            return "Aguardando resultado"
         if not row.get("home_defined") or not row.get("away_defined"):
             return "A definir"
         if kickoff and kickoff.astimezone(HOME_TIMEZONE).date() == now.astimezone(HOME_TIMEZONE).date():
@@ -797,7 +826,7 @@ class TheStatsApiBronzeService:
                 "xg_per_90": "higher", "xa_per_90": "higher", "shots_per_90": "higher",
                 "key_passes": "higher", "key_passes_per_90": "higher", "accurate_passes": "higher",
                 "pass_accuracy": "higher", "long_pass_accuracy": "higher", "defensive_actions": "higher",
-                "defensive_actions_per_90": "higher", "duels_won": "higher", "tackles": "higher",
+                "defensive_actions_per_90": "higher", "duels_won": "higher", "aerial_won": "higher", "tackles": "higher",
                 "interceptions": "higher", "clearances": "higher", "saves": "higher",
                 "saves_per_90": "higher", "goal_involvements": "higher",
                 "goal_involvements_per_90": "higher", "rating": "higher",
@@ -1130,10 +1159,8 @@ class TheStatsApiBronzeService:
         )
         for index, row in enumerate(ranked, start=1):
             row["rank"] = index
-            if group_stage_complete and index <= 7:
+            if group_stage_complete and index <= 8:
                 row["status"] = "Classificado"
-            elif group_stage_complete and index == 8:
-                row["status"] = "Última classificada"
             elif group_stage_complete:
                 row["status"] = "Eliminado"
             elif index <= 7:
@@ -1180,6 +1207,9 @@ class TheStatsApiBronzeService:
             "tackles": "tackles",
             "interceptions": "interceptions",
             "clearances": "clearances",
+            "fouls": "fouls",
+            "yellow_cards": "yellow_cards",
+            "red_cards": "red_cards",
         }
         for detail in details:
             for team in detail["team_summary"]:
@@ -1204,10 +1234,13 @@ class TheStatsApiBronzeService:
                     by_name[away]["xga"] = round(float(by_name[away].get("xga") or 0) + float(xg.get(home) or 0), 2)
             home = match.get("home_team")
             away = match.get("away_team")
+            stage_label = self._public_stage_label(match.get("stage"))
             for team, opponent in ((home, away), (away, home)):
                 row = by_name.get(team)
                 if not row:
                     continue
+                if stage_label != "Fase não informada":
+                    row.setdefault("stages", set()).add(stage_label)
                 for metric, field in cumulative_metrics.items():
                     value = number((xg_rows.get(metric) or {}).get(team))
                     if value is not None:
@@ -1243,8 +1276,12 @@ class TheStatsApiBronzeService:
             row["average_possession"] = round(float(row.get("possession_total") or 0) / int(row.get("possession_games") or 1), 1) if row.get("possession_games") else None
             row["recoveries_per_game"] = round(float(row.get("recoveries") or 0) / played, 2) if played else None
             row["tackles_per_game"] = round(float(row.get("tackles") or 0) / played, 2) if played else None
+            row["fouls_per_game"] = round(float(row.get("fouls") or 0) / played, 2) if played else None
+            row["yellow_cards_per_game"] = round(float(row.get("yellow_cards") or 0) / played, 2) if played else None
             row.pop("possession_total", None)
             row.pop("possession_games", None)
+            stage_order = ["Fase de grupos", "Fase de 32", "Oitavas", "Quartas", "Semifinais", "Disputa de 3º lugar", "Final"]
+            row["stages"] = sorted(row.get("stages") or set(), key=lambda label: stage_order.index(label) if label in stage_order else len(stage_order))
         return sorted(rows, key=lambda item: (item.get("points") or 0, item.get("xg") or 0), reverse=True)
 
     def _all_match_details(self, year: int) -> list[dict[str, Any]]:
@@ -1260,10 +1297,37 @@ class TheStatsApiBronzeService:
     def _reference_player_rows(self, year: int) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for root in sorted((self._root(year) / "matches").glob("match_id=*")):
+            match_id = root.name.split("=", 1)[-1]
             players = self._payload(root / "player_stats/response.json").get("data", [])
             lineups = self._payload(root / "lineups/response.json").get("data", {})
-            rows.extend(self._players(players, lineups))
+            events_payload = self._payload(root / "events/response.json").get("data", {})
+            raw_events = events_payload.get("events", []) if isinstance(events_payload, dict) else []
+            player_rows = self._players(players, lineups)
+            rows.extend(self._apply_position_inference(match_id, lineups, player_rows, raw_events))
         return rows
+
+    @staticmethod
+    def _apply_position_inference(
+        match_id: str,
+        lineups: dict[str, Any],
+        player_rows: list[dict[str, Any]],
+        raw_events: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Attach per-match inferred position fields so radar lookups can classify by role, not just raw API position."""
+        inferred_positions = {
+            row["player_id"]: row
+            for row in infer_match_positions(match_id, lineups, player_rows, raw_events)
+            if row.get("player_id")
+        }
+        for player in player_rows:
+            inference = inferred_positions.get(player.get("player_id"), {})
+            player.update(inference)
+            player["resolved_position"] = (
+                inference.get("inferred_role")
+                if inference.get("role_confidence") in {"high", "medium"}
+                else inference.get("api_position_group") or player.get("position")
+            )
+        return player_rows
 
     def _match_detail(
         self,
@@ -1300,28 +1364,16 @@ class TheStatsApiBronzeService:
             officials=officials,
         )
         shot_map = self._shot_map(match, shots_raw)
-        event_rows = self._events(match, events_payload)
         player_rows = self._players(players_raw, lineups)
+        event_rows = self._events(match, events_payload, player_rows)
         raw_events = events_payload.get("events", []) if isinstance(events_payload, dict) else []
-        inferred_positions = {
-            row["player_id"]: row
-            for row in infer_match_positions(match_id, lineups, player_rows, raw_events)
-            if row.get("player_id")
-        }
-        for player in player_rows:
-            inference = inferred_positions.get(player.get("player_id"), {})
-            player.update(inference)
-            player["resolved_position"] = (
-                inference.get("inferred_role")
-                if inference.get("role_confidence") in {"high", "medium"}
-                else inference.get("api_position_group") or player.get("position")
-            )
+        player_rows = self._apply_position_inference(match_id, lineups, player_rows, raw_events)
         player_rows = self._curate_players(player_rows)
         stats_comparison = self._stats_comparison(match, stats)
         reference = reference_distribution or build_reference_distribution(
             self._reference_player_rows(year)
         )
-        player_rows = self._enrich_match_players(player_rows, reference)
+        player_rows = self._enrich_match_players(player_rows, reference, match)
         for player in player_rows:
             player_id = player.get("player_id")
             player_name = player.get("player_name")
@@ -1335,7 +1387,12 @@ class TheStatsApiBronzeService:
             player["player_events"] = [
                 event
                 for event in event_rows
-                if api_player_name and event.get("player_name") == api_player_name
+                if str(event.get("type") or "").lower() not in SHOT_COVERED_EVENT_TYPES
+                and api_player_name
+                and (
+                    event.get("player_name") == api_player_name
+                    or event.get("player_out_name") == api_player_name
+                )
             ]
         match_detail = {
             **match,
@@ -1623,9 +1680,12 @@ class TheStatsApiBronzeService:
         self,
         players: list[dict[str, Any]],
         reference_distribution: dict[str, dict[str, dict[str, Any]]],
+        match: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         if not players:
             return []
+        home_team = (match or {}).get("home_team")
+        away_team = (match or {}).get("away_team")
         enriched = []
         for row in players:
             macroposition = radar_profile_group(row)
@@ -1634,33 +1694,114 @@ class TheStatsApiBronzeService:
                 reference_distribution,
                 macroposition,
             )
-            impact = analytics.get("profile_score")
+            impact = self._match_impact(row, match or {})
+            team_name = row.get("team_name")
+            opponent_name = away_team if team_name == home_team else home_team if team_name == away_team else None
             enriched.append(
                 {
                     **row,
                     "macroposition": macroposition,
-                    "impact_score": impact,
+                    "impact_score": impact.get("score"),
+                    "impact_category": impact.get("category"),
+                    "impact_reasons": impact.get("reasons", []),
                     "profile_score": analytics.get("profile_score"),
                     "radar": analytics.get("radar", []),
                     "radar_dimensions": analytics.get("dimensions", {}),
-                    "impact_summary": self._player_impact_summary(row, impact) if impact is not None else None,
+                    "impact_summary": self._player_impact_summary(impact),
+                    "opponent_name": opponent_name,
                 }
             )
         return sorted(enriched, key=lambda item: item.get("impact_score") or 0, reverse=True)
 
     @staticmethod
-    def _player_impact_summary(row: dict[str, Any], impact: float) -> str:
-        strengths = [
-            ("ataque", float(row.get("goals") or 0) * 2 + float(row.get("xg") or 0) + float(row.get("shots") or 0) * 0.25),
-            ("criação", float(row.get("xa") or 0) + float(row.get("key_passes") or 0) * 0.35 + float(row.get("assists") or 0) * 2),
-            ("passe", float(row.get("accurate_passes") or 0) / 25 + float(row.get("pass_accuracy") or 0) / 100),
-            ("defesa", float(row.get("tackles") or 0) + float(row.get("interceptions") or 0) + float(row.get("duels_won") or 0) * 0.25),
+    def _player_impact_summary(impact: dict[str, Any]) -> str | None:
+        score = impact.get("score")
+        if score is None:
+            return None
+        reasons = impact.get("reasons") or []
+        detail = " · ".join(reasons[:3])
+        return f"{impact.get('category')}: {score:.1f}/100{f' · {detail}' if detail else ''}."
+
+    @staticmethod
+    def _match_impact(row: dict[str, Any], match: dict[str, Any]) -> dict[str, Any]:
+        """Score decisive match actions without reusing the positional radar percentile."""
+        value = lambda key: float(number(row.get(key)) or 0)
+        role = str(row.get("macroposition") or macroposition_for(row.get("position")))
+        minutes = value("minutes_played")
+        if minutes <= 0 and value("rating") <= 0:
+            return {"score": 0.0, "category": "Participação", "reasons": []}
+
+        rating = value("rating")
+        score = max(0.0, min(38.0, (rating - 5.0) * 10.0))
+        goals = value("goals")
+        assists = value("assists")
+        xg = value("xg")
+        xa = value("xa")
+        shots_on_target = value("shots_on_target")
+        key_passes = value("key_passes")
+        defensive_actions = sum(value(key) for key in ("tackles", "interceptions", "clearances", "recoveries"))
+        duels = value("duels_won")
+
+        if role == "Goleiro":
+            team = row.get("team_name")
+            home = match.get("home_team")
+            conceded = value("goals_conceded")
+            if not row.get("goals_conceded") and team in {home, match.get("away_team")}:
+                conceded = float(match.get("away_score") or 0) if team == home else float(match.get("home_score") or 0)
+            saves = value("saves")
+            score = max(0.0, min(24.0, (rating - 5.0) * 8.0))
+            score += saves * 6.0 + min(defensive_actions * 0.8, 5.0)
+            score += min(value("accurate_passes") * 0.08, 3.0)
+            if minutes > 0 and conceded == 0:
+                score += 8.0
+            score -= conceded * 6.0
+            reasons = []
+            if saves:
+                reasons.append(f"{saves:g} {'defesa' if saves == 1 else 'defesas'}")
+            if conceded == 0 and minutes > 0:
+                reasons.append("sem sofrer gol")
+            if defensive_actions:
+                reasons.append(f"{defensive_actions:g} ações defensivas")
+            return {
+                "score": round(max(0.0, min(100.0, score)), 1),
+                "category": "Destaque defensivo",
+                "reasons": reasons[:3],
+            }
+
+        score += goals * 24.0 + assists * 18.0 + xg * 8.0 + xa * 12.0
+        score += shots_on_target * 2.5 + key_passes * 2.0
+        if role in {"Zagueiro", "Lateral/Ala"}:
+            score += defensive_actions * 1.5 + duels * 0.7 + min(value("accurate_passes") * 0.06, 4.0)
+        elif role == "Volante/Meio-campista":
+            score += defensive_actions * 1.0 + duels * 0.6 + min(value("accurate_passes") * 0.08, 5.0)
+        else:
+            score += duels * 0.4 + value("successful_dribbles") * 0.8
+
+        reasons = []
+        candidates = [
+            (goals > 0, f"{goals:g} {'gol' if goals == 1 else 'gols'}"),
+            (assists > 0, f"{assists:g} {'assistência' if assists == 1 else 'assistências'}"),
+            (xg > 0, f"{xg:g} xG"),
+            (xa > 0, f"{xa:g} xA"),
+            (shots_on_target > 0, f"{shots_on_target:g} no alvo"),
+            (key_passes > 0, f"{key_passes:g} passes para finalização"),
+            (defensive_actions > 0, f"{defensive_actions:g} ações defensivas"),
+            (duels > 0, f"{duels:g} duelos vencidos"),
         ]
-        strength = max(strengths, key=lambda item: item[1])[0]
-        return (
-            f"Impacto derivado {impact:.1f}/100 na partida, com destaque em {strength}. "
-            "Índice calculado a partir de chute, criação, passe, defesa, participação e rating."
-        )
+        reasons.extend(label for available, label in candidates if available)
+        if goals or assists:
+            category = "Decisivo"
+        elif xg or xa or shots_on_target or key_passes:
+            category = "Destaque ofensivo"
+        elif role in {"Zagueiro", "Lateral/Ala"}:
+            category = "Destaque defensivo"
+        else:
+            category = "Destaque da partida"
+        return {
+            "score": round(max(0.0, min(100.0, score)), 1),
+            "category": category,
+            "reasons": reasons[:3],
+        }
 
     @staticmethod
     def _comparison_bars(match: dict[str, Any], stats: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1764,12 +1905,19 @@ class TheStatsApiBronzeService:
             else:
                 lines.append(f"A equipe também recuperou mais bolas: {value} a {other}.")
 
-        top_player = next((row for row in players if row.get("impact_score") is not None), None)
-        if top_player:
-            lines.append(
-                f"{top_player.get('player_name')} foi o principal nome da partida, com impacto de "
-                f"{top_player.get('impact_score')}/100."
-            )
+        goals = sorted(
+            [shot for shot in shots if shot.get("is_goal") and shot.get("player_name")],
+            key=lambda shot: number(shot.get("minute")) or 0,
+        )
+        if goals:
+            descriptions = [
+                f"{goal.get('player_name')} aos {int(number(goal.get('minute')) or 0)}'"
+                for goal in goals[:3]
+            ]
+            if len(descriptions) == 1:
+                lines.append(f"O gol da partida foi marcado por {descriptions[0]}.")
+            else:
+                lines.append(f"Os gols foram marcados por {' e '.join(descriptions)}.")
         top_shot = max(shots, key=lambda shot: float(shot.get("xg") or 0), default=None)
         if top_shot:
             lines.append(
@@ -1788,7 +1936,11 @@ class TheStatsApiBronzeService:
                     "team_id": row.get("team_id"),
                     "team_name": row.get("team_name"),
                     "position": row.get("position"),
+                    "resolved_position": row.get("resolved_position"),
+                    "macroposition": row.get("macroposition"),
                     "impact_score": row.get("impact_score"),
+                    "impact_category": row.get("impact_category"),
+                    "impact_reasons": row.get("impact_reasons"),
                     "impact_summary": row.get("impact_summary"),
                     "radar": row.get("radar"),
                     "goals": row.get("goals"),
@@ -1810,14 +1962,25 @@ class TheStatsApiBronzeService:
             reverse=True,
         )
 
-    def _events(self, match: dict[str, Any], events_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    def _events(
+        self,
+        match: dict[str, Any],
+        events_payload: dict[str, Any],
+        player_rows: list[dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
         events = events_payload.get("events", []) if isinstance(events_payload, dict) else []
+        events = events if isinstance(events, list) else []
+        outgoing_by_index = self._resolve_substitution_outgoing(events, player_rows or [])
         rows = []
-        for event in events if isinstance(events, list) else []:
+        for index, event in enumerate(events):
             if not isinstance(event, dict):
                 continue
             team = event.get("team") if isinstance(event.get("team"), dict) else {}
             player = event.get("player") if isinstance(event.get("player"), dict) else {}
+            player_in = event.get("player_in") if isinstance(event.get("player_in"), dict) else {}
+            player_out = event.get("player_out") if isinstance(event.get("player_out"), dict) else {}
+            assist = event.get("assist") if isinstance(event.get("assist"), dict) else {}
+            outgoing = outgoing_by_index.get(index)
             rows.append(
                 {
                     "match_id": match.get("match_id"),
@@ -1828,9 +1991,54 @@ class TheStatsApiBronzeService:
                     "type": event.get("type"),
                     "team_name": team.get("name"),
                     "player_name": player.get("name"),
+                    "player_in_name": player_in.get("name") or (player.get("name") if event.get("type") == "substitution" else None),
+                    "player_out_name": player_out.get("name") or (outgoing.get("player_name") if outgoing else None),
+                    "assist_name": assist.get("name"),
+                    "decision": event.get("decision") or event.get("outcome"),
+                    "detail": event.get("detail") or event.get("description"),
+                    "xg": number(event.get("expected_goals") or event.get("xg")),
                 }
             )
         return rows
+
+    @staticmethod
+    def _resolve_substitution_outgoing(
+        events: list[dict[str, Any]],
+        player_rows: list[dict[str, Any]],
+    ) -> dict[int, dict[str, Any]]:
+        """TheStatsAPI substitution events only report the incoming player. Infer who went out by
+        matching the substitution minute against teammates whose minutes_played stopped there —
+        the closest, not-yet-assigned candidate on the same team wins."""
+        by_team: dict[Any, list[dict[str, Any]]] = defaultdict(list)
+        for row in player_rows:
+            team_id = row.get("team_id")
+            minutes = number(row.get("minutes_played"))
+            if team_id is not None and minutes is not None and minutes < 90:
+                by_team[team_id].append(row)
+        assigned: set[Any] = set()
+        resolved: dict[int, dict[str, Any]] = {}
+        for index, event in enumerate(events):
+            if not isinstance(event, dict) or event.get("type") != "substitution":
+                continue
+            team = event.get("team") if isinstance(event.get("team"), dict) else {}
+            team_id = team.get("id")
+            minute = number(event.get("minute"))
+            incoming = event.get("player") if isinstance(event.get("player"), dict) else {}
+            incoming_id = incoming.get("id")
+            if team_id is None or minute is None:
+                continue
+            candidates = [
+                row for row in by_team.get(team_id, [])
+                if row.get("player_id") not in assigned
+                and row.get("player_id") != incoming_id
+                and abs((number(row.get("minutes_played")) or 0) - minute) <= 3
+            ]
+            if not candidates:
+                continue
+            best = min(candidates, key=lambda row: abs((number(row.get("minutes_played")) or 0) - minute))
+            assigned.add(best.get("player_id"))
+            resolved[index] = best
+        return resolved
 
     @staticmethod
     def _match_goals(shots: list[dict[str, Any]], events: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1841,6 +2049,7 @@ class TheStatsApiBronzeService:
                 "team_name": shot.get("team_name"),
                 "player_id": shot.get("player_id"),
                 "player_name": shot.get("player_name"),
+                "xg": shot.get("xg"),
                 "source": "shotmap",
             }
             for shot in shots
@@ -2420,9 +2629,12 @@ class TheStatsApiBronzeService:
         axes = {
             "Ataque": (("xg_per_game", "xG por jogo"), ("goals_per_game", "gols por jogo")),
             "Finalização": (("shots_per_game", "finalizações por jogo"), ("conversion", "conversão")),
-            "Passe": (("pass_accuracy", "precisão de passe"),),
             "Defesa": (("xga_per_game", "xG cedido por jogo"), ("shots_against_per_game", "finalizações sofridas por jogo")),
-            "Controle": (("average_possession", "posse média"), ("recoveries_per_game", "recuperações por jogo")),
+            # "Controle" covers both possession/recovery control and passing precision — the
+            # metric block of the same name mirrors exactly this set, so the axis and the block
+            # share one name instead of the axis being called "Passe" while the block below it
+            # is called "Controle".
+            "Controle": (("average_possession", "posse média"), ("recoveries_per_game", "recuperações por jogo"), ("pass_accuracy", "precisão de passe")),
             "Eficiência": (("goals_minus_xg", "gols acima do xG"), ("xg_difference", "saldo de xG")),
         }
         radar = []

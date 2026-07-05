@@ -4,6 +4,8 @@ from math import floor
 from typing import Any
 import unicodedata
 
+from .player_positions import radar_profile_group
+
 
 OUTFIELD_RADAR_CONFIG: dict[str, dict[str, float]] = {
     "Ataque": {
@@ -232,7 +234,7 @@ def build_reference_distribution(
         if minutes is None or minutes < minimum_minutes:
             continue
         macroposition = macroposition_for(player.get("position"))
-        reference_group = str(player.get("benchmark_position") or macroposition)
+        reference_group = str(player.get("benchmark_position") or player.get("radar_profile_group") or radar_profile_group(player))
         metrics = {metric for weights in _radar_config(macroposition).values() for metric in weights}
         for metric in metrics:
             value = _number(player.get(metric))

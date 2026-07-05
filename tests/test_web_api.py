@@ -527,6 +527,244 @@ def test_match_center_frontend_uses_editorial_hierarchy() -> None:
     assert "impact_summary" not in render[:render.index("els.view.replaceChildren")]
 
 
+def test_match_center_frontend_exposes_product_context_and_compact_analysis() -> None:
+    root = Path(__file__).parents[1] / "webapp/static"
+    app_js = (root / "app.js").read_text(encoding="utf-8")
+    styles = (root / "styles.css").read_text(encoding="utf-8")
+    surface = app_js[
+        app_js.index("function scoreCard"):
+        app_js.index("function renderAvailability")
+    ]
+
+    for marker in (
+        "match-status",
+        "match-subnav-link",
+        "IntersectionObserver",
+        "comparison-team-legend",
+        "Menor é melhor",
+        "overview-complete-table",
+        "xg-goal-label",
+        "Ver perfil completo",
+        "lineup-unit",
+    ):
+        assert marker in surface or marker in styles
+    assert 'starPoints(cx, cy, 6, 0.22)' in surface
+    assert 'comparisonBars(rows, "comparison-stack-secondary")' not in surface
+    assert 'text: "Gols não informados"' not in surface
+    assert 'body.is-match-center[data-skin="2026"] .pitch-wrap' in styles
+    assert 'body.is-match-center[data-skin="2026"] .player-table-wrap' in styles
+
+
+def test_match_center_frontend_fixes_substitution_position_date_and_scroll() -> None:
+    root = Path(__file__).parents[1] / "webapp/static"
+    app_js = (root / "app.js").read_text(encoding="utf-8")
+    styles = (root / "styles.css").read_text(encoding="utf-8")
+
+    assert "entrou no lugar de" in app_js
+    assert 'text: "Entra:' not in app_js, "the old 'Entra: X · Sai: Y' wording should be gone"
+
+    lineup_unit_body = app_js[app_js.index("function lineupUnit"):app_js.index("function lineupUnit") + 400]
+    assert "lineupPositionCode" in lineup_unit_body, "tactical grouping and the position badge must share the same resolved source"
+    lineup_row_body = app_js[app_js.index("function lineupPlayerRow"):app_js.index("function lineupPlayerRow") + 600]
+    assert "lineupPositionCode" in lineup_row_body
+    assert "positionLabel(player.position)" not in lineup_row_body, "the badge must not fall back to the raw api position independently of the tactical grouping"
+
+    assert "withHorizontalScrollFade(table" in app_js
+    assert "scroll-fade-edge" in styles
+
+    format_match_date_body = app_js[app_js.index("function formatMatchDate"):app_js.index("function formatMatchDate") + 600]
+    assert 'month: "2-digit"' not in format_match_date_body, "match header date must use a friendly month, not raw numeric DD/MM/YYYY"
+    assert 'month: "short"' in format_match_date_body
+
+    for metric in ("big_chances_missed", "offsides", "dispossessed", "fouls", "yellow_cards", "red_cards"):
+        assert f'"{metric}"' in app_js[app_js.index("LOWER_IS_BETTER_METRICS"):app_js.index("LOWER_IS_BETTER_METRICS") + 200]
+
+
+def test_score_pill_is_a_single_reused_component_across_the_product() -> None:
+    """The score-pill (green pill, black bold digits) must be one shared component reused by
+    the match-detail header, the Partidas calendar row, the Home "Quem avançou"/"Próximos
+    encaixes" cards and the Competição bracket cards — not four separate implementations."""
+    root = Path(__file__).parents[1] / "webapp/static"
+    app_js = (root / "app.js").read_text(encoding="utf-8")
+    styles = (root / "styles.css").read_text(encoding="utf-8")
+
+    assert "function scorePill(" in app_js
+    call_count = app_js.count("scorePill(match") + app_js.count("scorePill(item.match")
+    assert call_count >= 4, "scorePill must be called at all 4 application points"
+
+    assert 'class: "score"' not in app_js, "the old plain-text score span must be gone, replaced by the shared scorePill component"
+    assert "class: `score-pill" in app_js
+
+    assert "--score-pill-bg: #5dcaa5" in styles
+    assert "--score-pill-fg: #0a0a0a" in styles
+    assert ".score-pill {" in styles
+    assert "background: var(--score-pill-bg)" in styles
+    assert "color: var(--score-pill-fg)" in styles
+
+    # the teal must stay scoped to the score pill, not leak into a general-purpose accent
+    assert "--accent: var(--score-pill-bg)" not in styles
+    assert "--wc26-teal: var(--score-pill-bg)" not in styles
+
+    # keep the ":" separator between the two numbers, and a flat teal fill (no gradient)
+    scorepill_fn = app_js[app_js.index("function scorePill("):app_js.index("function scorePill(") + 500]
+    assert 'text: ":"' in scorepill_fn
+    assert 'background: var(--wc26-teal)' in styles
+    assert 'background: var(--wc26-gradient-score)' not in styles
+
+    # goal minute badges reuse the same teal token, not the green accent
+    assert 'color: var(--score-pill-bg)' in styles
+    assert 'background: var(--wc26-teal);\n  color: var(--wc26-bg);\n  box-shadow: 0 0 10px rgba(79, 191, 166' in styles
+
+
+def test_player_stats_panel_shows_opponent_unifies_timeline_and_labels_rating() -> None:
+    root = Path(__file__).parents[1] / "webapp/static"
+    app_js = (root / "app.js").read_text(encoding="utf-8")
+    styles = (root / "styles.css").read_text(encoding="utf-8")
+
+    # 1. opponent shown in the sticky modal header (visible across every internal section)
+    header_body = app_js[app_js.index("function openPlayerModal"):app_js.index("function openPlayerModal") + 2200]
+    assert "player.opponent_name" in header_body
+    assert "vs" in header_body
+
+    # 2. individual shot map: rotated/cropped view, no team-color legend, orientation confirmed
+    #    empirically against goal_mouth_coordinates.x == 0 (see playerShotMap / SHOT_RESULT_TO_EVENT_TYPE)
+    assert "function playerShotMap(" in app_js
+    shotmap_body = app_js[app_js.index("function playerShotMap("):app_js.index("function playerShotMap(") + 1800]
+    assert 'viewBox: `0 0 ${width} ${height}`' in shotmap_body
+    assert "home" not in shotmap_body.split("aria-label")[0]  # no per-team legend wiring
+    assert "Cor = seleção" not in shotmap_body
+
+    # 3. shots + events unified into one unduplicated timeline
+    assert "function playerTimelineEntries(" in app_js
+    assert "function playerActionsPanel(" in app_js
+    assert "function playerShotsPanel(" not in app_js, "the old split shots panel must be gone"
+    assert "function playerEventsPanel(" not in app_js, "the old split events panel must be gone"
+    assert "SHOT_RESULT_TO_EVENT_TYPE" in app_js
+    # shotmap.result values actually observed in the bronze data — every one must be mapped
+    for result_value in ("save", "block", "miss", "post"):
+        assert f'{result_value}:' in app_js[app_js.index("SHOT_RESULT_TO_EVENT_TYPE"):app_js.index("SHOT_RESULT_TO_EVENT_TYPE") + 200]
+
+    # backend: shot-covered event types excluded from a player's events, substitution matches
+    # both the incoming AND outgoing player
+    service_src = (Path(__file__).parents[1] / "webapp/thestatsapi_service.py").read_text(encoding="utf-8")
+    assert "SHOT_COVERED_EVENT_TYPES" in service_src
+    for shot_type in ("goal", "shot_on_target", "shot_off_target", "shot_blocked", "penalty_scored", "penalty_missed", "penalty_saved"):
+        assert f'"{shot_type}"' in service_src[service_src.index("SHOT_COVERED_EVENT_TYPES"):service_src.index("SHOT_COVERED_EVENT_TYPES") + 400]
+    assert 'event.get("player_out_name") == api_player_name' in service_src
+    assert '"opponent_name": opponent_name' in service_src
+
+    # 4. Rating (source field) vs Perfil contextual (derived score) have distinguishing tooltips
+    quick_metrics_body = app_js[app_js.index("function playerQuickMetrics("):app_js.index("function playerQuickMetrics(") + 500]
+    assert "Perfil contextual" in quick_metrics_body and "calculado pelo produto" in quick_metrics_body
+    assert '"Rating", player.rating,' in quick_metrics_body and "fonte de dados" in quick_metrics_body
+    assert "metric.title" in app_js
+
+
+def test_players_page_adds_goalkeeper_tab_qualified_toggle_and_new_charts() -> None:
+    root = Path(__file__).parents[1] / "webapp/static"
+    app_js = (root / "app.js").read_text(encoding="utf-8")
+
+    # 1 & 2: Goleiros never showed up in Rankings because the default "Qualificados" filter
+    # required >=3 shots, which no goalkeeper ever registers — confirmed empirically (0/56
+    # qualified keepers had shots >= 3). Goalkeepers must be exempt from the shots threshold.
+    filtered_body = app_js[app_js.index("function filtered()"):app_js.index("function filtered()") + 900]
+    assert "isGoalkeeper" in filtered_body
+    assert 'positionLabel(player.position) === "GOL"' in filtered_body
+    assert "filters.qualified" in filtered_body
+
+    # explicit Qualificados/Todos toggle, defaulting to Qualificados
+    overview_body = app_js[app_js.index("function playerOverviewExperience"):app_js.index("function playerOverviewExperience") + 2000]
+    assert "qualified: true" in overview_body
+    assert '"Qualificados"' in overview_body and '"Todos"' in overview_body
+    assert "overview-qualified-toggle" in overview_body
+
+    # 3 & 5: two new scatter options, sourced from real player_stats groups (duels, shooting)
+    assert '"shot_efficiency"' in app_js
+    assert '"duels"' in app_js
+    scatter_configs = app_js[app_js.index("function playerDuelsDisputed"):app_js.index("function playerSecondaryScatterPlot(")]
+    assert "player.shot_conversion" in scatter_configs
+    assert "player.duels_won" in scatter_configs and "player.duels_lost" in scatter_configs
+    comparison_map_body = app_js[app_js.index("function playerComparisonMap"):app_js.index("function playerOverviewExperience")]
+    assert '"shot_efficiency"' in comparison_map_body
+    assert '"duels"' in comparison_map_body
+
+    # 4: position production unified selector now includes defending-group metrics
+    position_body = app_js[app_js.index("function playerPositionDistribution"):app_js.index("function playerPositionDistribution") + 600]
+    for metric in ("tackles", "interceptions", "clearances", "defensive_actions"):
+        assert f'"{metric}"' in position_body
+
+    # 6: new creation profile block mirroring the shot-breakdown two-column structure
+    assert "function playerCreationProfile(" in app_js
+    creation_body = app_js[app_js.index("function playerCreationProfile("):app_js.index("function playerCreationProfile(") + 700]
+    assert "key_passes" in creation_body
+    assert "accurate_crosses" in creation_body
+    assert '"Perfil de criação"' in app_js
+
+
+def test_team_rows_aggregate_discipline_and_stage_membership() -> None:
+    """Regression: the Seleções screen had no "Disciplina" ranking category and no way to filter
+    by phase, even though match_stats.overview already carries fouls/yellow_cards/red_cards per
+    team and fixtures already carry stage_name. Confirm team_rows() aggregates both."""
+    service = TheStatsApiBronzeService()
+    standings = {
+        "A": [
+            {"team_id": "bra", "team_name": "Brazil", "group_name": "A", "played": 2, "goals_for": 3, "goals_against": 1},
+            {"team_id": "fra", "team_name": "France", "group_name": "A", "played": 2, "goals_for": 2, "goals_against": 2},
+        ]
+    }
+    details = [
+        {
+            "match": {"home_team": "Brazil", "away_team": "France", "stage": "group_stage"},
+            "players": [], "shot_map": [],
+            "team_summary": [{"team_name": "Brazil", "shots": 8, "goals": 2}, {"team_name": "France", "shots": 4, "goals": 1}],
+            "stats_comparison": [
+                {"metric": "fouls", "section": "overview", "Brazil": 10, "France": 14},
+                {"metric": "yellow_cards", "section": "overview", "Brazil": 1, "France": 3},
+                {"metric": "red_cards", "section": "overview", "Brazil": 0, "France": 1},
+            ],
+        },
+        {
+            "match": {"home_team": "Brazil", "away_team": "France", "stage": "round_of_32"},
+            "players": [], "shot_map": [],
+            "team_summary": [{"team_name": "Brazil", "shots": 6, "goals": 1}, {"team_name": "France", "shots": 5, "goals": 1}],
+            "stats_comparison": [
+                {"metric": "fouls", "section": "overview", "Brazil": 6, "France": 8},
+                {"metric": "yellow_cards", "section": "overview", "Brazil": 1, "France": 1},
+                {"metric": "red_cards", "section": "overview", "Brazil": 0, "France": 0},
+            ],
+        },
+    ]
+
+    teams = service.team_rows(2026, standings, details)
+    brazil = next(row for row in teams if row["team_name"] == "Brazil")
+    france = next(row for row in teams if row["team_name"] == "France")
+
+    assert brazil["fouls"] == 16 and brazil["fouls_per_game"] == 8.0
+    assert brazil["yellow_cards"] == 2 and brazil["yellow_cards_per_game"] == 1.0
+    assert brazil["red_cards"] == 0
+    assert france["red_cards"] == 1
+    # stage membership, ordered by tournament progression, using the same translation as the
+    # rest of the product (matches/competition screens)
+    assert brazil["stages"] == ["Fase de grupos", "Fase de 32"]
+    assert france["stages"] == ["Fase de grupos", "Fase de 32"]
+
+    # the ranking-rows helper must not exclude zero for ascending ("lower is better") metrics —
+    # otherwise every team with 0 red cards (the common, best case) would vanish from the ranking
+    root = Path(__file__).parents[1] / "webapp/static"
+    app_js = (root / "app.js").read_text(encoding="utf-8")
+    metric_rows_body = app_js[app_js.index("function analysisMetricRows("):app_js.index("function analysisMetricRows(") + 700]
+    assert "definition.ascending || value !== 0" in metric_rows_body
+
+    # frontend: Disciplina category + Fase filter wired in
+    assert '{ category: "Disciplina"' in app_js
+    assert '"fouls_per_game"' in app_js and '"yellow_cards_per_game"' in app_js
+    team_experience_body = app_js[app_js.index("function teamAnalysisExperience"):app_js.index("function teamAnalysisExperience") + 2200]
+    assert 'stage: "all"' in team_experience_body
+    assert 'node("span", { text: "Fase" })' in team_experience_body
+    ranking_explorer_body = app_js[app_js.index("function teamRankingExplorer"):app_js.index("function teamAnalysisExperience")]
+    assert '"Disciplina"' in ranking_explorer_body
+
+
 def test_competition_frontend_has_group_and_knockout_product_views() -> None:
     root = Path(__file__).parents[1] / "webapp/static"
     app_js = (root / "app.js").read_text(encoding="utf-8")
@@ -553,7 +791,6 @@ def test_competition_frontend_has_group_and_knockout_product_views() -> None:
         "SG",
         "Pts",
         "Última vaga",
-        "Última classificada",
         "Classificado",
         "Classificado como melhor terceiro",
         "Eliminado",
@@ -605,7 +842,7 @@ def test_competition_uses_full_width_group_games_tooltips_and_direct_navigation(
     assert 'routeTo("matches", match.match_id)' in competition
     assert "function competitionKickoffLabel" in competition
     assert "homeMatchIsLive(match)" in competition
-    assert 'return "Aguardando atualização"' in competition
+    assert 'return "Aguardando resultado"' in competition
     assert 'text: "As 8 melhores seleções em 3º lugar avançam para a Fase de 32."' in competition
     assert 'text: "Critério exibido: pontos, saldo de gols e gols pró."' in competition
     assert "knockout-result-note" in competition
@@ -632,7 +869,7 @@ def test_completed_group_stage_uses_final_public_classification_statuses() -> No
         ],
     }
     thirds = [
-        {"team_id": "a3", "rank": 8, "status": "Última classificada"},
+        {"team_id": "a3", "rank": 8, "status": "Classificado"},
         {"team_id": "b3", "rank": 9, "status": "Eliminado"},
     ]
 
@@ -659,7 +896,6 @@ def test_matches_frontend_is_a_compact_public_calendar() -> None:
 
     for function_name in (
         "matchStageLabel",
-        "matchStageDistribution",
         "matchCalendarRow",
         "matchCalendarGroups",
         "matchPublicStatus",
@@ -670,23 +906,29 @@ def test_matches_frontend_is_a_compact_public_calendar() -> None:
         "Partidas", "Calendário", "Por data", "Por fase", "Limpar filtros",
         "Hoje", "Próximos jogos", "Encerrados", "Horários em Brasília",
         "Fase de grupos", "Fase de 32", "Oitavas", "Quartas", "Semifinais",
-        "Disputa de 3º lugar", "Final", "A definir", "Aguardando atualização",
+        "Disputa de 3º lugar", "Final", "A definir", "Aguardando resultado",
+        "Mais filtros",
     ):
         assert f'"{label}"' in render or f'"{label}"' in app_js
     assert 'dashboardShell("Partidas"' in render
     assert "matches-summary-strip" in render
     assert "matches-calendar-list" in matches_surface
-    assert "matches-filter-disclosure" in matches_surface
+    assert "matches-filter-bar" in matches_surface
+    assert "matches-filter-pills" in matches_surface
     assert "matches-grouping-control" in render
     assert "score-grid" not in render
     assert "matchCard(" not in render
     assert '"Partida por partida"' not in render
     assert '"Gols não informados"' not in render
     assert '"Abrir partida"' not in render
+    assert '"Distribuição por fase"' not in render
+    assert "function matchStageDistribution" not in app_js
     assert 'routeTo("matches", match.match_id)' in matches_surface
+    assert "row.addEventListener(\"click\"" in matches_surface, "the entire calendar row must be clickable, not just the arrow icon"
     assert 'goToProfile("team", teamId)' in matches_surface
     assert 'body[data-page="matches"][data-skin="2026"] .matches-calendar-row' in styles
-    assert 'body[data-page="matches"][data-skin="2026"] .matches-filter-disclosure' in styles
+    assert 'body[data-page="matches"][data-skin="2026"] .matches-filter-bar' in styles
+    assert 'body[data-page="matches"][data-skin="2026"] .matches-filter-pills button' in styles
     assert "word-break: normal" in styles
 
 
@@ -1383,6 +1625,135 @@ def test_match_story_describes_equal_displayed_xg_as_balanced() -> None:
     assert all("controlou a criação" not in line for line in story)
 
 
+def test_match_impact_prioritizes_decisive_actions_over_goalkeeper_distribution() -> None:
+    match = {
+        "home_team": "Mexico",
+        "away_team": "South Africa",
+        "home_score": 2,
+        "away_score": 0,
+    }
+    scorer = {
+        "player_name": "Raúl Jiménez",
+        "team_name": "Mexico",
+        "macroposition": "Centroavante",
+        "rating": 7.93,
+        "goals": 1,
+        "xg": 0.81,
+        "shots": 4,
+        "shots_on_target": 2,
+        "key_passes": 2,
+        "duels_won": 6,
+    }
+    defeated_keeper = {
+        "player_name": "Ronwen Williams",
+        "team_name": "South Africa",
+        "macroposition": "Goleiro",
+        "rating": 6.58,
+        "saves": 2,
+        "accurate_passes": 28,
+        "passes": 40,
+        "clearances": 3,
+    }
+
+    scorer_impact = TheStatsApiBronzeService._match_impact(scorer, match)
+    keeper_impact = TheStatsApiBronzeService._match_impact(defeated_keeper, match)
+
+    assert scorer_impact["score"] > keeper_impact["score"]
+    assert scorer_impact["category"] == "Decisivo"
+    assert "1 gol" in scorer_impact["reasons"]
+    assert keeper_impact["category"] == "Destaque defensivo"
+    assert all("passes certos" not in reason for reason in keeper_impact["reasons"])
+
+
+def test_apply_position_inference_is_shared_between_match_detail_and_reference_pool() -> None:
+    """Regression: the reference pool used to build match-center radar percentiles never ran
+    per-match position inference, so it could only ever bucket players into the four raw API
+    groups. Wingers/attacking-mids/fullbacks resolved to finer inferred buckets at lookup time
+    and never found a match, leaving their radar empty. _apply_position_inference must be the
+    same call used for both the current match's players and the reference pool."""
+    lineups = {
+        "home": {
+            "id": "team-1",
+            "name": "Team One",
+            "formation": "4-3-3",
+            "starting_xi": [{"id": "keeper", "position": "G"}],
+            "substitutes": [],
+        }
+    }
+    player_rows = [{"player_id": "keeper", "player_name": "Keeper", "team_id": "team-1", "position": "G", "minutes_played": 90}]
+
+    enriched = TheStatsApiBronzeService._apply_position_inference("match-1", lineups, player_rows, [])
+
+    assert enriched[0]["inferred_role"] == "Goleiro"
+    assert enriched[0]["role_confidence"] == "high"
+    assert enriched[0]["resolved_position"] == "Goleiro"
+
+
+def test_events_resolve_outgoing_substitute_via_minutes_played() -> None:
+    """Regression: TheStatsAPI substitution events only report who came ON, so "Momentos do jogo"
+    showed just "Player entrou" with no indication of who left. Cross-reference the substitution
+    minute against teammates whose minutes_played stopped there to recover who went out — even
+    when several subs happen for the same team at the same minute."""
+    service = TheStatsApiBronzeService()
+    match = {"match_id": "m1"}
+    events_payload = {
+        "events": [
+            {
+                "type": "substitution",
+                "minute": 61,
+                "team": {"id": "team-1", "name": "South Africa"},
+                "player": {"id": "in-1", "name": "Themba Zwane"},
+            },
+            {
+                "type": "substitution",
+                "minute": 75,
+                "team": {"id": "team-1", "name": "South Africa"},
+                "player": {"id": "in-2", "name": "Substitute Two"},
+            },
+            {
+                "type": "substitution",
+                "minute": 75,
+                "team": {"id": "team-1", "name": "South Africa"},
+                "player": {"id": "in-3", "name": "Substitute Three"},
+            },
+        ]
+    }
+    player_rows = [
+        {"player_id": "in-1", "player_name": "Themba Zwane", "team_id": "team-1", "minutes_played": 29},
+        {"player_id": "out-1", "player_name": "Jayden Adams", "team_id": "team-1", "minutes_played": 61},
+        {"player_id": "out-2", "player_name": "Starter Two", "team_id": "team-1", "minutes_played": 75},
+        {"player_id": "out-3", "player_name": "Starter Three", "team_id": "team-1", "minutes_played": 76},
+        {"player_id": "keeper", "player_name": "Keeper", "team_id": "team-1", "minutes_played": 90},
+    ]
+
+    rows = service._events(match, events_payload, player_rows)
+
+    by_minute = {row["minute"]: row for row in rows}
+    assert by_minute[61]["player_in_name"] == "Themba Zwane"
+    assert by_minute[61]["player_out_name"] == "Jayden Adams"
+    outgoing_at_75 = {rows[1]["player_out_name"], rows[2]["player_out_name"]}
+    assert outgoing_at_75 == {"Starter Two", "Starter Three"}, "each simultaneous substitution must resolve to a distinct outgoing player"
+
+
+def test_match_story_uses_goals_and_does_not_promote_raw_impact_leader() -> None:
+    story = TheStatsApiBronzeService._match_story(
+        {"home_team": "Mexico", "away_team": "South Africa"},
+        [
+            {"metric": "expected_goals", "Mexico": 1.46, "South Africa": 0.07},
+            {"metric": "total_shots", "Mexico": 16, "South Africa": 3},
+        ],
+        [{"player_name": "Ronwen Williams", "impact_score": 70.1, "macroposition": "Goleiro"}],
+        [
+            {"minute": 9, "player_name": "Julián Quiñones", "team_name": "Mexico", "is_goal": True, "xg": 0.22},
+            {"minute": 67, "player_name": "Raúl Jiménez", "team_name": "Mexico", "is_goal": True, "xg": 0.49},
+        ],
+    )
+
+    assert any("Julián Quiñones" in line and "Raúl Jiménez" in line for line in story)
+    assert all("principal nome" not in line for line in story)
+    assert all("Ronwen Williams" not in line for line in story)
+
+
 def test_home_pulse_reports_knockout_consequences_and_next_matchups() -> None:
     service = TheStatsApiBronzeService()
     fixtures = [
@@ -1448,6 +1819,58 @@ def test_home_pulse_reports_knockout_consequences_and_next_matchups() -> None:
     assert pulse["next_matchups"][0]["home"]["team_name"] == "Brazil"
     assert pulse["next_matchups"][0]["away"]["placeholder"] == "Vencedor de France x Sweden"
     assert "partida 75" not in str(pulse)
+
+
+def test_home_pulse_resolves_winner_placeholders_in_todays_matches() -> None:
+    """Regression: "Agenda de hoje" used the raw fixtures list (home_team="W73") while
+    "Próximos encaixes" resolved the same knockout matches through knockout_state — so a
+    round_of_16 match scheduled for today showed the literal code instead of the known winner
+    name or a "Vencedor de X x Y" placeholder."""
+    service = TheStatsApiBronzeService()
+    fixtures = [
+        {
+            "match_id": "m1",
+            "stage": "round_of_32",
+            "status": "finished",
+            "match_date": "2026-06-28T19:00:00Z",
+            "home_team": "Brazil",
+            "home_team_id": "bra",
+            "away_team": "Japan",
+            "away_team_id": "jpn",
+            "home_score": 2,
+            "away_score": 1,
+        },
+        {
+            "match_id": "m2",
+            "stage": "round_of_32",
+            "status": "scheduled",
+            "match_date": "2026-07-01T19:00:00Z",
+            "home_team": "France",
+            "away_team": "Sweden",
+            "home_score": None,
+            "away_score": None,
+        },
+        {
+            "match_id": "m3",
+            "stage": "round_of_16",
+            "status": "scheduled",
+            "match_date": "2026-07-04T19:00:00Z",
+            "home_team": "W73",
+            "home_team_id": None,
+            "away_team": "W74",
+            "home_score": None,
+            "away_score": None,
+        },
+    ]
+
+    pulse = service.home_pulse(fixtures, now=datetime(2026, 7, 4, 12, tzinfo=timezone.utc))
+
+    today_match = next(item for item in pulse["today_matches"] if item["match_id"] == "m3")
+    assert today_match["home"]["team_name"] == "Brazil"
+    assert today_match["home"]["defined"] is True
+    assert today_match["away"]["placeholder"] == "Vencedor de France x Sweden"
+    assert today_match["away"]["defined"] is False
+    assert today_match["home_team"] == "W73", "raw fixture fields stay untouched — only home/away are added"
 
 
 def test_home_discoveries_are_distinct_and_apply_minimum_samples() -> None:
@@ -1837,7 +2260,10 @@ def test_thestatsapi_opening_match_sample_feeds_web_contract(
     assert payload["players"][0]["assists"] == 0
     assert payload["players"][0]["shots_on_target"] is None
     assert payload["players"][0]["player_shots"][0]["shot_id"] == "sh_1"
-    assert payload["players"][0]["player_events"][0]["type"] == "goal"
+    # The minute-9 goal is covered by player_shots (with xG/body-part detail); it must not also
+    # show up in player_events, or the player's unified timeline would show it twice.
+    assert payload["players"][0]["player_events"] == []
+    assert payload["players"][0]["opponent_name"] == "South Africa"
     assert payload["xg_flow"][-1]["minute"] == 90
     assert payload["xg_flow"][-1]["is_terminal"] is True
 
