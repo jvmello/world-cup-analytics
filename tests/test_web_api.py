@@ -1711,6 +1711,43 @@ def test_player_surfaces_use_resolved_positions_without_internal_diagnostics() -
     assert "role_source" not in app_js
 
 
+def test_about_page_is_reachable_and_credits_data_source_and_author() -> None:
+    """New "Sobre" nav item, placed alongside "Arquivo histórico" as a secondary/utility link (not
+    competing with the main Início/Competição/Partidas/... nav), routes to a static credits page —
+    no data fetch, no edition/year scoping. Must credit TheStatsAPI as the data source and name the
+    author, matching the editorial pageHead pattern used by every other internal screen."""
+    root = Path(__file__).parents[1] / "webapp/static"
+    app_js = (root / "app.js").read_text(encoding="utf-8")
+    index_html = (root / "index.html").read_text(encoding="utf-8")
+    main_src = (Path(__file__).parents[1] / "webapp/main.py").read_text(encoding="utf-8")
+
+    # nav placement: static secondary link next to Arquivo histórico, not inside the main menu
+    assert '<a class="history-link" href="/history">Arquivo histórico' in index_html
+    assert '<a class="history-link" href="/about">Sobre' in index_html
+
+    # mobile nav fallback (JS-injected) mirrors the same secondary placement
+    assert 'href: "/about", text: "Sobre"' in app_js
+
+    # routing: recognized without a year prefix, like history
+    assert 'parts[0] === "about" || parts[0] === "sobre"' in app_js
+    assert 'if (page === "about") return "/about";' in app_js
+
+    # navigate(): renders statically, no API fetch, bypasses the edition-menu availability check
+    navigate_body = app_js[app_js.index("async function navigate("):app_js.index("els.select.addEventListener(")]
+    assert 'if (state.page === "about")' in navigate_body
+    assert "renderAbout();" in navigate_body
+
+    # content: TheStatsAPI credit + author name, using the shared pageHead component
+    assert "function renderAbout(" in app_js
+    about_body = app_js[app_js.index("function renderAbout("):app_js.index("function renderError(")]
+    assert 'pageHead("Créditos", "Sobre"' in about_body
+    assert "TheStatsAPI" in about_body
+    assert "João Vitor Machado de Mello" in about_body
+
+    # backend: /about must not 404 through the SPA catch-all fallback
+    assert 'first_segment in ("history", "about")' in main_src
+
+
 def test_2026_home_is_a_compact_editorial_match_center() -> None:
     root = Path(__file__).parents[1] / "webapp/static"
     app_js = (root / "app.js").read_text(encoding="utf-8")

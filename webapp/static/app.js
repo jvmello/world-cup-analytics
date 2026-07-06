@@ -217,6 +217,10 @@
       class: "nav-link mobile-history-link", href: "/history", text: "Arquivo histórico",
       ...(state.page === "history" ? { "aria-current": "page" } : {}),
     }));
+    links.push(node("a", {
+      class: "nav-link mobile-history-link", href: "/about", text: "Sobre",
+      ...(state.page === "about" ? { "aria-current": "page" } : {}),
+    }));
     els.nav.replaceChildren(...links);
   }
 
@@ -5639,6 +5643,22 @@
     els.view.replaceChildren(fragment);
   }
 
+  function renderAbout() {
+    const fragment = document.createDocumentFragment();
+    fragment.append(pageHead("Créditos", "Sobre", "Como este projeto foi construído e de onde vêm os dados."));
+    fragment.append(section("Dados", null, node("p", {
+      text: "As estatísticas, eventos, escalações e demais informações analíticas exibidas neste produto têm como fonte a TheStatsAPI.",
+    })));
+    // Portfolio link placeholder — uncomment and fill in once jvmello.dev is live.
+    // const portfolioUrl = "https://jvmello.dev";
+    const portfolioUrl = null;
+    fragment.append(section("Criação", null, node("div", {}, [
+      node("p", { text: "João Vitor Machado de Mello" }),
+      portfolioUrl ? node("p", {}, node("a", { href: portfolioUrl, target: "_blank", rel: "noopener", text: "Portfólio" })) : null,
+    ].filter(Boolean))));
+    els.view.replaceChildren(fragment);
+  }
+
   function renderError(error) {
     if (error?.name === "AbortError") return;
     const card = node("section", { class: "state-card", role: "alert" }, [
@@ -5680,6 +5700,12 @@
     try {
       if (!state.editions.length || refresh) await loadCatalog();
       renderCatalog();
+      if (state.page === "about") {
+        renderAbout();
+        document.title = "Sobre · World Cup Analytics";
+        requestAnimationFrame(scrollToInternalAnchor);
+        return;
+      }
       if (state.page !== "history") {
         const menus = editionMenus(state.edition || {});
         if (!menus.some(menu => menu.id === state.page)) {

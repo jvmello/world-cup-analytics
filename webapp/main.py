@@ -238,7 +238,7 @@ def create_app(
                 @app.get("/{full_path:path}", include_in_schema=False)
                 def spa_fallback(full_path: str) -> FileResponse:
                     first_segment = full_path.strip("/").split("/", 1)[0]
-                    if first_segment == "history" or first_segment.isdigit():
+                    if first_segment in ("history", "about") or first_segment.isdigit():
                         return spa_index()
                     raise HTTPException(status_code=404, detail="Not Found")
 
