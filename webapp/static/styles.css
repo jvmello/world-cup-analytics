@@ -69,6 +69,8 @@ select {
   min-width: 116px; appearance: none; border: 1px solid var(--line); border-radius: var(--radius);
   padding: 10px 36px 10px 14px; background: var(--surface); color: var(--ink); font-weight: 800;
 }
+select:disabled { opacity: .55; cursor: not-allowed; }
+.select-wrap:has(select:disabled)::after { opacity: .55; }
 .coverage { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .status-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 13%, transparent); }
 .nav-layer { border-top: 1px solid var(--line); background: var(--surface); }
@@ -186,6 +188,16 @@ tbody tr:last-child td { border-bottom: 0; }
 .bar-fill { display: block; width: var(--bar-size); height: 100%; background: var(--accent); transform-origin: center; transition: transform .16s ease, filter .16s ease; }
 .bar-row:hover .bar-fill, .bar-row:focus-visible .bar-fill { transform: scaleY(1.35); filter: brightness(1.15); }
 .bar-value { text-align: right; font-variant-numeric: tabular-nums; }
+.pie-chart-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; }
+.pie-chart-svg { flex: 0 0 auto; width: min(180px, 100%); }
+.pie-chart-svg svg { display: block; width: 100%; height: auto; }
+.pie-slice { fill: var(--slice-color); stroke: var(--surface); stroke-width: 1; outline: none; transition: filter .16s ease, transform .16s ease; transform-origin: 50% 50%; }
+.pie-slice:hover, .pie-slice:focus-visible { filter: brightness(1.15); transform: scale(1.03); }
+.pie-legend { display: grid; flex: 1 1 160px; gap: 8px; margin: 0; padding: 0; list-style: none; min-width: 0; }
+.pie-legend li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 8px; min-width: 0; font-size: 11px; }
+.pie-legend i { width: 10px; height: 10px; border-radius: 2px; background: var(--slice-color); }
+.pie-legend span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 750; }
+.pie-legend b { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .svg-chart { overflow: hidden; border: 1px solid var(--line); padding: 12px; background: var(--surface); }
 .svg-chart svg { display: block; width: 100%; height: auto; max-height: 520px; }
 .chart-gridline { stroke: var(--line); stroke-width: 1; }
@@ -391,8 +403,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .player-modal-stats div { min-width: 0; }
 .player-modal-stats dd { margin: 5px 0 0; overflow-wrap: anywhere; font-weight: 800; }
 .player-actions-section .pitch-wrap { margin-top: 12px; }
-.player-actions-section .pitch-wrap svg { max-height: 360px; }
-.player-pitch-wrap svg { max-height: 260px; }
+.player-pitch-wrap svg { max-height: 360px; }
 .pitch-crop { fill: none; }
 .pitch-crop-edge { stroke: var(--muted); stroke-width: .4; stroke-dasharray: 2 1.4; opacity: .6; }
 .player-shot-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 18px; margin: 14px 0 0; max-width: 420px; }
@@ -505,6 +516,8 @@ button.knockout-team:focus-visible { color: var(--accent); outline: none; }
 .knockout-team .team-label { gap: 7px; }
 .competition-team-link .flag-mini,
 .knockout-team .flag-mini { width: 22px; height: 15px; }
+.competition-team-link .team-label > span:last-child,
+.knockout-team .team-label > span:last-child { overflow-wrap: normal; word-break: normal; white-space: nowrap; }
 .competition-row-qualified { box-shadow: inset 3px 0 0 #38dcb3; }
 .competition-row-third { box-shadow: inset 3px 0 0 #e6d84a; }
 .competition-row-out { box-shadow: inset 3px 0 0 #7b879d; }
@@ -529,7 +542,8 @@ button.knockout-team:focus-visible { color: var(--accent); outline: none; }
 .competition-match-row { padding: 9px 0; border-top: 1px solid var(--line); }
 .competition-match-row.is-clickable { cursor: pointer; }
 .competition-match-row.is-clickable:hover,
-.competition-match-row.is-clickable:focus-visible { background: color-mix(in srgb, var(--accent) 5%, transparent); outline: none; }
+.competition-match-row.is-clickable:focus-visible { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+.competition-match-row.is-clickable:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .competition-match-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 7px; color: var(--muted); font-size: 8px; font-weight: 750; }
 .competition-match-score { display: grid; grid-template-columns: minmax(0, 1fr) 38px minmax(0, 1fr); align-items: center; gap: 7px; }
 .competition-match-score > :last-child { justify-self: end; text-align: right; }
@@ -574,7 +588,8 @@ button.knockout-team:focus-visible { color: var(--accent); outline: none; }
 .knockout-match { min-width: 0; border: 1px solid var(--line); padding: 11px; background: var(--surface); }
 .knockout-match.is-clickable { cursor: pointer; }
 .knockout-match.is-clickable:hover,
-.knockout-match.is-clickable:focus-visible { border-color: var(--accent); outline: none; }
+.knockout-match.is-clickable:focus-visible { border-color: var(--accent); }
+.knockout-match.is-clickable:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .knockout-match time { display: block; margin-bottom: 8px; color: var(--muted); font-size: 8px; }
 .knockout-match-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; color: var(--muted); font-size: 8px; }
 .knockout-match-meta time { margin: 0; }
@@ -2178,6 +2193,11 @@ body[data-page="profile"][data-skin="2026"] .profile-selector-panel select {
   color: var(--wc26-text);
 }
 
+body[data-skin="2026"] .overview-filter-grid input:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
 body[data-skin="2026"] .analysis-ranking-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -2459,11 +2479,18 @@ body[data-page="profile"][data-skin="2026"] .team-profile-view {
 }
 
 body[data-page="profile"][data-skin="2026"] .profile-empty,
-body[data-page="profile"][data-skin="2026"] .profile-loading {
+body[data-page="profile"][data-skin="2026"] .profile-loading,
+body[data-page="profile"][data-skin="2026"] .profile-selector-empty {
   margin: 0;
   border-block: 1px solid rgba(57, 223, 255, .22);
   padding: 28px 0;
   color: var(--wc26-text-muted);
+}
+
+body[data-page="profile"][data-skin="2026"] .profile-selector-truncated {
+  margin: 10px 0 0;
+  color: var(--wc26-text-muted);
+  font-size: 11px;
 }
 
 body[data-page="profile"][data-skin="2026"] .player-profile-identity {
@@ -4905,7 +4932,11 @@ body[data-page="matches"][data-skin="2026"] .matches-calendar-row:last-child { b
 body[data-page="matches"][data-skin="2026"] .matches-calendar-row:hover,
 body[data-page="matches"][data-skin="2026"] .matches-calendar-row:focus-visible {
   background: var(--wc26-surface-elevated);
-  outline: none;
+}
+
+body[data-page="matches"][data-skin="2026"] .matches-calendar-row:focus-visible {
+  outline: 2px solid var(--wc26-teal);
+  outline-offset: -2px;
 }
 
 body[data-page="matches"][data-skin="2026"] .matches-calendar-time time,
@@ -5127,6 +5158,15 @@ body[data-skin="2026"] .scatter-point {
 body[data-skin="2026"] .scatter-entity-marker {
   cursor: pointer;
   outline: none;
+}
+
+body[data-skin="2026"] .scatter-entity-marker.is-dense {
+  opacity: .62;
+}
+
+body[data-skin="2026"] .scatter-entity-marker.is-dense:hover,
+body[data-skin="2026"] .scatter-entity-marker.is-dense:focus-visible {
+  opacity: 1;
 }
 
 body[data-skin="2026"] .scatter-marker-hitbox {
@@ -5431,6 +5471,17 @@ body[data-page="teams"][data-skin="2026"] .page-head .dek {
   max-width: 560px;
 }
 
+body[data-page="profile"][data-skin="2026"] .page-head h1,
+body[data-page="about"][data-skin="2026"] .page-head h1 {
+  font-size: clamp(40px, 5vw, 64px);
+  line-height: .94;
+}
+
+body[data-page="profile"][data-skin="2026"] .page-head .dek,
+body[data-page="about"][data-skin="2026"] .page-head .dek {
+  max-width: 560px;
+}
+
 body[data-page="teams"][data-skin="2026"] .analysis-summary-strip {
   margin-top: 0;
 }
@@ -5626,15 +5677,13 @@ body[data-page="teams"][data-skin="2026"] .team-production-bars button:focus-vis
   outline: none;
 }
 
-body[data-page="teams"][data-skin="2026"] .team-production-track,
-body[data-page="teams"][data-skin="2026"] .team-collective-track {
+body[data-page="teams"][data-skin="2026"] .team-production-track {
   height: 6px;
   overflow: hidden;
   background: var(--wc26-surface-alt);
 }
 
-body[data-page="teams"][data-skin="2026"] .team-production-track i,
-body[data-page="teams"][data-skin="2026"] .team-collective-track i {
+body[data-page="teams"][data-skin="2026"] .team-production-track i {
   display: block;
   height: 100%;
   background: var(--wc26-teal);
@@ -5668,20 +5717,6 @@ body[data-page="teams"][data-skin="2026"] .team-collective-panel h3 {
   font-size: 15px;
 }
 
-body[data-page="teams"][data-skin="2026"] .team-collective-row {
-  display: grid;
-  grid-template-columns: minmax(110px, .8fr) minmax(90px, 1.2fr) auto;
-  align-items: center;
-  gap: 9px;
-  padding: 6px 0;
-  color: var(--wc26-text-soft);
-  font-size: 10px;
-}
-
-body[data-page="teams"][data-skin="2026"] .team-collective-row b {
-  font-size: 9px;
-  white-space: nowrap;
-}
 
 body[data-page="teams"][data-skin="2026"] .team-ranking-single .analysis-ranking-grid {
   grid-template-columns: minmax(0, 640px);
@@ -5909,6 +5944,7 @@ body.is-match-center[data-skin="2026"] .lineup-unit h4 {
   .quick-view-body { padding: 8px 16px 20px; }
 
   body[data-page="overview"][data-skin="2026"] .page-head { min-height: 220px; }
+  body[data-page="overview"][data-skin="2026"] .page-head h1 { font-size: 42px; }
   body[data-page="overview"][data-skin="2026"] .home-summary-section { overflow-x: hidden; }
   body[data-page="overview"][data-skin="2026"] .home-summary-strip { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; }
   body[data-page="overview"][data-skin="2026"] .home-summary-metric { flex: 0 0 118px; scroll-snap-align: start; }
@@ -5941,13 +5977,15 @@ body.is-match-center[data-skin="2026"] .lineup-unit h4 {
   body[data-page="players"][data-skin="2026"] .player-profile-identity { padding-inline: 12px; }
   body[data-page="players"][data-skin="2026"] .page-head { margin-bottom: 12px; }
   body[data-page="players"][data-skin="2026"] .page-head h1 { font-size: 42px; }
-  body[data-page="players"][data-skin="2026"] .section-heading > span { display: none; }
+  body[data-page="players"][data-skin="2026"] .section-heading { flex-wrap: wrap; }
+  body[data-page="players"][data-skin="2026"] .section-heading > span { flex: 1 0 100%; margin-top: 2px; }
   body[data-page="players"][data-skin="2026"] .player-comparison-switch { width: 100%; overflow-x: auto; }
   body[data-page="players"][data-skin="2026"] .player-comparison-switch button { flex: 0 0 auto; white-space: nowrap; }
   body[data-page="players"][data-skin="2026"] .player-position-production { grid-template-columns: 1fr; gap: 14px; }
   body[data-page="teams"][data-skin="2026"] .page-head { margin-bottom: 12px; }
   body[data-page="teams"][data-skin="2026"] .page-head h1 { font-size: 42px; }
-  body[data-page="teams"][data-skin="2026"] .section-heading > span { display: none; }
+  body[data-page="teams"][data-skin="2026"] .section-heading { flex-wrap: wrap; }
+  body[data-page="teams"][data-skin="2026"] .section-heading > span { flex: 1 0 100%; margin-top: 2px; }
   body[data-page="teams"][data-skin="2026"] .team-editorial-highlights,
   body[data-page="teams"][data-skin="2026"] .team-collective-panels,
   body[data-page="teams"][data-skin="2026"] .team-map-insights { grid-template-columns: 1fr; }
@@ -6013,6 +6051,8 @@ body.is-match-center[data-skin="2026"] .lineup-unit h4 {
   body.is-match-center[data-skin="2026"] .player-metrics-table td:nth-child(2) { grid-column: span 1; }
   body[data-page="matches"][data-skin="2026"] .page-head { margin-bottom: 12px; }
   body[data-page="matches"][data-skin="2026"] .page-head h1 { font-size: 42px; }
+  body[data-page="profile"][data-skin="2026"] .page-head h1,
+  body[data-page="about"][data-skin="2026"] .page-head h1 { font-size: 42px; }
   body[data-page="matches"][data-skin="2026"] .matches-summary-strip {
     display: flex;
     overflow-x: auto;

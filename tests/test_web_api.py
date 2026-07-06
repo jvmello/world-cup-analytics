@@ -731,18 +731,59 @@ def test_player_modal_shot_map_is_compact_with_a_numeric_summary() -> None:
     assert round(marker_size(0.03), 2) == 1.12
     assert round(marker_size(0.82), 2) == 3.2  # clamped ceiling
 
-    assert "function playerShotSummary(" in app_js
-    summary_body = app_js[app_js.index("function playerShotSummary("):app_js.index("function playerShotSummary(") + 500]
-    assert '"Finalizações", player.shots' in summary_body
-    assert '"Gols", player.goals' in summary_body
-    assert '"xG", player.xg' in summary_body
+    assert "function shotSummary(" in app_js
+    summary_body = app_js[app_js.index("function shotSummary("):app_js.index("function shotSummary(") + 600]
+    assert '"Finalizações", shots.length' in summary_body
+    assert '"Gols", goals' in summary_body
+    assert '"xG", xg' in summary_body
     actions_panel_body = app_js[app_js.index("function playerActionsPanel("):app_js.index("function openPlayerModal(")]
-    assert "playerShotSummary(player)" in actions_panel_body
+    assert "shotSummary(player.player_shots || [])" in actions_panel_body
+
+    # the profile screen's shot map panel is the same component (shared function, same crop, same
+    # max-height CSS) — it now also renders the summary, computed from whatever shots are currently
+    # filtered (not the player's raw season totals), so it stays correct under the mode/body/type
+    # filters that only exist in the profile context
+    shot_map_panel_body = app_js[app_js.index("function playerShotMapPanel("):app_js.index("function playerShotMinuteChart(")]
+    assert "shotSummary(filtered)" in shot_map_panel_body
+    assert ".player-actions-section .pitch-wrap svg { max-height:" not in styles
+    assert ".player-pitch-wrap svg { max-height: 360px; }" in styles
 
     # no glow/neon on the shot map — flat solid colors only, matching the rest of the product
     assert ".player-shot-summary" in styles
     assert "glow" not in styles[styles.index(".player-shot-summary"):styles.index(".player-shot-summary") + 400]
     assert "neon" not in shot_map_body.lower()
+
+
+def test_shot_breakdown_charts_are_pie_charts() -> None:
+    """"Perfil das finalizações" (Jogadores) and "Perfil coletivo" (Seleções) showed body-part/
+    shot-type breakdowns as numbered horizontal bar lists. Converted both to pie charts (the only
+    two reachable places this composition-style breakdown is shown — the benchmark-compared
+    distributionWithBenchmark() on the Profile screen is a different chart type, with a benchmark
+    overlay a pie can't represent, so it was deliberately left as a bar)."""
+    app_js = (Path(__file__).parents[1] / "webapp/static/app.js").read_text(encoding="utf-8")
+    styles = (Path(__file__).parents[1] / "webapp/static/styles.css").read_text(encoding="utf-8")
+
+    assert "function pieChart(" in app_js
+    pie_chart_body = app_js[app_js.index("function pieChart("):app_js.index("function horizontalBars(")]
+    assert "Math.cos(angle)" in pie_chart_body and "Math.sin(angle)" in pie_chart_body
+    assert "pie-legend" in pie_chart_body
+
+    player_shot_breakdown_body = app_js[app_js.index("function playerShotBreakdown("):app_js.index("function playerCreationProfile(")]
+    assert "pieChart(breakdowns[key], \"goals\"" in player_shot_breakdown_body
+    assert "horizontalBars(" not in player_shot_breakdown_body
+
+    team_collective_body = app_js[app_js.index("function teamCollectiveProfile("):app_js.index("function teamRankingExplorer(")]
+    assert 'pieChart(rows, "amount"' in team_collective_body
+    assert "team-collective-row" not in team_collective_body
+    assert "team-collective-row" not in styles, "the now-unused bar-row CSS for team-collective must be removed, not left dead"
+
+    # the benchmark-compared distribution chart (Profile screen) is untouched — different purpose
+    assert "function distributionWithBenchmark(" in app_js
+    benchmark_body = app_js[app_js.index("function distributionWithBenchmark("):app_js.index("function teamMatchProductionChart(")]
+    assert "player-distribution-bars" in benchmark_body
+
+    assert ".pie-chart-wrap" in styles
+    assert ".pie-slice" in styles
 
 
 def test_creation_profile_lists_sort_descending_by_metric() -> None:
@@ -1438,7 +1479,6 @@ def test_analytical_pages_separate_overviews_from_individual_profiles() -> None:
         "teamProductionOverview",
         "teamCollectiveProfile",
         "teamRankingExplorer",
-        "teamOverviewTable",
         "renderProfile",
         "profilePlayerSelector",
         "profileTeamSelector",
@@ -1465,7 +1505,7 @@ def test_analytical_pages_separate_overviews_from_individual_profiles() -> None:
     for label_text in (
         "Buscar jogador", "Posição", "Seleção", "Minutos mínimos",
         "Finalizações mínimas", "Edição inteira", "Fase de grupos",
-        "Mata-mata", "Geral", "Radar", "Finalizações", "Distribuição",
+        "Mata-mata", "Geral", "Finalizações", "Distribuição",
     ):
         assert f'"{label_text}"' in app_js
     assert "scatter-reference-line" in app_js
@@ -1482,7 +1522,7 @@ def test_analytical_pages_separate_overviews_from_individual_profiles() -> None:
         "Gols por 90", "xG por 90", "Ações defensivas por 90",
     ):
         assert label_text in app_js
-    assert "analysisRankingExplorer" in app_js
+    assert "function playerRankingExplorer" in app_js
     assert "analysis-table-disclosure" in app_js
     assert "radar-benchmark-area" in app_js
     assert "Média da posição" in app_js
@@ -1712,17 +1752,18 @@ def test_player_surfaces_use_resolved_positions_without_internal_diagnostics() -
 
 
 def test_about_page_is_reachable_and_credits_data_source_and_author() -> None:
-    """New "Sobre" nav item, placed alongside "Arquivo histórico" as a secondary/utility link (not
-    competing with the main Início/Competição/Partidas/... nav), routes to a static credits page —
-    no data fetch, no edition/year scoping. Must credit TheStatsAPI as the data source and name the
-    author, matching the editorial pageHead pattern used by every other internal screen."""
+    """New "Sobre" nav item is a secondary/utility link (not competing with the main
+    Início/Competição/Partidas/... nav), routing to a static credits page — no data fetch, no
+    edition/year scoping. Must credit TheStatsAPI as the data source and name the author, matching
+    the editorial pageHead pattern used by every other internal screen. (The "Arquivo histórico"
+    link this was originally placed alongside was later removed at the user's request — see
+    test_history_link_is_removed_but_about_link_remains — "Sobre" is now the only secondary link.)"""
     root = Path(__file__).parents[1] / "webapp/static"
     app_js = (root / "app.js").read_text(encoding="utf-8")
     index_html = (root / "index.html").read_text(encoding="utf-8")
     main_src = (Path(__file__).parents[1] / "webapp/main.py").read_text(encoding="utf-8")
 
-    # nav placement: static secondary link next to Arquivo histórico, not inside the main menu
-    assert '<a class="history-link" href="/history">Arquivo histórico' in index_html
+    # nav placement: static secondary link, not inside the main menu
     assert '<a class="history-link" href="/about">Sobre' in index_html
 
     # mobile nav fallback (JS-injected) mirrors the same secondary placement
@@ -1746,6 +1787,139 @@ def test_about_page_is_reachable_and_credits_data_source_and_author() -> None:
 
     # backend: /about must not 404 through the SPA catch-all fallback
     assert 'first_segment in ("history", "about")' in main_src
+
+
+def test_history_link_is_removed_but_about_link_remains() -> None:
+    """Regression: with only the 2026 edition ready, the "Arquivo histórico" nav link (which only
+    makes sense once other past-edition archives exist) was removed from both the static desktop
+    header and the JS-injected mobile-menu fallback. "Sobre" stays — it's not edition-dependent."""
+    root = Path(__file__).parents[1] / "webapp/static"
+    app_js = (root / "app.js").read_text(encoding="utf-8")
+    index_html = (root / "index.html").read_text(encoding="utf-8")
+
+    assert "Arquivo histórico" not in index_html
+    assert "Arquivo histórico" not in app_js
+    assert 'href="/history"' not in index_html
+
+    # "Sobre" remains in both the static header and the mobile fallback
+    assert '<a class="history-link" href="/about">Sobre' in index_html
+    render_nav_body = app_js[app_js.index("function renderNav("):app_js.index("function showLoading(")]
+    assert 'href: "/about", text: "Sobre"' in render_nav_body
+
+
+def test_edition_select_is_disabled_with_a_single_edition() -> None:
+    """Regression: the edition <select> let the user pick a year even though only 2026 has data —
+    switching would silently break. Disabled it directly in the markup (JS only repopulates the
+    <option> children on load, never touches the disabled attribute, so it stays disabled)."""
+    index_html = (Path(__file__).parents[1] / "webapp/static/index.html").read_text(encoding="utf-8")
+    styles = (Path(__file__).parents[1] / "webapp/static/styles.css").read_text(encoding="utf-8")
+
+    select_tag = index_html[index_html.index('<select id="edition-select"'):index_html.index("</select>")]
+    assert "disabled" in select_tag
+    assert "select:disabled" in styles
+
+
+def test_ui_ux_audit_hero_titles_and_status_vocabulary() -> None:
+    """Regression batch from the 2026-07-06 UI/UX audit ticket, part 1: hero title sizing and
+    status vocabulary. Perfil and Sobre had no .page-head h1 override (rendered at raw hero scale,
+    ~100px, unlike every other internal screen); Início's mobile hero had no size reduction either.
+    Separately, Home used its own homeMatchStatus() ("Programado") while Partidas/Competição used
+    competitionMatchStatus() ("Agendado"/"Hoje") for the identical "not yet started" match state —
+    unified onto the single shared function."""
+    styles = (Path(__file__).parents[1] / "webapp/static/styles.css").read_text(encoding="utf-8")
+    app_js = (Path(__file__).parents[1] / "webapp/static/app.js").read_text(encoding="utf-8")
+
+    assert 'body[data-page="profile"][data-skin="2026"] .page-head h1,\nbody[data-page="about"][data-skin="2026"] .page-head h1 {' in styles
+    assert 'body[data-page="overview"][data-skin="2026"] .page-head h1 { font-size: 42px; }' in styles
+    assert 'body[data-page="profile"][data-skin="2026"] .page-head h1,\n  body[data-page="about"][data-skin="2026"] .page-head h1 { font-size: 42px; }' in styles
+
+    assert "function homeMatchStatus" not in app_js
+    home_bracket_body = app_js[app_js.index("function homeBracketMatch("):app_js.index("function homePulse(")]
+    assert "competitionMatchStatus(match)" in home_bracket_body
+    compact_row_body = app_js[app_js.index("function compactMatchRow("):app_js.index("function homeRankingEntity(")]
+    assert "competitionMatchStatus(match)" in compact_row_body
+
+
+def test_ui_ux_audit_match_detail_and_profile_fixes() -> None:
+    """Regression batch, part 2: Match Detail's subnav skipped "Top impactos da partida" and
+    "Visão geral da partida" (rendered with no anchor between Resumo and Finalizações & xG) —
+    added a "Visão geral" anchor/link. "História do jogo" silently capped at 5 lines with no
+    indicator (and the backend hard-truncated with lines[:5], making the frontend blind to any
+    excess) — backend now returns the full list, frontend shows a "+N" note when truncating.
+    Perfil's player/team search showed a blank list on no matches and silently dropped results
+    past 80 with no notice."""
+    app_js = (Path(__file__).parents[1] / "webapp/static/app.js").read_text(encoding="utf-8")
+    service_src = (Path(__file__).parents[1] / "webapp/thestatsapi_service.py").read_text(encoding="utf-8")
+
+    subnav_body = app_js[app_js.index("function matchSubnav("):app_js.index("function activateMatchSubnav(")]
+    assert '["Visão geral", "#match-overview"]' in subnav_body
+    assert 'section("Visão geral da partida", null, matchOverview(data, match), "wide-chart match-overview", "match-overview")' in app_js
+
+    assert "return lines[:5]" not in service_src
+    story_panel_body = app_js[app_js.index("function matchStoryPanel("):app_js.index("function comparisonBars(")]
+    assert "story-more" in story_panel_body
+
+    assert "profile-selector-empty" in app_js
+    assert "profile-selector-truncated" in app_js
+    assert "Nenhum jogador encontrado" in app_js
+    assert "Nenhuma seleção encontrada" in app_js
+
+
+def test_ui_ux_audit_jogadores_and_scatter_fixes() -> None:
+    """Regression batch, part 3: Jogadores' numeric filters (Minutos/Finalizações/Jogos mínimos)
+    stayed enabled and editable even when "Todos" was active, with no effect; the confusingly
+    internal-sounding "Grupo bruto" filter label was renamed; "Perfil das finalizações"/"Perfil
+    coletivo" pie charts silently showed edition-wide data regardless of active filters — labeled
+    explicitly rather than rebuilt as a filtered feature (no per-filter shot data exists in the
+    API today); dense scatter point clouds (default Qualificados filter can still leave 100+
+    points) got an opacity de-clutter treatment."""
+    app_js = (Path(__file__).parents[1] / "webapp/static/app.js").read_text(encoding="utf-8")
+    styles = (Path(__file__).parents[1] / "webapp/static/styles.css").read_text(encoding="utf-8")
+
+    overview_body = app_js[app_js.index("function playerOverviewExperience("):app_js.index("function teamEditionHighlights(")]
+    assert "numberInputs.forEach(input => { input.disabled = !filters.qualified; });" in overview_body
+    assert '"Posição (grupo amplo)"' in overview_body
+    assert '"Posição (detalhada)"' in overview_body
+    assert '"Grupo bruto"' not in overview_body
+
+    assert 'section("Perfil das finalizações", "Dados de toda a Copa' in app_js
+    assert 'section("Perfil coletivo", "Dados de toda a Copa' in app_js
+
+    assert "function scatterEntityMarker(" in app_js
+    marker_body = app_js[app_js.index("function scatterEntityMarker("):app_js.index("function scatterEntityMarker(") + 700]
+    assert "is-dense" in marker_body
+    assert ".scatter-entity-marker.is-dense" in styles
+
+
+def test_ui_ux_audit_accessibility_and_dead_code_cleanup() -> None:
+    """Regression batch, part 4: tab-like controls (role="tab") had no arrow-key navigation;
+    clickable rows on Partidas/Competição had outline: none on :focus-visible with only a faint
+    background tint; role="link" rows (which don't natively support Space activation per ARIA
+    practice) also responded to Space; three fully dead functions (never called from anywhere)
+    were removed; homeHighlights() was fully built (backend already supplies data.highlights) but
+    never wired into Home."""
+    app_js = (Path(__file__).parents[1] / "webapp/static/app.js").read_text(encoding="utf-8")
+    styles = (Path(__file__).parents[1] / "webapp/static/styles.css").read_text(encoding="utf-8")
+
+    assert "function attachTabListKeyNav(" in app_js
+    assert app_js.count("attachTabListKeyNav(node(") >= 10
+
+    assert "outline: 2px solid var(--accent); outline-offset: -2px;" in styles
+    assert "outline: 2px solid var(--wc26-teal);" in styles
+
+    for dead_function in ("playerAnalysisExperience", "teamOverviewTable", "analysisRankingExplorer"):
+        assert f"function {dead_function}" not in app_js
+
+    assert "function homeHighlights" in app_js
+    overview_render = app_js[app_js.index("function renderOverview("):app_js.index("function homeSummaryStrip(")]
+    assert "homeHighlights(data.highlights || {}, leaders)" in overview_render
+    assert 'section("Destaques da Copa"' in overview_render
+
+    # role="link" rows keep Enter but drop Space; role="button" rows keep both (unaffected)
+    match_calendar_row_body = app_js[app_js.index("function matchCalendarRow("):app_js.index("function matchCalendarDayLabel(")]
+    assert 'if (event.key === "Enter") { event.preventDefault(); routeTo("matches", match.match_id); }' in match_calendar_row_body
+    knockout_match_card_body = app_js[app_js.index("function knockoutMatchCard("):app_js.index("function withHorizontalScrollFade(")]
+    assert 'if (event.key === "Enter") {\n          event.preventDefault();\n          routeTo("matches", match.match_id);' in knockout_match_card_body
 
 
 def test_2026_home_is_a_compact_editorial_match_center() -> None:
@@ -1803,7 +1977,7 @@ def test_2026_home_is_a_compact_editorial_match_center() -> None:
     assert 'section("Próximos jogos"' not in overview
     summary_strip = app_js[
         app_js.index("function homeSummaryStrip"):
-        app_js.index("function homeMatchStatus")
+        app_js.index("function knockoutSideNode")
     ]
     for metric in ("summary.shot_conversion", "summary.clean_sheets", "summary.goals", "summary.goals_per_match", "summary.teams", "summary.shots", "summary.xg", "summary.players"):
         assert metric in summary_strip
@@ -1859,7 +2033,7 @@ def test_home_summary_replaces_pipeline_counts_with_narrative_metrics() -> None:
     assert summary["clean_sheets"] == 1  # only the 2-0 match had a side keep a clean sheet
 
     app_js = (Path(__file__).parents[1] / "webapp/static/app.js").read_text(encoding="utf-8")
-    summary_strip = app_js[app_js.index("function homeSummaryStrip"):app_js.index("function homeMatchStatus")]
+    summary_strip = app_js[app_js.index("function homeSummaryStrip"):app_js.index("function knockoutSideNode")]
     assert '"Conversão média"' in summary_strip
     assert '"Clean sheets"' in summary_strip
     assert '"Partidas"' not in summary_strip

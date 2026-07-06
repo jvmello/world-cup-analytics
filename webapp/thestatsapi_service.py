@@ -1958,7 +1958,7 @@ class TheStatsApiBronzeService:
                 f"A chance mais clara foi de {top_shot.get('player_name')}, "
                 f"com {cls._pt_br_number(top_shot.get('xg'))} xG aos {int(number(top_shot.get('minute')) or 0)}'."
             )
-        return lines[:5]
+        return lines
 
     @staticmethod
     def _player_impacts(players: list[dict[str, Any]]) -> list[dict[str, Any]]:
