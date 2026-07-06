@@ -1856,7 +1856,20 @@ class TheStatsApiBronzeService:
         return rows
 
     @staticmethod
+    def _pt_br_number(value: Any) -> str:
+        """Format a number for embedding directly into narrative text, matching the pt-BR comma
+        decimal separator and 2-decimal precision used everywhere else in the product (frontend's
+        Intl.NumberFormat with maximumFractionDigits: 2)."""
+        parsed = number(value)
+        if parsed is None:
+            return str(value)
+        if isinstance(parsed, int):
+            return str(parsed)
+        return f"{round(parsed, 2):g}".replace(".", ",")
+
+    @classmethod
     def _match_story(
+        cls,
         match: dict[str, Any],
         stats: list[dict[str, Any]],
         players: list[dict[str, Any]],
@@ -1884,13 +1897,13 @@ class TheStatsApiBronzeService:
             displayed_away = round(float(xg[1]), 2)
             if displayed_home == displayed_away:
                 lines.append(
-                    f"A criação foi equilibrada: {displayed_home:g} xG para cada lado."
+                    f"A criação foi equilibrada: {cls._pt_br_number(displayed_home)} xG para cada lado."
                 )
             else:
                 team = home if xg[0] > xg[1] else away
                 creation_team = team
                 value, other = xg if team == home else (xg[1], xg[0])
-                lines.append(f"{team} controlou a criação: {value} xG contra {other}.")
+                lines.append(f"{team} controlou a criação: {cls._pt_br_number(value)} xG contra {cls._pt_br_number(other)}.")
 
         shots_values = values("total_shots")
         target_values = values("shots_on_target")
@@ -1898,10 +1911,10 @@ class TheStatsApiBronzeService:
             team = home if shots_values[0] >= shots_values[1] else away
             value, other = shots_values if team == home else (shots_values[1], shots_values[0])
             subject = "A equipe também" if team == creation_team else team
-            detail = f"{subject} finalizou mais: {value} a {other}"
+            detail = f"{subject} finalizou mais: {cls._pt_br_number(value)} a {cls._pt_br_number(other)}"
             if target_values:
                 target, target_other = target_values if team == home else (target_values[1], target_values[0])
-                detail += f", com {target} chutes no alvo contra {target_other}"
+                detail += f", com {cls._pt_br_number(target)} chutes no alvo contra {cls._pt_br_number(target_other)}"
             lines.append(f"{detail}.")
 
         recoveries = values("ball_recoveries")
@@ -1909,20 +1922,33 @@ class TheStatsApiBronzeService:
             team = home if recoveries[0] >= recoveries[1] else away
             value, other = recoveries if team == home else (recoveries[1], recoveries[0])
             if team != creation_team:
-                lines.append(f"{team} teve algum respiro sem bola, liderando em recuperações por {value} a {other}.")
+                lines.append(f"{team} teve algum respiro sem bola, liderando em recuperações por {cls._pt_br_number(value)} a {cls._pt_br_number(other)}.")
             else:
-                lines.append(f"A equipe também recuperou mais bolas: {value} a {other}.")
+                lines.append(f"A equipe também recuperou mais bolas: {cls._pt_br_number(value)} a {cls._pt_br_number(other)}.")
 
         goals = sorted(
             [shot for shot in shots if shot.get("is_goal") and shot.get("player_name")],
             key=lambda shot: number(shot.get("minute")) or 0,
         )
         if goals:
-            descriptions = [
-                f"{goal.get('player_name')} aos {int(number(goal.get('minute')) or 0)}'"
-                for goal in goals[:3]
-            ]
-            if len(descriptions) == 1:
+            grouped_goals: list[dict[str, Any]] = []
+            for goal in goals[:3]:
+                player_name = goal.get("player_name")
+                minute = int(number(goal.get("minute")) or 0)
+                existing = next((entry for entry in grouped_goals if entry["player_name"] == player_name), None)
+                if existing:
+                    existing["minutes"].append(minute)
+                else:
+                    grouped_goals.append({"player_name": player_name, "minutes": [minute]})
+            def describe_scorer(entry: dict[str, Any]) -> str:
+                minutes_text = " e ".join(f"{minute}'" for minute in entry["minutes"])
+                if len(entry["minutes"]) > 1:
+                    return f"{entry['player_name']}, aos {minutes_text}"
+                return f"{entry['player_name']} aos {minutes_text}"
+
+            descriptions = [describe_scorer(entry) for entry in grouped_goals]
+            total_goals = sum(len(entry["minutes"]) for entry in grouped_goals)
+            if total_goals == 1:
                 lines.append(f"O gol da partida foi marcado por {descriptions[0]}.")
             else:
                 lines.append(f"Os gols foram marcados por {' e '.join(descriptions)}.")
@@ -1930,7 +1956,7 @@ class TheStatsApiBronzeService:
         if top_shot:
             lines.append(
                 f"A chance mais clara foi de {top_shot.get('player_name')}, "
-                f"com {top_shot.get('xg')} xG aos {top_shot.get('minute')}'."
+                f"com {cls._pt_br_number(top_shot.get('xg'))} xG aos {int(number(top_shot.get('minute')) or 0)}'."
             )
         return lines[:5]
 
@@ -2368,7 +2394,7 @@ class TheStatsApiBronzeService:
         return {
             "team_name": name if defined else None,
             "team_id": team_id if defined else None,
-            "placeholder": placeholder or ("Aguardando definição" if not defined else None),
+            "placeholder": placeholder or ("A definir" if not defined else None),
             "defined": defined,
         }
 
@@ -2380,6 +2406,11 @@ class TheStatsApiBronzeService:
     def competition_summary(fixtures: list[dict[str, Any]], players: list[dict[str, Any]], teams: list[dict[str, Any]]) -> dict[str, Any]:
         finished = [item for item in fixtures if item.get("status") == "finished"]
         goals = sum(int(item.get("home_score") or 0) + int(item.get("away_score") or 0) for item in finished)
+        shots = sum(int(team.get("shots") or 0) for team in teams)
+        clean_sheets = sum(
+            1 for item in finished
+            if int(item.get("home_score") or 0) == 0 or int(item.get("away_score") or 0) == 0
+        )
         return {
             "matches": len(fixtures),
             "finished": len(finished),
@@ -2387,7 +2418,9 @@ class TheStatsApiBronzeService:
             "players": len(players),
             "goals": goals,
             "goals_per_match": round(goals / len(finished), 2) if finished else None,
-            "shots": sum(int(team.get("shots") or 0) for team in teams),
+            "shots": shots,
+            "shot_conversion": round(goals / shots * 100, 1) if shots else None,
+            "clean_sheets": clean_sheets,
             "xg": round(sum(float(team.get("xg") or 0) for team in teams), 2),
         }
 

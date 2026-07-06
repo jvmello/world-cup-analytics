@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 import json
+import re
 
 import pandas as pd
 from fastapi.testclient import TestClient
@@ -580,19 +581,33 @@ def test_match_center_frontend_fixes_substitution_position_date_and_scroll() -> 
         assert f'"{metric}"' in app_js[app_js.index("LOWER_IS_BETTER_METRICS"):app_js.index("LOWER_IS_BETTER_METRICS") + 200]
 
 
-def test_score_pill_is_a_single_reused_component_across_the_product() -> None:
-    """The score-pill (green pill, black bold digits) must be one shared component reused by
-    the match-detail header, the Partidas calendar row, the Home "Quem avançou"/"Próximos
-    encaixes" cards and the Competição bracket cards — not four separate implementations."""
+def test_score_pill_is_restricted_to_match_detail_hero() -> None:
+    """The score-pill (green pill, black bold digits) is a strong visual statement reserved for
+    the Match Detail hero header. Every other surface (Partidas calendar row, Home "Quem
+    avançou"/"Próximos encaixes", Competição bracket cards, the archive match-card list) must use
+    the simplified colored-text score (scoreText) instead, so the pill never appears more than once
+    per screen and never collides with a kickoff time on scoreless cards."""
     root = Path(__file__).parents[1] / "webapp/static"
     app_js = (root / "app.js").read_text(encoding="utf-8")
     styles = (root / "styles.css").read_text(encoding="utf-8")
 
     assert "function scorePill(" in app_js
-    call_count = app_js.count("scorePill(match") + app_js.count("scorePill(item.match")
-    assert call_count >= 4, "scorePill must be called at all 4 application points"
+    assert "function scoreText(" in app_js
 
-    assert 'class: "score"' not in app_js, "the old plain-text score span must be gone, replaced by the shared scorePill component"
+    # scorePill must only be called from the hero branch of scoreCard (Match Detail header)
+    pill_calls = re.findall(r"(?<!function )scorePill\(([^)]*)\)", app_js)
+    assert len(pill_calls) == 1, f"scorePill must be called exactly once, found {len(pill_calls)}"
+    assert '"lg"' in pill_calls[0]  # only the hero (large) call site remains
+
+    # every other former pill call site must now use the plain-text score
+    assert "scoreText(match?.home_score, match?.away_score" in app_js  # scoreCard non-hero
+    assert "scoreText(item.match.home_score, item.match.away_score" in app_js  # Quem avançou
+    assert 'scoreText(match?.home_score, match?.away_score, { homeName: match?.home_team' in app_js  # matchCalendarRow
+    assert "scoreText(match.home_score, match.away_score" in app_js  # knockoutMatchCard
+    assert "scorePill(match.home_score, match.away_score" not in app_js  # homeBracketMatch, knockoutMatchCard no longer use the pill
+    assert "scorePill(item.match.home_score" not in app_js  # Quem avançou no longer uses the pill
+
+    assert 'class: "score"' not in app_js, "the old plain-text score span must be gone, replaced by the shared score components"
     assert "class: `score-pill" in app_js
 
     assert "--score-pill-bg: #5dcaa5" in styles
@@ -600,6 +615,8 @@ def test_score_pill_is_a_single_reused_component_across_the_product() -> None:
     assert ".score-pill {" in styles
     assert "background: var(--score-pill-bg)" in styles
     assert "color: var(--score-pill-fg)" in styles
+    assert ".score-text {" in styles
+    assert "color: var(--score-pill-bg)" in styles
 
     # the teal must stay scoped to the score pill, not leak into a general-purpose accent
     assert "--accent: var(--score-pill-bg)" not in styles
@@ -612,8 +629,10 @@ def test_score_pill_is_a_single_reused_component_across_the_product() -> None:
     assert 'background: var(--wc26-gradient-score)' not in styles
 
     # goal minute badges reuse the same teal token, not the green accent
-    assert 'color: var(--score-pill-bg)' in styles
     assert 'background: var(--wc26-teal);\n  color: var(--wc26-bg);\n  box-shadow: 0 0 10px rgba(79, 191, 166' in styles
+
+    # the score-text component reuses the same teal token under the 2026 skin
+    assert 'body[data-skin="2026"] .score-text' in styles
 
 
 def test_player_stats_panel_shows_opponent_unifies_timeline_and_labels_rating() -> None:
@@ -622,7 +641,7 @@ def test_player_stats_panel_shows_opponent_unifies_timeline_and_labels_rating() 
     styles = (root / "styles.css").read_text(encoding="utf-8")
 
     # 1. opponent shown in the sticky modal header (visible across every internal section)
-    header_body = app_js[app_js.index("function openPlayerModal"):app_js.index("function openPlayerModal") + 2200]
+    header_body = app_js[app_js.index("function openPlayerModal"):app_js.index("function playerExplorer(")]
     assert "player.opponent_name" in header_body
     assert "vs" in header_body
 
@@ -658,6 +677,114 @@ def test_player_stats_panel_shows_opponent_unifies_timeline_and_labels_rating() 
     assert "Perfil contextual" in quick_metrics_body and "calculado pelo produto" in quick_metrics_body
     assert '"Rating", player.rating,' in quick_metrics_body and "fonte de dados" in quick_metrics_body
     assert "metric.title" in app_js
+
+
+def test_player_modal_uses_tabs_instead_of_one_long_scroll() -> None:
+    """Regression: "Ver estatísticas completas" was one continuous long scroll. Converted to real
+    click-to-switch tabs (same role="tab"/aria-selected/is-active convention already used by
+    profilePlayerTabs on the Profile screen), grouped as Resumo / Ataque & Criação / Passe, Duelos
+    & Disciplina / Finalizações. The header stays outside the tab content so it's always visible."""
+    app_js = (Path(__file__).parents[1] / "webapp/static/app.js").read_text(encoding="utf-8")
+    styles = (Path(__file__).parents[1] / "webapp/static/styles.css").read_text(encoding="utf-8")
+
+    assert "function playerModalTabDefinitions(" in app_js
+    tab_defs = app_js[app_js.index("function playerModalTabDefinitions("):app_js.index("function openPlayerModal(")]
+    for label in ("Resumo", "Ataque & Criação", "Passe, Duelos & Disciplina", "Finalizações"):
+        assert f'"{label}"' in tab_defs
+
+    modal_body = app_js[app_js.index("function openPlayerModal("):app_js.index("function playerExplorer(")]
+    assert 'role: "tab"' in modal_body
+    assert '"aria-selected": String(key === activeTab)' in modal_body
+    assert 'class: key === activeTab ? "is-active" : ""' in modal_body
+    # header (identity, opponent, story) sits outside the tab-swapped content, in render order
+    content_array = modal_body[modal_body.index("const content = ["):]
+    assert content_array.index('class: "player-modal-header"') < content_array.index("tabsNav,")
+    assert content_array.index("tabsNav,") < content_array.index("tabContent,")
+
+    # sections are grouped, not a single flat list — attack/creation split from pass/duels/discipline
+    detailed_sections_body = app_js[app_js.index("function playerDetailedSections("):app_js.index("function playerQuickMetrics(")]
+    assert "attackCreation" in detailed_sections_body
+    assert "passDuelsDiscipline" in detailed_sections_body
+
+    assert ".player-modal-tabs {" in styles
+    assert ".player-modal-tabs button.is-active {" in styles
+
+
+def test_player_modal_shot_map_is_compact_with_a_numeric_summary() -> None:
+    """Regression: the individual shot map (100x50 viewBox, offensive-half crop) had a lot of dead
+    space below the box since real shot x-coordinates cluster under ~33 (p99 measured against
+    real bronze shotmap data) while the crop extended to 50. Tightened to a 100x38 viewBox and
+    added a Finalizações/Gols/xG numeric summary below the map, reusing fields already computed
+    elsewhere in the panel. Also confirm marker size is a real function of xG (not just visually
+    similar) and that no glow/neon effect was introduced."""
+    app_js = (Path(__file__).parents[1] / "webapp/static/app.js").read_text(encoding="utf-8")
+    styles = (Path(__file__).parents[1] / "webapp/static/styles.css").read_text(encoding="utf-8")
+
+    shot_map_body = app_js[app_js.index("function playerShotMap("):app_js.index("function playerShotMap(") + 2200]
+    assert "const width = 100, height = 38;" in shot_map_body
+    assert "const size = Math.max(1, Math.min(3.2, 1 + xg * 4));" in shot_map_body
+
+    # size is a genuine function of xg: low/high xG values must map to visibly different sizes
+    def marker_size(xg):
+        return max(1, min(3.2, 1 + xg * 4))
+    assert marker_size(0.03) < marker_size(0.46) < marker_size(0.82)
+    assert round(marker_size(0.03), 2) == 1.12
+    assert round(marker_size(0.82), 2) == 3.2  # clamped ceiling
+
+    assert "function playerShotSummary(" in app_js
+    summary_body = app_js[app_js.index("function playerShotSummary("):app_js.index("function playerShotSummary(") + 500]
+    assert '"Finalizações", player.shots' in summary_body
+    assert '"Gols", player.goals' in summary_body
+    assert '"xG", player.xg' in summary_body
+    actions_panel_body = app_js[app_js.index("function playerActionsPanel("):app_js.index("function openPlayerModal(")]
+    assert "playerShotSummary(player)" in actions_panel_body
+
+    # no glow/neon on the shot map — flat solid colors only, matching the rest of the product
+    assert ".player-shot-summary" in styles
+    assert "glow" not in styles[styles.index(".player-shot-summary"):styles.index(".player-shot-summary") + 400]
+    assert "neon" not in shot_map_body.lower()
+
+
+def test_creation_profile_lists_sort_descending_by_metric() -> None:
+    """Regression: playerCreationProfile()'s two Top-8 lists (key_passes, accurate_crosses)
+    filtered eligible players but never sorted them before handing off to horizontalBars(), which
+    does not sort internally (it trusts the caller) — so a player with fewer key_passes could
+    appear above one with more (e.g. Haaland with 3 above Mbappé with 6)."""
+    app_js = (Path(__file__).parents[1] / "webapp/static/app.js").read_text(encoding="utf-8")
+    body = app_js[app_js.index("function playerCreationProfile("):app_js.index("function playerCreationProfile(") + 700]
+    assert ".sort((left, right) => number(right[metric]) - number(left[metric]))" in body
+    # horizontalBars() itself doesn't sort — confirms callers must pre-sort, as playerCreationProfile now does
+    horizontal_bars_body = app_js[app_js.index("function horizontalBars("):app_js.index("function horizontalBars(") + 600]
+    assert "sort" not in horizontal_bars_body
+
+
+def test_comparison_map_restores_per90_scatter_option() -> None:
+    """Regression: the "Mapa de comparação" toggle had 5 modes but none normalized for minutes
+    played — the first "Gols × xG" mode plots raw totals, not per-90, even though per-90 is an
+    established product-wide convention specifically to avoid bias from playing time. Restored a
+    6th "Gols por 90 × xG por 90" option using the existing generic scatter machinery."""
+    app_js = (Path(__file__).parents[1] / "webapp/static/app.js").read_text(encoding="utf-8")
+    assert '"Gols por 90 × xG por 90"' in app_js
+    per90_config = app_js[app_js.index("per90: {"):app_js.index("per90: {") + 400]
+    assert "player.goals_per_90" in per90_config
+    assert "player.xg_per_90" in per90_config
+    comparison_map_body = app_js[app_js.index("function playerComparisonMap("):app_js.index("function playerOverviewExperience(")]
+    assert 'playerSecondaryScatterPlot(rows, "per90", onSelect)' in comparison_map_body
+
+
+def test_players_table_is_sortable_by_any_column() -> None:
+    """Regression: "Lista de jogadores" was always sorted by minutes_played desc with plain-text
+    headers. Rewritten to reuse the exact sortable-table pattern already correct in Match Detail's
+    playerExplorer() — sort-button/sort-indicator, aria-sort, numeric columns default desc on
+    first click, text columns (Jogador/Seleção/Pos.) default asc, single active sort column."""
+    app_js = (Path(__file__).parents[1] / "webapp/static/app.js").read_text(encoding="utf-8")
+    body = app_js[app_js.index("function playerOverviewTable("):app_js.index("function profileStandingLabel(")]
+    assert "sort-button" in body
+    assert "sort-indicator" in body
+    assert '"aria-sort"' in body
+    for key in ("player_name", "team_name", "position", "minutes_played", "goals", "assists", "xg", "xa", "shots", "defensive_actions", "rating"):
+        assert f'key: "{key}"' in body
+    assert 'direction: rows.length && typeof column.value(rows[0]) === "number" ? "desc" : "asc"' in body
 
 
 def test_players_page_adds_goalkeeper_tab_qualified_toggle_and_new_charts() -> None:
@@ -699,6 +826,49 @@ def test_players_page_adds_goalkeeper_tab_qualified_toggle_and_new_charts() -> N
     assert "key_passes" in creation_body
     assert "accurate_crosses" in creation_body
     assert '"Perfil de criação"' in app_js
+
+
+def test_ranking_labels_use_correct_singular_plural_agreement() -> None:
+    """Regression: "Rankings de Seleções > Defesa" showed "1 gols" instead of "1 gol" — the shared
+    analysisMetricValue() (used by both Rankings de jogadores and Rankings de seleções) appended a
+    fixed plural unit string regardless of the value. Fixed via a centralized singularizeUnit()
+    helper reused everywhere a definition-style unit gets composed with a count, including the
+    Home "Líderes da Copa" panel (homeRankingValue) and the Curiosidades/discovery cards
+    (discoveryValue) — not just the one place the bug was reported."""
+    app_js = (Path(__file__).parents[1] / "webapp/static/app.js").read_text(encoding="utf-8")
+
+    assert "function singularizeUnit(" in app_js
+    singular_body = app_js[app_js.index("const UNIT_SINGULAR_FORMS"):app_js.index("function singularizeUnit(") + 200]
+    for plural, singular in [("gols", "gol"), ("chutes", "chute"), ("passes", "passe"), ("desarmes", "desarme"), ("cortes", "corte"), ("duelos", "duelo"), ("defesas", "defesa"), ("vermelhos", "vermelho"), ("eventos", "evento")]:
+        assert f"{plural}: \"{singular}\"" in singular_body
+
+    metric_value_body = app_js[app_js.index("function analysisMetricValue("):app_js.index("function analysisMetricValue(") + 400]
+    assert "singularizeUnit(value, definition.unit)" in metric_value_body
+
+    ranking_value_body = app_js[app_js.index("function homeRankingValue("):app_js.index("function homeRankingValueClass(")]
+    assert "singularizeUnit(parsed," in ranking_value_body
+
+    discovery_value_body = app_js[app_js.index("function discoveryValue("):app_js.index("function openDiscoveryQuickView(")]
+    assert "singularizeUnit(value, metric.unit)" in discovery_value_body
+
+
+def test_rankings_use_documented_alphabetical_tie_break() -> None:
+    """Regression: two teams tied on a ranking's primary metric (e.g. Mexico and Spain both at 0
+    goals conceded) had no defined tie-break, so their relative order depended on incidental array
+    order from the API — it looked arbitrary. analysisMetricRows() (shared by Rankings de
+    jogadores and Rankings de seleções) and teamProductionOverview() now both fall back to
+    alphabetical (pt-BR) order by name whenever the primary metric ties, via one shared helper."""
+    app_js = (Path(__file__).parents[1] / "webapp/static/app.js").read_text(encoding="utf-8")
+
+    assert "function rankingTieBreakName(" in app_js
+    tie_break_body = app_js[app_js.index("function rankingTieBreakName("):app_js.index("function rankingTieBreakName(") + 200]
+    assert "player_name" in tie_break_body and "team_name" in tie_break_body
+
+    metric_rows_body = app_js[app_js.index("function analysisMetricRows("):app_js.index("function analysisMetricValue(")]
+    assert "rankingTieBreakName(left).localeCompare(rankingTieBreakName(right)" in metric_rows_body
+
+    production_overview_body = app_js[app_js.index("function teamProductionOverview("):app_js.index("function teamCollectiveProfile(")]
+    assert "rankingTieBreakName(left.team).localeCompare(rankingTieBreakName(right.team)" in production_overview_body
 
 
 def test_team_rows_aggregate_discipline_and_stage_membership() -> None:
@@ -1167,6 +1337,23 @@ def test_match_subnav_uses_internal_hashes_without_legacy_routing() -> None:
     assert 'body[data-skin="2026"] .xg-point.is-goal' in styles
 
 
+def test_lineup_omits_missing_jersey_number_instead_of_a_placeholder_dash() -> None:
+    """Regression: some real lineup entries genuinely have no jersey_number in the source data
+    (confirmed in bronze lineups responses, e.g. a null jersey_number) — the UI showed a visible
+    "–" for these instead of following the project's "nullable fields omitted" convention. The
+    lineup row is a fixed 3-column grid (32px/1fr/34px), so the shirt-number element must stay in
+    the DOM to keep the name/position columns aligned, but must render nothing visible when the
+    number is unavailable."""
+    app_js = (Path(__file__).parents[1] / "webapp/static/app.js").read_text(encoding="utf-8")
+    styles = (Path(__file__).parents[1] / "webapp/static/styles.css").read_text(encoding="utf-8")
+
+    lineup_row = app_js[app_js.index("function lineupPlayerRow("):app_js.index("function lineupPlayerRow(") + 700]
+    assert "hasJerseyNumber" in lineup_row
+    assert 'metricAvailable(player.jersey_number)' in lineup_row
+    assert '"–"' not in lineup_row and "'–'" not in lineup_row
+    assert ".shirt-number.is-unavailable { visibility: hidden; }" in styles
+
+
 def test_match_players_and_shots_are_fully_interactive() -> None:
     root = Path(__file__).parents[1] / "webapp/static"
     app_js = (root / "app.js").read_text(encoding="utf-8")
@@ -1581,7 +1768,7 @@ def test_2026_home_is_a_compact_editorial_match_center() -> None:
         app_js.index("function homeSummaryStrip"):
         app_js.index("function homeMatchStatus")
     ]
-    for metric in ("summary.matches", "summary.finished", "summary.goals", "summary.goals_per_match", "summary.teams", "summary.shots", "summary.xg", "summary.players"):
+    for metric in ("summary.shot_conversion", "summary.clean_sheets", "summary.goals", "summary.goals_per_match", "summary.teams", "summary.shots", "summary.xg", "summary.players"):
         assert metric in summary_strip
     assert not any(
         term in overview
@@ -1611,6 +1798,141 @@ def test_2026_home_is_a_compact_editorial_match_center() -> None:
     assert "white-space: nowrap" in styles
     assert "text-overflow: ellipsis" in styles
     assert "@media (max-width: 640px)" in styles
+
+
+def test_home_summary_replaces_pipeline_counts_with_narrative_metrics() -> None:
+    """Regression: "Partidas" (100) and "Encerradas" (75) in "Resumo da edição" were pipeline
+    status counts, not editorial data, and "Encerradas" duplicated the phase already shown in
+    "Pulso da Copa" right below. Replace them with "Conversão média" (goals/shots, the same
+    formula already used for "Conversão de chutes") and "Clean sheets" (finished matches where at
+    least one side didn't concede), computed from data already in competition_summary()."""
+    service = TheStatsApiBronzeService()
+    fixtures = [
+        {"status": "finished", "home_score": 2, "away_score": 0},
+        {"status": "finished", "home_score": 1, "away_score": 1},
+        {"status": "scheduled", "home_score": None, "away_score": None},
+    ]
+    teams = [{"shots": 10, "xg": 1.5}, {"shots": 15, "xg": 2.0}]
+
+    summary = service.competition_summary(fixtures, players=[], teams=teams)
+
+    assert summary["goals"] == 4
+    assert summary["shots"] == 25
+    assert summary["shot_conversion"] == round(4 / 25 * 100, 1)
+    assert summary["clean_sheets"] == 1  # only the 2-0 match had a side keep a clean sheet
+
+    app_js = (Path(__file__).parents[1] / "webapp/static/app.js").read_text(encoding="utf-8")
+    summary_strip = app_js[app_js.index("function homeSummaryStrip"):app_js.index("function homeMatchStatus")]
+    assert '"Conversão média"' in summary_strip
+    assert '"Clean sheets"' in summary_strip
+    assert '"Partidas"' not in summary_strip
+    assert '"Encerrados"' not in summary_strip
+    assert "summary.shot_conversion" in summary_strip
+    assert "summary.clean_sheets" in summary_strip
+
+
+def test_home_agenda_placeholder_matches_use_ellipsis_not_overlap() -> None:
+    """Regression: "Agenda de hoje" rendered a placeholder team name (e.g. "Vencedor de Holanda
+    x Marrocos") as raw text directly on a display:flex `.home-match-team` span. Flex containers
+    don't apply text-overflow: ellipsis to their own raw text content, so the long placeholder
+    overflowed the grid column and visually collided with the time/score in the center column.
+    Fix: nest the placeholder text in a child span, matching the structure teamLabel() already
+    uses for real team names, so the existing ellipsis rule (`.home-match-team span:last-child`)
+    applies uniformly."""
+    app_js = (Path(__file__).parents[1] / "webapp/static/app.js").read_text(encoding="utf-8")
+    compact_side = app_js[app_js.index("function compactMatchSide("):app_js.index("function compactMatchSideLabel(")]
+    assert 'node("span", { text: placeholderText })' in compact_side
+    assert 'node("span", { class: `${className} is-placeholder`, title: placeholderText }' in compact_side
+
+
+def test_home_summary_cards_stay_neutral_and_bracket_avoids_score_duplication() -> None:
+    """Regression: "Resumo da edição" metric cards (Partidas, Encerrados, Gols...) had a
+    per-item colored top border (nth-child rainbow) even though they're neutral metric
+    categories, not competition groups with their own identity. And "Caminho do mata-mata"
+    duplicated the exact score already shown by "Quem avançou" for the same recently-decided
+    matches — it must stay purely structural (matchup + kickoff time/status)."""
+    styles = (Path(__file__).parents[1] / "webapp/static/styles.css").read_text(encoding="utf-8")
+    app_js = (Path(__file__).parents[1] / "webapp/static/app.js").read_text(encoding="utf-8")
+
+    assert "home-summary-metric:nth-child" not in styles
+
+    bracket_match = app_js[app_js.index("function homeBracketMatch("):app_js.index("function homePulse(")]
+    assert "scorePill" not in bracket_match
+    assert "hasScore" not in bracket_match
+    assert "home-bracket-center" in bracket_match
+
+
+def test_competition_group_cards_get_a_stable_per_group_color() -> None:
+    """Regression: group cards only had a thin neutral border with no visual identity per group.
+    Give each group (A-L) a full 4-side border, +5px thicker than the base 1px border, in a color
+    unique to that group — purely decorative, reused consistently by the group card, Melhores
+    Terceiros and the "Grupo X" tags in Partidas."""
+    app_js = (Path(__file__).parents[1] / "webapp/static/app.js").read_text(encoding="utf-8")
+    styles = (Path(__file__).parents[1] / "webapp/static/styles.css").read_text(encoding="utf-8")
+
+    assert "function groupTag(" in app_js
+    assert 'groupTag(match.group_name)' in app_js  # Partidas calendar row
+    assert 'groupTag(team.group_name)' in app_js  # Melhores Terceiros table
+
+    assert '"data-group": group.name' in app_js  # competition group card carries the same hook
+
+    for letter in "ABCDEFGHIJKL":
+        assert f"--group-color-{letter.lower()}:" in styles
+        assert f'[data-group="{letter}"]' in styles
+
+    assert ".competition-group-card { --group-color: var(--line); min-width: 0; overflow: hidden; border: 6px solid var(--group-color);" in styles
+    assert ".group-tag {" in styles
+
+
+def test_matches_screen_never_shows_a_blank_confrontation_side() -> None:
+    """Regression: a future knockout match (e.g. the 09/jul quarter-final "Vencedor de Canada x
+    Paraguay" vs "A definir") rendered one side completely blank. Root cause was the same class of
+    bug as the Home "Agenda de hoje" overlap: matchTeamLink() and knockoutSideNode() put the
+    placeholder text directly on a display:flex container instead of a nested child span, so
+    text-overflow/line-clamp rules (which only target the nested span) never applied and the long
+    placeholder could collapse to near-zero width in the flex row. Also: the bracket-side resolver
+    must always resolve to "Vencedor de X x Y" (previous matchup known) or "A definir" (nothing
+    resolved yet) — never the old "Aguardando definição" wording, and never blank."""
+    app_js = (Path(__file__).parents[1] / "webapp/static/app.js").read_text(encoding="utf-8")
+    service_src = (Path(__file__).parents[1] / "webapp/thestatsapi_service.py").read_text(encoding="utf-8")
+
+    match_team_link = app_js[app_js.index("function matchTeamLink("):app_js.index("function matchCalendarRow(")]
+    assert 'node("span", { class: "matches-calendar-team is-placeholder", title: display }, [node("span", { text: display })])' in match_team_link
+
+    knockout_side_node = app_js[app_js.index("function knockoutSideNode("):app_js.index("function homeFriendlyKickoff(")]
+    assert 'node("span", { text: placeholderText })' in knockout_side_node
+    assert 'text: translateTeamsInText(side?.placeholder || "A definir")' not in knockout_side_node
+
+    assert '"Aguardando definição"' not in service_src
+    assert '"placeholder": placeholder or ("A definir" if not defined else None)' in service_src
+
+
+def test_matches_calendar_score_placeholder_does_not_repeat_status_badge() -> None:
+    """Regression: a scheduled/undecided match showed "A definir" twice on the same row — once as
+    the central score placeholder and once as the status badge. The score column must use a
+    neutral "×" (the same no-score symbol already used by scoreCard/knockoutMatchCard) and leave
+    "A definir" exclusively to the status badge."""
+    app_js = (Path(__file__).parents[1] / "webapp/static/app.js").read_text(encoding="utf-8")
+    match_calendar_row = app_js[app_js.index("function matchCalendarRow("):app_js.index("function matchCalendarDayLabel(")]
+    assert 'const score = hasScore && (finished || live) ? `${formatValue(match.home_score)}–${formatValue(match.away_score)}` : "×";' in match_calendar_row
+    assert '"A definir" : "×"' not in match_calendar_row
+
+
+def test_match_status_vocabulary_is_shared_between_matches_and_knockout() -> None:
+    """Regression check: Partidas' filter options and Mata-mata's status badges must draw from the
+    exact same vocabulary. Both `matchPublicStatus` (Partidas) and the knockout bracket cards call
+    the same `competitionMatchStatus()` function, so there is only one status vocabulary to keep in
+    sync — confirm no legacy variant ("Aguardando atualização") lingers anywhere."""
+    app_js = (Path(__file__).parents[1] / "webapp/static/app.js").read_text(encoding="utf-8")
+    service_src = (Path(__file__).parents[1] / "webapp/thestatsapi_service.py").read_text(encoding="utf-8")
+
+    match_public_status = app_js[app_js.index("function matchPublicStatus("):app_js.index("function matchTeamLink(")]
+    assert "competitionMatchStatus(match)" in match_public_status
+
+    assert "Aguardando atualização" not in app_js
+    assert "Aguardando atualização" not in service_src
+    for source in (app_js, service_src):
+        assert "Aguardando resultado" in source
 
 
 def test_2026_home_rankings_use_central_modal_and_semantic_xg_balance() -> None:
@@ -1695,8 +2017,59 @@ def test_match_story_describes_equal_displayed_xg_as_balanced() -> None:
         [],
     )
 
-    assert story[0] == "A criação foi equilibrada: 1.05 xG para cada lado."
+    assert story[0] == "A criação foi equilibrada: 1,05 xG para cada lado."
     assert all("controlou a criação" not in line for line in story)
+
+
+def test_match_story_uses_pt_br_decimal_separator_everywhere() -> None:
+    """Regression: the match narrative embedded raw Python float repr directly into text (e.g.
+    "0.44 xG"), bypassing the pt-BR comma-decimal convention used everywhere else in the product.
+    Every numeric value inserted into narrative text — not just card/table values — must go
+    through the same formatter."""
+    story = TheStatsApiBronzeService._match_story(
+        {"home_team": "Netherlands", "away_team": "Morocco"},
+        [
+            {"metric": "expected_goals", "Netherlands": 1.313, "Morocco": 0.442},
+            {"metric": "total_shots", "Netherlands": 14, "Morocco": 6},
+            {"metric": "ball_recoveries", "Netherlands": 38, "Morocco": 30},
+        ],
+        [],
+        [
+            {"minute": 12, "player_name": "Cody Gakpo", "team_name": "Netherlands", "is_goal": True, "xg": 0.44},
+        ],
+    )
+    assert not any(re.search(r"\d\.\d", line) for line in story), story
+    assert any("1,31 xG contra 0,44" in line for line in story)
+    assert any("0,44 xG aos 12" in line for line in story)
+
+
+def test_match_story_consolidates_repeated_scorer_minutes() -> None:
+    """Regression: when the same player scores twice, the narrative repeated their name
+    ("marcados por Jogador aos X' e Jogador aos Y'") instead of consolidating into "marcados por
+    Jogador, aos X' e Y'." Different scorers must still be listed normally (name repeated once
+    each, joined by "e"), consolidation only applies to a repeated single scorer."""
+    consolidated = TheStatsApiBronzeService._match_story(
+        {"home_team": "Argentina", "away_team": "Chile"},
+        [],
+        [],
+        [
+            {"minute": 9, "player_name": "Julián Álvarez", "team_name": "Argentina", "is_goal": True, "xg": 0.3},
+            {"minute": 54, "player_name": "Julián Álvarez", "team_name": "Argentina", "is_goal": True, "xg": 0.5},
+        ],
+    )
+    assert any(line == "Os gols foram marcados por Julián Álvarez, aos 9' e 54'." for line in consolidated)
+    assert not any(line.count("Álvarez") > 1 for line in consolidated)
+
+    mixed = TheStatsApiBronzeService._match_story(
+        {"home_team": "Argentina", "away_team": "Chile"},
+        [],
+        [],
+        [
+            {"minute": 9, "player_name": "Julián Álvarez", "team_name": "Argentina", "is_goal": True, "xg": 0.3},
+            {"minute": 40, "player_name": "Lionel Messi", "team_name": "Argentina", "is_goal": True, "xg": 0.2},
+        ],
+    )
+    assert any("Julián Álvarez aos 9' e Lionel Messi aos 40'" in line for line in mixed)
 
 
 def test_match_impact_prioritizes_decisive_actions_over_goalkeeper_distribution() -> None:
@@ -2317,7 +2690,7 @@ def test_thestatsapi_opening_match_sample_feeds_web_contract(
     assert payload["stats_comparison"][0]["Mexico"] == 1.46
     assert payload["comparison_bars"][0]["metric"] == "expected_goals"
     assert payload["comparison_bars"][0]["home_pct"] == 100.0
-    assert payload["match_story"][0] == "Mexico controlou a criação: 1.46 xG contra 0.07."
+    assert payload["match_story"][0] == "Mexico controlou a criação: 1,46 xG contra 0,07."
     assert payload["match_story"][1] == "A equipe também finalizou mais: 14 a 5."
     assert payload["player_impacts"][0]["player_name"] == "Raul"
     assert payload["player_impacts"][0]["radar"][0]["axis"] == "Ataque"

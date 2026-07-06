@@ -116,6 +116,9 @@
     if (parts[0] === "history" || parts[0] === "historico") {
       return { year: state.year || DEFAULT_YEAR, page: "history", detailId: null };
     }
+    if (parts[0] === "about" || parts[0] === "sobre") {
+      return { year: state.year || DEFAULT_YEAR, page: "about", detailId: null };
+    }
     return {
       year: parts[0] || state.year || DEFAULT_YEAR,
       page: normalizeId(parts[1] || DEFAULT_PAGE),
@@ -162,6 +165,7 @@
 
   function routePath(year = state.year, page = DEFAULT_PAGE, id = null) {
     if (page === "history") return "/history";
+    if (page === "about") return "/about";
     if (page === "overview") return `/${year || DEFAULT_YEAR}`;
     const parts = [year || DEFAULT_YEAR, page || DEFAULT_PAGE];
     if (id) parts.push(encodeURIComponent(id));
@@ -532,6 +536,14 @@
     ]);
   }
 
+  function scoreText(homeValue, awayValue, { homeName = "", awayName = "" } = {}) {
+    return node("strong", {
+      class: "score-text",
+      "aria-label": `${homeName ? `${displayTeamName(homeName)} ` : ""}${formatValue(homeValue)}, ${awayName ? `${displayTeamName(awayName)} ` : ""}${formatValue(awayValue)}`,
+      text: `${formatValue(homeValue)}–${formatValue(awayValue)}`,
+    });
+  }
+
   function scoreCard(match, { hero = false } = {}) {
     const home = first(match, ["home_team"], "Mandante");
     const away = first(match, ["away_team"], "Visitante");
@@ -562,7 +574,9 @@
       node("div", { class: "score-line" }, [
         node("strong", {}, teamSurface(home, match?.home_team_id)),
         hasScore
-          ? scorePill(match?.home_score, match?.away_score, { size: hero ? "lg" : "md", homeName: home, awayName: away })
+          ? (hero
+              ? scorePill(match?.home_score, match?.away_score, { size: "lg", homeName: home, awayName: away })
+              : scoreText(match?.home_score, match?.away_score, { homeName: home, awayName: away }))
           : node("span", { class: "score-pending", text: "×" }),
         node("strong", {}, teamSurface(away, match?.away_team_id)),
       ]),
@@ -1163,15 +1177,16 @@
 
   function homeSummaryStrip(summary) {
     const metrics = [
-      ["Partidas", summary.matches], ["Encerrados", summary.finished],
+      ["Conversão média", summary.shot_conversion, metricAvailable(summary.shot_conversion) ? `${formatValue(summary.shot_conversion)}%` : null],
+      ["Clean sheets", summary.clean_sheets],
       ["Gols", summary.goals], ["Gols por jogo", summary.goals_per_match],
       ["Finalizações", summary.shots], ["xG total", summary.xg],
       ["Jogadores", summary.players], ["Seleções", summary.teams],
     ].filter(([, value]) => value !== null && value !== undefined);
     if (!metrics.length) return null;
-    return section("Resumo da edição", "Panorama rápido", node("div", { class: "home-summary-strip" }, metrics.map(([metric, value]) =>
+    return section("Resumo da edição", "Panorama rápido", node("div", { class: "home-summary-strip" }, metrics.map(([metric, value, display]) =>
       node("div", { class: "home-summary-metric" }, [
-        node("strong", { text: formatValue(value) }),
+        node("strong", { text: display || formatValue(value) }),
         node("span", { text: metric }),
       ])
     )), "home-summary-section");
@@ -1179,7 +1194,10 @@
 
   function knockoutSideNode(side, className = "") {
     if (side?.defined && side?.team_name) return teamLabel(side.team_name, `home-bracket-team ${className}`.trim());
-    return node("span", { class: `home-bracket-team is-placeholder ${className}`.trim(), text: translateTeamsInText(side?.placeholder || "A definir") });
+    const placeholderText = translateTeamsInText(side?.placeholder || "A definir");
+    return node("span", { class: `home-bracket-team is-placeholder ${className}`.trim(), title: placeholderText }, [
+      node("span", { text: placeholderText }),
+    ]);
   }
 
   function homeFriendlyKickoff(value) {
@@ -1236,10 +1254,11 @@
   function homeBracketMatch(match, phase = null) {
     const canOpen = Boolean(match?.match_id);
     const hasPlaceholder = !match?.home?.defined || !match?.away?.defined;
-    const hasScore = match?.home_score !== null && match?.home_score !== undefined
-      && match?.away_score !== null && match?.away_score !== undefined;
     const date = match?.kickoff_at || match?.match_date;
-    const centerText = date ? homeFriendlyKickoff(date) : "A definir";
+    const status = homeMatchStatus(match);
+    const centerText = status === "Encerrado" || homeMatchIsLive(match)
+      ? status
+      : (date ? homeFriendlyKickoff(date) : "A definir");
     const outcome = match?.decided_by === "penalties" && match?.winner_name
       ? `${displayTeamName(match.winner_name)} nos pênaltis`
       : null;
@@ -1250,9 +1269,7 @@
       onclick: canOpen ? () => openMatchQuickView({ ...match, stage: phase || match.stage }) : null,
     }, [
       knockoutSideNode(match?.home, "home"),
-      hasScore
-        ? scorePill(match.home_score, match.away_score, { size: "sm", homeName: match?.home?.team_name, awayName: match?.away?.team_name })
-        : node("strong", { class: "home-bracket-center", text: centerText }),
+      node("strong", { class: "home-bracket-center", text: centerText }),
       knockoutSideNode(match?.away, "away"),
       outcome ? node("small", { class: "home-bracket-outcome", text: outcome }) : null,
     ]);
@@ -1282,7 +1299,7 @@
               node("div", { class: "home-pulse-story-score" }, [
                 knockoutSideNode(home, "home"),
                 hasScore
-                  ? scorePill(item.match.home_score, item.match.away_score, { size: "sm", homeName: home?.team_name, awayName: away?.team_name })
+                  ? scoreText(item.match.home_score, item.match.away_score, { homeName: home?.team_name, awayName: away?.team_name })
                   : null,
                 knockoutSideNode(away, "away"),
               ]),
@@ -1367,9 +1384,11 @@
 
   function compactMatchSide(side, rawName, className) {
     if (side) {
-      return side.defined && side.team_name
-        ? teamLabel(side.team_name, className)
-        : node("span", { class: `${className} is-placeholder`, text: translateTeamsInText(side.placeholder || "A definir") });
+      if (side.defined && side.team_name) return teamLabel(side.team_name, className);
+      const placeholderText = translateTeamsInText(side.placeholder || "A definir");
+      return node("span", { class: `${className} is-placeholder`, title: placeholderText }, [
+        node("span", { text: placeholderText }),
+      ]);
     }
     return teamLabel(rawName, className);
   }
@@ -1419,9 +1438,9 @@
     const value = metric === "xg_difference" && parsed !== null
       ? (parsed > 0 ? `+${formatValue(parsed)}` : formatValue(parsed))
       : formatValue(item?.[metric]);
-    if (metric === "goals") return `${value} gols`;
+    if (metric === "goals") return `${value} ${singularizeUnit(parsed, "gols")}`;
     if (metric === "assists") return `${value} assist.`;
-    if (metric === "shots") return `${value} chutes`;
+    if (metric === "shots") return `${value} ${singularizeUnit(parsed, "chutes")}`;
     return value;
   }
 
@@ -1537,7 +1556,7 @@
     if (metric.id === "most_balanced_xg") return `Diferença de xG: ${value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     if (metric.id === "goals_minus_xg") return `${value > 0 ? "+" : ""}${formatValue(value)} gols - xG`;
     if (metric.unit === "xG") return `${formatValue(value)} xG`;
-    return `${formatValue(value)} ${metric.unit || ""}`.trim();
+    return `${formatValue(value)} ${singularizeUnit(value, metric.unit) || ""}`.trim();
   }
 
   function openDiscoveryQuickView(metric) {
@@ -1742,6 +1761,15 @@
     ];
   }
 
+  // Documented tie-break for every ranking in the product: when the primary metric ties, order
+  // alphabetically (pt-BR) by player/team name. Alphabetical is the only criterion that applies
+  // uniformly to any metric (attack, defense, discipline...) without special-casing — a metric
+  // specific tie-break (e.g. "lowest xG conceded" for goals-against) wouldn't generalize to a
+  // metric like duels won, so ties would still look arbitrary somewhere else.
+  function rankingTieBreakName(row) {
+    return row?.player_name || row?.team_name || "";
+  }
+
   function analysisMetricRows(items, definition) {
     return items
       .filter(row => !definition.eligible || definition.eligible(row))
@@ -1754,14 +1782,18 @@
         if (value === null) return false;
         return definition.ascending || value !== 0;
       })
-      .sort((left, right) => definition.ascending ? left.analysis_value - right.analysis_value : right.analysis_value - left.analysis_value);
+      .sort((left, right) => {
+        const diff = definition.ascending ? left.analysis_value - right.analysis_value : right.analysis_value - left.analysis_value;
+        return diff !== 0 ? diff : rankingTieBreakName(left).localeCompare(rankingTieBreakName(right), "pt-BR");
+      });
   }
 
   function analysisMetricValue(row, definition) {
     const value = number(row.analysis_value);
     if (value === null) return "—";
     const formatted = definition.signed && value > 0 ? `+${formatValue(value)}` : formatValue(value);
-    return definition.unit === "%" ? `${formatted}%` : `${formatted}${definition.unit ? ` ${definition.unit}` : ""}`;
+    const unit = singularizeUnit(value, definition.unit);
+    return unit === "%" ? `${formatted}%` : `${formatted}${unit ? ` ${unit}` : ""}`;
   }
 
   function analysisRankingRow(row, index, definition, entity) {
@@ -1910,6 +1942,7 @@
       { id: "volume", label: "Finalizações × xG", description: "Como volume e qualidade das chances se relacionam.", render: () => playerSecondaryScatterPlot(rows, "volume", onSelect) },
       { id: "shot_efficiency", label: "Finalizações × Conversão", description: "Identifica quem tem poucas chances e alto aproveitamento — leitura diferente de Gols x xG.", render: () => playerSecondaryScatterPlot(rows, "shot_efficiency", onSelect) },
       { id: "duels", label: "Duelos disputados × % ganhos", description: "Eficiência em disputas físicas na competição.", render: () => playerSecondaryScatterPlot(rows, "duels", onSelect) },
+      { id: "per90", label: "Gols por 90 × xG por 90", description: "Produção normalizada por minutos jogados, sem o viés de titulares com mais tempo em campo.", render: () => playerSecondaryScatterPlot(rows, "per90", onSelect) },
     ];
     let active = modes[0];
     const host = node("div", { class: "player-comparison-chart" });
@@ -2092,7 +2125,10 @@
     const host = node("div", { class: "team-production-bars" }), note = node("span");
     const draw = () => {
       const definition = definitions.find(item => item.id === select.value) || definitions[0];
-      const rows = teams.map(team => ({ team, value: definition.value ? definition.value(team) : number(team[definition.id]) })).filter(row => row.value !== null && Number.isFinite(row.value)).sort((left, right) => definition.ascending ? left.value - right.value : right.value - left.value).slice(0, 8);
+      const rows = teams.map(team => ({ team, value: definition.value ? definition.value(team) : number(team[definition.id]) })).filter(row => row.value !== null && Number.isFinite(row.value)).sort((left, right) => {
+        const diff = definition.ascending ? left.value - right.value : right.value - left.value;
+        return diff !== 0 ? diff : rankingTieBreakName(left.team).localeCompare(rankingTieBreakName(right.team), "pt-BR");
+      }).slice(0, 8);
       const max = Math.max(...rows.map(row => Math.abs(row.value)), 1);
       note.textContent = definition.ascending ? "Menor é melhor" : "Maior é melhor";
       host.replaceChildren(...rows.map(({ team, value }, index) => node("button", { type: "button", onclick: () => goToProfile("team", team.team_id) }, [
@@ -2501,6 +2537,12 @@
       ariaLabel: "Dispersão de duelos disputados por percentual de duelos ganhos dos jogadores",
       tooltip: player => `${personName(player)} · ${displayTeamName(player.team_name)} · ${resolvedPlayerPosition(player)} · ${formatValue(player.duels_won)} ganhos de ${formatValue(playerDuelsDisputed(player))} disputados · ${formatValue(player.minutes_played)} min`,
     },
+    per90: {
+      xValue: player => player.goals_per_90, yValue: player => player.xg_per_90,
+      xLabel: "Gols por 90", yLabel: "xG por 90",
+      ariaLabel: "Dispersão de gols por 90 por xG por 90 dos jogadores",
+      tooltip: player => `${personName(player)} · ${displayTeamName(player.team_name)} · ${resolvedPlayerPosition(player)} · ${formatValue(player.goals_per_90)} gols/90 · ${formatValue(player.xg_per_90)} xG/90 · ${formatValue(player.minutes_played)} min`,
+    },
   };
 
   function playerSecondaryScatterPlot(rows, mode, onSelect) {
@@ -2557,7 +2599,9 @@
       ["key_passes", "Passes para finalização", "passes"],
       ["accurate_crosses", "Cruzamentos certos", "cruzamentos"],
     ].map(([metric, title, unit]) => {
-      const eligible = rows.filter(player => number(player[metric]) > 0);
+      const eligible = rows
+        .filter(player => number(player[metric]) > 0)
+        .sort((left, right) => number(right[metric]) - number(left[metric]));
       if (!eligible.length) return null;
       return node("article", { class: "analysis-chart-panel" }, [
         node("header", {}, [node("span", {}, [node("h3", { text: title }), node("p", { text: "Top jogadores na competição." })])]),
@@ -2572,25 +2616,75 @@
   }
 
   function playerOverviewTable(rows, { selectedId = null, onSelect = null } = {}) {
-    const ordered = [...rows].sort((left, right) => (number(right.minutes_played) || 0) - (number(left.minutes_played) || 0));
+    let sort = { key: "minutes_played", direction: "desc" };
     const columns = [
-      ["Jogador", player => node("span", { class: "players-table-player" }, [flagNode(player), node("strong", { text: personName(player) })])],
-      ["Seleção", player => displayTeamName(player.team_name)], ["Pos.", player => resolvedPlayerPosition(player, true)],
-      ["Min.", player => formatValue(player.minutes_played)], ["Gols", player => formatValue(player.goals)],
-      ["Assist.", player => formatValue(player.assists)], ["xG", player => formatValue(player.xg)], ["xA", player => formatValue(player.xa)],
-      ["Finalizações", player => formatValue(player.shots)], ["Ações defensivas", player => formatValue(player.defensive_actions)],
-      ["Rating", player => formatValue(player.rating)],
+      { key: "player_name", label: "Jogador", value: player => personName(player), render: player => node("span", { class: "players-table-player" }, [flagNode(player), node("strong", { text: personName(player) })]) },
+      { key: "team_name", label: "Seleção", value: player => displayTeamName(player.team_name) },
+      { key: "position", label: "Pos.", value: player => resolvedPlayerPosition(player, true) },
+      { key: "minutes_played", label: "Min.", value: player => number(player.minutes_played) },
+      { key: "goals", label: "Gols", value: player => number(player.goals) },
+      { key: "assists", label: "Assist.", value: player => number(player.assists) },
+      { key: "xg", label: "xG", value: player => number(player.xg) },
+      { key: "xa", label: "xA", value: player => number(player.xa) },
+      { key: "shots", label: "Finalizações", value: player => number(player.shots) },
+      { key: "defensive_actions", label: "Ações defensivas", value: player => number(player.defensive_actions) },
+      { key: "rating", label: "Rating", value: player => number(player.rating) },
     ];
-    const body = ordered.slice(0, 250).map(player => {
-      const row = node("tr", { class: player.player_id === selectedId ? "is-selected" : "", tabindex: "0" }, columns.map(([, render]) => node("td", {}, render(player))));
-      row.onclick = () => onSelect?.(player);
-      row.onkeydown = event => {
-        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect?.(player); }
-      };
-      return row;
-    });
+    const thead = node("thead");
+    const tbody = node("tbody");
+
+    function sortedRows() {
+      const column = columns.find(candidate => candidate.key === sort.key) || columns[3];
+      return [...rows].sort((left, right) => {
+        const leftValue = column.value(left);
+        const rightValue = column.value(right);
+        if ((leftValue === null || leftValue === undefined) && (rightValue === null || rightValue === undefined)) return 0;
+        if (leftValue === null || leftValue === undefined) return 1;
+        if (rightValue === null || rightValue === undefined) return -1;
+        const comparison = typeof leftValue === "number" && typeof rightValue === "number"
+          ? leftValue - rightValue
+          : String(leftValue).localeCompare(String(rightValue), "pt-BR", { sensitivity: "base", numeric: true });
+        return sort.direction === "asc" ? comparison : -comparison;
+      });
+    }
+
+    function drawHeader() {
+      thead.replaceChildren(node("tr", {}, columns.map(column => {
+        const active = sort.key === column.key;
+        return node("th", { scope: "col", "aria-sort": active ? (sort.direction === "asc" ? "ascending" : "descending") : "none" },
+          node("button", {
+            type: "button",
+            class: `sort-button${active ? " is-active" : ""}`,
+            onclick: () => {
+              sort = sort.key === column.key
+                ? { key: column.key, direction: sort.direction === "asc" ? "desc" : "asc" }
+                : { key: column.key, direction: rows.length && typeof column.value(rows[0]) === "number" ? "desc" : "asc" };
+              drawHeader();
+              drawRows();
+            },
+          }, [
+            node("span", { text: column.label }),
+            node("span", { class: "sort-indicator", text: active ? (sort.direction === "asc" ? "↑" : "↓") : "↕", "aria-hidden": "true" }),
+          ])
+        );
+      })));
+    }
+
+    function drawRows() {
+      tbody.replaceChildren(...sortedRows().slice(0, 250).map(player => {
+        const row = node("tr", { class: player.player_id === selectedId ? "is-selected" : "", tabindex: "0" }, columns.map(column => node("td", {}, column.render ? column.render(player) : formatValue(column.value(player)))));
+        row.onclick = () => onSelect?.(player);
+        row.onkeydown = event => {
+          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect?.(player); }
+        };
+        return row;
+      }));
+    }
+
+    drawHeader();
+    drawRows();
     return node("div", { class: "table-wrap players-overview-table", tabindex: "0", role: "region", "aria-label": "Jogadores filtrados" }, [
-      node("table", {}, [node("thead", {}, node("tr", {}, columns.map(([labelText]) => node("th", { scope: "col", text: labelText })))), node("tbody", {}, body)]),
+      node("table", {}, [thead, tbody]),
     ]);
   }
 
@@ -2951,7 +3045,7 @@
 
   function matchTeamLink(teamNameValue, teamId, defined) {
     const display = translateTeamsInText(teamNameValue || "A definir");
-    if (!defined || !teamId) return node("span", { class: "matches-calendar-team is-placeholder", text: display, title: display });
+    if (!defined || !teamId) return node("span", { class: "matches-calendar-team is-placeholder", title: display }, [node("span", { text: display })]);
     return node("button", {
       type: "button", class: "matches-calendar-team", title: display,
       onclick: event => { event.stopPropagation(); goToProfile("team", teamId); },
@@ -2964,7 +3058,7 @@
     const live = status === "Ao vivo";
     const hasScore = match?.home_score !== null && match?.home_score !== undefined
       && match?.away_score !== null && match?.away_score !== undefined;
-    const score = hasScore && (finished || live) ? `${formatValue(match.home_score)}–${formatValue(match.away_score)}` : status === "A definir" ? "A definir" : "×";
+    const score = hasScore && (finished || live) ? `${formatValue(match.home_score)}–${formatValue(match.away_score)}` : "×";
     const row = node("article", {
       class: `matches-calendar-row is-${status.toLowerCase().replace(/[^a-záàâãéêíóôõúç]+/gi, "-")}${!match?.home_defined && !match?.away_defined ? " is-undefined" : ""}`,
       role: match?.match_id ? "link" : null, tabIndex: match?.match_id ? 0 : -1,
@@ -2972,12 +3066,12 @@
     }, [
       node("div", { class: "matches-calendar-time" }, [
         node("time", { dateTime: match?.match_date || "", title: "Horários em Brasília", text: grouping === "date" ? competitionKickoffLabel(match?.match_date).split(" · ").at(-1) : competitionKickoffLabel(match?.match_date) }),
-        node("small", { text: match?.group_name ? `Grupo ${match.group_name}` : matchStageLabel(match) }),
+        match?.group_name ? groupTag(match.group_name) : node("small", { text: matchStageLabel(match) }),
       ]),
       node("div", { class: "matches-calendar-scoreline" }, [
         matchTeamLink(match?.home_team, match?.home_team_id, match?.home_defined),
         hasScore && (finished || live)
-          ? scorePill(match?.home_score, match?.away_score, { size: "sm", homeName: match?.home_team, awayName: match?.away_team })
+          ? scoreText(match?.home_score, match?.away_score, { homeName: match?.home_team, awayName: match?.away_team })
           : node("strong", { text: score }),
         matchTeamLink(match?.away_team, match?.away_team_id, match?.away_defined),
       ]),
@@ -3282,8 +3376,9 @@
   }
 
   function lineupPlayerRow(player, className = "", detail = null, matchPlayer = null) {
+    const hasJerseyNumber = metricAvailable(player.jersey_number);
     const row = node("li", { class: className }, [
-      node("span", { class: "shirt-number", text: player.jersey_number || "–" }),
+      node("span", { class: `shirt-number${hasJerseyNumber ? "" : " is-unavailable"}`, text: hasJerseyNumber ? player.jersey_number : "" }),
       node("strong", { text: player.name || player.player_name }),
       detail
         ? node("span", { class: "lineup-entry-detail", text: detail })
@@ -3393,6 +3488,20 @@
 
   function pluralCount(value, singular, plural) {
     return value ? `${value} ${value === 1 ? singular : plural}` : null;
+  }
+
+  // Shared unit-agreement helper: definitions across the product express their unit as a fixed
+  // plural noun (e.g. "gols"), since most rankings/labels never show exactly 1 — but ties, small
+  // samples and per-match views often do. Centralizing the singular forms here means any list
+  // that composes "value + unit" through this helper gets correct agreement for free.
+  const UNIT_SINGULAR_FORMS = {
+    gols: "gol", chutes: "chute", passes: "passe", ações: "ação",
+    desarmes: "desarme", cortes: "corte", duelos: "duelo", defesas: "defesa",
+    vermelhos: "vermelho", eventos: "evento",
+  };
+  function singularizeUnit(value, unit) {
+    if (!unit) return unit;
+    return Math.abs(value) === 1 && UNIT_SINGULAR_FORMS[unit] ? UNIT_SINGULAR_FORMS[unit] : unit;
   }
 
   function momentsSummary(rows) {
@@ -3918,26 +4027,30 @@
         modalMetric("Impedimentos", player.offsides),
       ])
       : null;
-    const sections = player.macroposition === "Goleiro"
-      ? [
-        modalStatSection("Goleiro", [
-          modalMetric("Defesas", player.saves),
-          modalMetric("Toques", player.touches),
-          modalMetric("Cortes", player.clearances),
-          modalMetric("Recuperações", player.recoveries),
-        ]),
-        modalStatSection("Distribuição", passing),
-      ]
-      : [
-        attack,
-        creation,
+    if (player.macroposition === "Goleiro") {
+      return {
+        attackCreation: [],
+        passDuelsDiscipline: [
+          modalStatSection("Goleiro", [
+            modalMetric("Defesas", player.saves),
+            modalMetric("Toques", player.touches),
+            modalMetric("Cortes", player.clearances),
+            modalMetric("Recuperações", player.recoveries),
+          ]),
+          modalStatSection("Distribuição", passing),
+        ].filter(Boolean),
+      };
+    }
+    return {
+      attackCreation: [attack, creation].filter(Boolean),
+      passDuelsDiscipline: [
         number(player.passes) > 0 ? modalStatSection("Passe", passing) : null,
-        defense,
         duels,
         dribbles,
         discipline,
-      ];
-    return sections.filter(Boolean);
+        defense,
+      ].filter(Boolean),
+    };
   }
 
   function playerQuickMetrics(player) {
@@ -4080,13 +4193,13 @@
       .map(shot => ({ shot, x: number(shot.x), y: number(shot.y) }))
       .filter(item => item.x !== null && item.y !== null);
     if (!clean.length) return null;
-    const width = 100, height = 50;
+    const width = 100, height = 38;
     const svg = svgNode("svg", {
       viewBox: `0 0 ${width} ${height}`,
       role: "img",
-      "aria-label": `Metade ofensiva do campo com ${clean.length} finalizações do jogador`,
+      "aria-label": `Área de finalização com ${clean.length} finalizações do jogador`,
     });
-    svg.append(svgNode("title", {}, "Mapa de finalizações do jogador — apenas a metade ofensiva do campo, gol no topo."));
+    svg.append(svgNode("title", {}, "Mapa de finalizações do jogador — área de finalização recortada, gol no topo."));
     svg.append(svgNode("rect", { x: 0, y: 0, width, height, class: "pitch-line pitch-crop" }));
     const markings = [
       ["rect", { x: 20, y: 0, width: 60, height: 16 }],
@@ -4172,6 +4285,18 @@
     return null;
   }
 
+  function playerShotSummary(player) {
+    const items = [
+      modalMetric("Finalizações", player.shots),
+      modalMetric("Gols", player.goals),
+      modalMetric("xG", player.xg),
+    ].filter(Boolean);
+    if (!items.length) return null;
+    return node("dl", { class: "player-shot-summary" }, items.map(metric =>
+      node("div", {}, [node("dt", { text: metric.label }), node("dd", { text: metric.value })])
+    ));
+  }
+
   function playerActionsPanel(player) {
     const entries = playerTimelineEntries(player);
     const map = playerShotMap(player.player_shots || []);
@@ -4179,6 +4304,7 @@
     return node("section", { class: "player-modal-section player-actions-section" }, [
       node("h3", { text: "Finalizações e momentos" }),
       map,
+      map ? playerShotSummary(player) : null,
       entries.length ? node("ol", { class: "event-timeline player-event-timeline" }, entries.map(entry => node("li", {
         class: `event-item event-${entry.type.replace(/[^a-z0-9_-]/g, "")}`,
       }, [
@@ -4192,11 +4318,25 @@
     ].filter(Boolean));
   }
 
+  function playerModalTabDefinitions(sections, hasActionsPanel) {
+    return [
+      ["resumo", "Resumo"],
+      sections.attackCreation.length ? ["ataque_criacao", "Ataque & Criação"] : null,
+      sections.passDuelsDiscipline.length ? ["passe_duelos_disciplina", "Passe, Duelos & Disciplina"] : null,
+      hasActionsPanel ? ["finalizacoes", "Finalizações"] : null,
+    ].filter(Boolean);
+  }
+
   function openPlayerModal(player) {
     document.querySelector(".player-modal")?.remove();
     const entry = (player.player_events || []).find(event => String(event.type).toLowerCase() === "substitution");
     const quickMetrics = playerQuickMetrics(player);
     const minutesWarning = number(player.minutes_played) < 30;
+    const sections = playerDetailedSections(player);
+    const highlights = playerPerformanceHighlights(player);
+    const actionsPanel = playerActionsPanel(player);
+    const tabDefinitions = playerModalTabDefinitions(sections, Boolean(actionsPanel));
+    let activeTab = tabDefinitions[0]?.[0] || "resumo";
     const dialog = node("dialog", { class: "player-modal", "aria-labelledby": "player-modal-title" });
     const close = () => {
       document.body.classList.remove("modal-open");
@@ -4212,6 +4352,39 @@
       metricAvailable(player.yellow_cards) && number(player.yellow_cards) > 0 ? `${formatValue(player.yellow_cards)} amarelo` : null,
       metricAvailable(player.red_cards) && number(player.red_cards) > 0 ? `${formatValue(player.red_cards)} vermelho` : null,
     ].filter(Boolean);
+    const tabsNav = node("div", { class: "player-modal-tabs", role: "tablist" });
+    const tabContent = node("div", { class: "player-modal-tab-content" });
+    const renderTabsNav = () => {
+      tabsNav.replaceChildren(...tabDefinitions.map(([key, labelText]) => node("button", {
+        type: "button", role: "tab", class: key === activeTab ? "is-active" : "",
+        "aria-selected": String(key === activeTab), text: labelText,
+        onclick: () => { activeTab = key; renderTabsNav(); renderTabContent(); },
+      })));
+    };
+    const renderTabContent = () => {
+      const panels = {
+        resumo: [
+          node("section", { class: "player-modal-section" }, [
+            node("h3", { text: "Resumo da atuação" }),
+            node("dl", { class: "player-quick-grid" }, quickMetrics.map(metric => node("div", { title: metric.title }, [node("dt", { text: metric.label }), node("dd", { text: metric.value })]))),
+          ]),
+          node("section", { class: "player-modal-section" }, [
+            node("div", { class: "player-modal-section-head" }, [
+              node("h3", { title: "Score calculado pelo produto para comparar o jogador com outros da mesma função — diferente do Rating, que é o campo original da fonte de dados.", text: "Perfil contextual" }),
+              node("span", { text: player.macroposition || "Função" }),
+            ]),
+            playerRadarPanel(player),
+          ]),
+          highlights,
+        ].filter(Boolean),
+        ataque_criacao: [node("div", { class: "player-modal-section-grid" }, sections.attackCreation)],
+        passe_duelos_disciplina: [node("div", { class: "player-modal-section-grid" }, sections.passDuelsDiscipline)],
+        finalizacoes: actionsPanel ? [actionsPanel] : [],
+      };
+      tabContent.replaceChildren(...(panels[activeTab] || []));
+    };
+    renderTabsNav();
+    renderTabContent();
     const content = [
       node("header", { class: "player-modal-header" }, [
         node("div", { class: "player-modal-identity" }, [
@@ -4227,20 +4400,8 @@
         node("p", { class: "player-modal-story", text: playerPerformanceStory(player) }),
       ]),
       minutesWarning ? node("p", { class: "player-modal-warning", text: "Poucos minutos: interprete o perfil com cautela." }) : null,
-      node("section", { class: "player-modal-section" }, [
-        node("h3", { text: "Resumo da atuação" }),
-        node("dl", { class: "player-quick-grid" }, quickMetrics.map(metric => node("div", { title: metric.title }, [node("dt", { text: metric.label }), node("dd", { text: metric.value })]))),
-      ]),
-      node("section", { class: "player-modal-section" }, [
-        node("div", { class: "player-modal-section-head" }, [
-          node("h3", { title: "Score calculado pelo produto para comparar o jogador com outros da mesma função — diferente do Rating, que é o campo original da fonte de dados.", text: "Perfil contextual" }),
-          node("span", { text: player.macroposition || "Função" }),
-        ]),
-        playerRadarPanel(player),
-      ]),
-      playerPerformanceHighlights(player),
-      node("div", { class: "player-modal-section-grid" }, playerDetailedSections(player)),
-      playerActionsPanel(player),
+      tabsNav,
+      tabContent,
       player.player_id ? node("footer", { class: "player-modal-notes" }, node("button", {
         type: "button",
         class: "action-link",
@@ -4940,6 +5101,10 @@
     return row;
   }
 
+  function groupTag(letter) {
+    return letter ? node("span", { class: "group-tag", "data-group": letter, text: `Grupo ${letter}` }) : null;
+  }
+
   function competitionGroupCard(group, onToggle) {
     const toggle = node("button", {
       type: "button",
@@ -5013,7 +5178,7 @@
         const className = rank <= 7 ? "competition-row-qualified" : rank === 8 ? "competition-row-third" : "competition-row-out";
         return node("tr", { class: className }, [
           node("td", { class: "competition-position", text: `${rank}º` }),
-          node("td", { text: team.group_name || "—" }),
+          node("td", {}, team.group_name ? groupTag(team.group_name) : node("span", { text: "—" })),
           node("td", { class: "competition-team-cell" }, competitionTeamLink(rawTeamName(team), team.team_id)),
           node("td", { text: formatValue(team.played) }),
           node("td", { class: "competition-points", text: formatValue(team.points) }),
@@ -5074,7 +5239,7 @@
       node("div", { class: "knockout-match-line" }, [
         node("div", { class: `knockout-side${match?.home?.team_name === match?.winner_name ? " is-winner" : ""}` }, knockoutTeam(match?.home, match?.winner_name)),
         hasScore
-          ? scorePill(match.home_score, match.away_score, { size: "sm", homeName: match?.home?.team_name, awayName: match?.away?.team_name })
+          ? scoreText(match.home_score, match.away_score, { homeName: match?.home?.team_name, awayName: match?.away?.team_name })
           : node("strong", { class: "knockout-center", text: "×" }),
         node("div", { class: `knockout-side${match?.away?.team_name === match?.winner_name ? " is-winner" : ""}` }, knockoutTeam(match?.away, match?.winner_name)),
       ]),
