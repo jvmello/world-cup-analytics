@@ -646,6 +646,14 @@
     navigate();
   }
 
+  function goToCompare(kind, aId = null, bId = null) {
+    const params = new URLSearchParams({ type: "compare", kind });
+    if (aId) params.set("a", aId);
+    if (bId) params.set("b", bId);
+    history.pushState(null, "", `${routePath(state.year, "profile")}?${params}`);
+    navigate();
+  }
+
   function detailAction(labelText, page, id) {
     if (!id) return null;
     return node("button", {
@@ -2632,6 +2640,278 @@
     ]);
   }
 
+  function insightEvidence(benchmarks, entries) {
+    return entries.map(([key, labelText, unit = ""]) => {
+      const benchmark = benchmarks?.metrics?.[key];
+      if (!benchmark || !metricAvailable(benchmark.selected_value)) return null;
+      const percentile = number(benchmark.percentile);
+      const title = `${labelText}: ${formatValue(benchmark.selected_value)}${unit} · Média comparativa: ${formatValue(benchmark.average_value)}${unit}${percentile !== null ? ` · Percentil: ${formatValue(percentile)}` : ""}`;
+      return node("span", { class: "insight-evidence", title }, [
+        node("strong", { text: `${formatValue(benchmark.selected_value)}${unit}` }),
+        node("span", { text: labelText }),
+      ]);
+    }).filter(Boolean);
+  }
+
+  function insightCard(insight) {
+    return node("article", { class: `insight-card${insight.tone ? ` is-${insight.tone}` : ""}${insight.side ? ` is-side-${insight.side}` : ""}` }, [
+      insight.tag ? node("span", { class: "insight-tag", text: insight.tag }) : null,
+      node("h4", { text: insight.title }),
+      node("p", { text: insight.text }),
+      insight.evidence?.length ? node("div", { class: "insight-evidence-row" }, insight.evidence) : null,
+    ].filter(Boolean));
+  }
+
+  function insightSection(title, subtitle, insights, className = "") {
+    if (!insights?.length) return null;
+    return node("section", { class: `profile-insights ${className}`.trim() }, [
+      node("header", {}, [node("h3", { text: title }), subtitle ? node("p", { text: subtitle }) : null].filter(Boolean)),
+      node("div", { class: "insight-grid" }, insights.map(insightCard)),
+    ]);
+  }
+
+  function playerContextInsights(data) {
+    const player = data.player || data.summary || {};
+    const benchmarks = data.benchmarks || {};
+    const dimensions = data.radar_dimensions || {};
+    if (!Object.keys(benchmarks.metrics || {}).length) return [];
+    const pct = key => number(benchmarks.metrics?.[key]?.percentile);
+    const dim = name => number(dimensions?.[name]?.score);
+    const ev = entries => insightEvidence(benchmarks, entries);
+    const name = personName(player);
+    const isGoalkeeper = player.macroposition === "Goleiro" || positionLabel(player.position) === "GOL";
+    const found = [];
+    const add = (score, insight) => found.push({ score, ...insight });
+
+    if (isGoalkeeper) {
+      const saves = pct("saves_per_90");
+      if (saves !== null && saves >= 70) add(saves, {
+        tag: "Times pressionados",
+        title: "Rende quando é exigido",
+        text: `${name} acumula defesas em alto volume. Tende a se destacar em equipes que absorvem pressão e defendem perto da própria área, onde o goleiro trabalha com frequência.`,
+        evidence: ev([["saves_per_90", "defesas por 90"], ["saves", "defesas"]]),
+      });
+      const longBall = pct("long_pass_accuracy");
+      if (longBall !== null && longBall >= 70) add(longBall, {
+        tag: "Jogo direto",
+        title: "Lançamento como arma",
+        text: `A precisão nos passes longos permite pular linhas de pressão. ${name} combina com equipes que aceleram do gol para o ataque sem construção longa.`,
+        evidence: ev([["long_pass_accuracy", "precisão de passe longo", "%"]]),
+      });
+      const shortPass = pct("pass_accuracy");
+      if (shortPass !== null && shortPass >= 70) add(shortPass, {
+        tag: "Construção curta",
+        title: "Confiável com a bola nos pés",
+        text: `Precisão de passe alta para a posição: ${name} sustenta a saída curta e convida a pressão adversária sem perder o controle. Encaixa em times de posse que constroem desde o goleiro.`,
+        evidence: ev([["pass_accuracy", "precisão de passe", "%"], ["accurate_passes", "passes certos"]]),
+      });
+    } else {
+      const areaThreat = pct("xg_per_90"), shotQuality = pct("xg_per_shot"), shotVolume = pct("shots_per_90");
+      if (areaThreat !== null && areaThreat >= 70 && (shotQuality === null || shotQuality >= 55)) add(areaThreat, {
+        tag: "Jogo direto e bolas na área",
+        title: "Faro de área",
+        text: `${name} gera chances de alta qualidade perto do gol. Rende em equipes verticais, que chegam à área com cruzamentos, bolas longas e ataques rápidos — quanto mais bola na área, maior o impacto.`,
+        evidence: ev([["xg_per_90", "xG por 90"], ["xg_per_shot", "xG por finalização"], ["goals_per_90", "gols por 90"]]),
+      });
+      if (shotVolume !== null && shotVolume >= 70 && (shotQuality === null || shotQuality < 45)) add(shotVolume, {
+        tag: "Domínio territorial",
+        title: "Finalizador de volume",
+        text: `${name} finaliza muito, inclusive de posições mais difíceis. Se destaca quando o time domina o campo ofensivo e abre espaço para chutes de média distância e sobras na entrada da área.`,
+        evidence: ev([["shots_per_90", "finalizações por 90"], ["shots", "finalizações"]]),
+      });
+      const creation = Math.max(pct("xa_per_90") ?? -1, pct("key_passes_per_90") ?? -1);
+      if (creation >= 70) add(creation, {
+        tag: "Times de posse",
+        title: "Abastece quem finaliza",
+        text: `${name} cria finalizações para os companheiros em ritmo alto. Tende a render mais em equipes com domínio de posse e movimentação constante à frente da linha da bola.`,
+        evidence: ev([["xa_per_90", "xA por 90"], ["key_passes_per_90", "passes para finalização por 90"], ["assists", "assistências"]]),
+      });
+      const passSafety = pct("pass_accuracy"), passVolume = pct("accurate_passes");
+      if (passSafety !== null && passSafety >= 75 && (passVolume === null || passVolume >= 55)) add(passSafety, {
+        tag: "Controle de jogo",
+        title: "Circulação confiável",
+        text: `${name} raramente entrega a bola ao adversário. Perfil para times que valorizam a posse e a saída trabalhada, onde cada passe errado custa caro.`,
+        evidence: ev([["pass_accuracy", "precisão de passe", "%"], ["accurate_passes", "passes certos"]]),
+      });
+      const progression = dim("Progressão");
+      if (progression !== null && progression >= 68) add(progression, {
+        tag: "Transições",
+        title: "Motor de progressão",
+        text: `${name} leva a bola de trás para frente por passe e condução. Brilha em transições rápidas e campo aberto, quando há espaço para acelerar o jogo.`,
+      });
+      const pressing = dim("Pressão");
+      if (pressing !== null && pressing >= 68) add(pressing, {
+        tag: "Pressão alta",
+        title: "Primeiro defensor",
+        text: `${name} pressiona a saída adversária com intensidade acima da posição. Encaixa em equipes de marcação alta que buscam recuperar a bola logo após a perda.`,
+      });
+      const duels = pct("duels_won");
+      if (duels !== null && duels >= 72) add(duels, {
+        tag: "Jogo físico",
+        title: "Vence o contato",
+        text: `${name} leva a melhor nos duelos em qualquer zona do campo. Rende em jogos truncados, de disputa constante e segunda bola — onde ganhar o corpo a corpo vira posse e território.`,
+        evidence: ev([["duels_won", "duelos vencidos"]]),
+      });
+      const aerial = pct("aerial_won");
+      if (aerial !== null && aerial >= 72) add(aerial, {
+        tag: "Jogo aéreo",
+        title: "Domínio pelo alto",
+        text: `${name} é referência nos duelos aéreos, nas duas áreas e no meio do jogo. Vale em bola parada, cruzamentos e disputas de bola longa.`,
+        evidence: ev([["aerial_won", "duelos aéreos vencidos"]]),
+      });
+      const anticipation = pct("interceptions");
+      if (anticipation !== null && anticipation >= 75) add(anticipation, {
+        tag: "Linha alta",
+        title: "Leitura de jogo",
+        text: `${name} intercepta em volume alto, sinal de antecipação. Permite defender adiantado, sustentando linhas altas sem depender só do duelo físico.`,
+        evidence: ev([["interceptions", "interceptações"], ["defensive_actions_per_90", "ações defensivas por 90"]]),
+      });
+      const boxDefense = pct("clearances");
+      if (boxDefense !== null && boxDefense >= 75) add(boxDefense, {
+        tag: "Bloco baixo",
+        title: "Zelador da área",
+        text: `${name} corta muita bola dentro da própria área. Perfil confiável para equipes que aceitam defender em bloco baixo e precisam vencer a área repetidamente.`,
+        evidence: ev([["clearances", "cortes"], ["aerial_won", "duelos aéreos vencidos"]]),
+      });
+      const goals = number(player.goals), xg = number(player.xg);
+      if (goals !== null && xg !== null && goals >= 2 && goals - xg >= 1) add(55, {
+        tone: "warning",
+        tag: "Atenção",
+        title: "Convertendo acima do esperado",
+        text: `${name} marcou ${formatValue(goals)} gols com ${formatValue(xg)} de xG. A eficiência atual está acima do padrão esperado e pode não se sustentar em uma amostra maior.`,
+      });
+    }
+
+    if (!found.length) {
+      return [{
+        tag: "Perfil equilibrado",
+        title: "Sem picos claros neste recorte",
+        text: `Nenhuma métrica de ${name} se destaca fortemente em relação à média da posição neste recorte — perfil funcional em contextos variados, sem uma especialidade dominante nos dados.`,
+      }];
+    }
+    return found.sort((left, right) => right.score - left.score).slice(0, 4);
+  }
+
+  function playerContextSection(data) {
+    const insights = playerContextInsights(data);
+    if (!insights.length) return null;
+    const games = number(data.player?.games ?? data.summary?.games);
+    const caution = games !== null && games < 3 ? ` Amostra de ${formatValue(games)} ${games === 1 ? "jogo" : "jogos"} — leia como tendência, não veredito.` : "";
+    return insightSection(
+      "Contextos de destaque",
+      `Em que tipo de equipe e de jogo este perfil tende a render mais, a partir do comparativo com a posição na Copa.${caution}`,
+      insights,
+    );
+  }
+
+  function teamDiagnosisInsights(data) {
+    const team = data.team || {};
+    const benchmarks = data.benchmarks || {};
+    if (!Object.keys(benchmarks.metrics || {}).length) return [];
+    const pct = key => number(benchmarks.metrics?.[key]?.percentile);
+    const ev = entries => insightEvidence(benchmarks, entries);
+    const name = teamName(team);
+    const found = [];
+    const add = (score, insight) => found.push({ score, ...insight });
+
+    const possession = pct("average_possession"), passing = pct("pass_accuracy");
+    if (possession !== null && possession >= 65 && (passing === null || passing >= 55)) add(possession, {
+      tag: "Domínio com a bola",
+      title: "Controla o jogo pela posse",
+      text: `${name} fica com a bola e circula com precisão acima da maioria da Copa. Tende a impor o ritmo, empurrar o adversário para trás e atacar contra blocos fechados — e fica vulnerável a contra-ataques quando a recomposição falha.`,
+      evidence: ev([["average_possession", "posse média", "%"], ["pass_accuracy", "precisão de passe", "%"]]),
+    });
+    const attack = pct("xg_per_game"), volume = pct("shots_per_game"), conversion = pct("conversion");
+    if (possession !== null && possession <= 40 && attack !== null && attack >= 55) add(attack, {
+      tag: "Transição",
+      title: "Perigosa sem precisar da bola",
+      text: `${name} cria acima da maioria mesmo com menos posse — perfil de jogo direto e transições. Costuma ceder o campo e atacar os espaços que aparecem.`,
+      evidence: ev([["xg_per_game", "xG por jogo"], ["average_possession", "posse média", "%"]]),
+    });
+    if (attack !== null && attack >= 65 && volume !== null && volume >= 65) {
+      if (conversion !== null && conversion <= 40) add(attack, {
+        tone: "warning",
+        tag: "Ataque",
+        title: "Cria mais do que converte",
+        text: `${name} gera volume e qualidade de finalização, mas a conversão fica abaixo da maioria. Os jogos tendem a ficar abertos por mais tempo do que o domínio sugere.`,
+        evidence: ev([["xg_per_game", "xG por jogo"], ["shots_per_game", "finalizações por jogo"], ["conversion", "conversão", "%"]]),
+      });
+      else add(attack, {
+        tag: "Ataque",
+        title: "Produção ofensiva de elite",
+        text: `${name} combina volume de finalização e qualidade de chance criada. Poucas defesas na Copa seguram essa produção por 90 minutos.`,
+        evidence: ev([["xg_per_game", "xG por jogo"], ["shots_per_game", "finalizações por jogo"], ["goals_per_game", "gols por jogo"]]),
+      });
+    }
+    if (conversion !== null && conversion >= 70 && volume !== null && volume <= 45) add(conversion, {
+      tag: "Ataque",
+      title: "Ataque cirúrgico",
+      text: `${name} finaliza pouco, mas converte muito. É um estilo eficiente e de margem curta: quando a pontaria cai, a produção baixa não compensa.`,
+      evidence: ev([["conversion", "conversão", "%"], ["shots_per_game", "finalizações por jogo"]]),
+    });
+    const efficiency = pct("goals_minus_xg");
+    if (efficiency !== null && efficiency >= 70) add(efficiency, {
+      tone: "warning",
+      tag: "Eficiência",
+      title: "Vencendo acima do xG",
+      text: `${name} marca mais do que a produção esperada indica. A eficiência vem decidindo jogos — e tende a regredir se o padrão de criação não subir junto.`,
+      evidence: ev([["goals_minus_xg", "gols acima do xG"], ["conversion", "conversão", "%"]]),
+    });
+    if (efficiency !== null && efficiency <= 30) add(80 - efficiency, {
+      tag: "Eficiência",
+      title: "Produz mais do que marca",
+      text: `${name} cria mais do que converte em gols. Se o padrão de criação se mantiver, os resultados tendem a melhorar sem mudança de estilo.`,
+      evidence: ev([["goals_minus_xg", "gols acima do xG"], ["xg_per_game", "xG por jogo"]]),
+    });
+    const defenseQuality = pct("xga_per_game"), defenseVolume = pct("shots_against_per_game");
+    if (defenseQuality !== null && defenseQuality >= 65 && (defenseVolume === null || defenseVolume >= 55)) add(defenseQuality, {
+      tag: "Defesa",
+      title: "Defesa sob controle",
+      text: `${name} cede pouco em volume e em qualidade de chance. Adversários precisam de bola parada ou erro individual para criar perigo real.`,
+      evidence: ev([["xga_per_game", "xG cedido por jogo"], ["shots_against_per_game", "finalizações sofridas por jogo"]]),
+    });
+    if (defenseQuality !== null && defenseQuality <= 35) add(80 - defenseQuality, {
+      tone: "warning",
+      tag: "Defesa",
+      title: "Defesa exposta",
+      text: `${name} cede chances claras com frequência acima da maioria da Copa. Ataques diretos e transições rápidas tendem a encontrar espaço.`,
+      evidence: ev([["xga_per_game", "xG cedido por jogo"], ["goals_against_per_game", "gols sofridos por jogo"]]),
+    });
+    const recoveries = pct("recoveries_per_game"), tackles = pct("tackles_per_game");
+    if (recoveries !== null && recoveries >= 65 && (tackles === null || tackles >= 50)) add(recoveries, {
+      tag: "Pressão",
+      title: "Recupera a bola rápido",
+      text: `${name} recupera a posse em volume alto — perfil de pressão após a perda. Costuma transformar o campo adversário em zona de construção.`,
+      evidence: ev([["recoveries_per_game", "recuperações por jogo"], ["tackles_per_game", "desarmes por jogo"]]),
+    });
+    const balance = pct("xg_difference");
+    if (balance !== null && balance >= 80) add(balance, {
+      tag: "Campanha",
+      title: "Dominante nos dois lados",
+      text: `${name} tem um dos melhores saldos de xG da Copa: cria muito e cede pouco. É o tipo de campanha que costuma ir longe no mata-mata.`,
+      evidence: ev([["xg_difference", "saldo de xG"]]),
+    });
+
+    if (!found.length) {
+      return [{
+        tag: "Perfil equilibrado",
+        title: "Campanha sem extremos",
+        text: `${name} não apresenta forças ou fragilidades marcantes em relação à média da Copa neste recorte — os jogos tendem a ser decididos em detalhes e bola parada.`,
+      }];
+    }
+    return found.sort((left, right) => right.score - left.score).slice(0, 5);
+  }
+
+  function teamDiagnosisSection(data) {
+    const insights = teamDiagnosisInsights(data);
+    if (!insights.length) return null;
+    return insightSection(
+      "Diagnóstico da seleção",
+      "Como esta seleção costuma jogar, lido a partir das métricas da campanha em relação às demais seleções da Copa.",
+      insights,
+    );
+  }
+
   function playerRadarFeature(player, radar, benchmarkRadar, benchmarkLabel, leaderRadar = []) {
     if (radar.length < 4 || benchmarkRadar.length < 4) return null;
     const title = `${personName(player)} vs ${benchmarkLabel.toLocaleLowerCase("pt-BR")}`;
@@ -2699,6 +2979,7 @@
       const radarFeature = playerRadarFeature(player, availableRadar, benchmarkRadar, benchmarkLabel, leaderRadar);
       content = node("div", { class: "player-profile-general" }, [
         profileQuickRead(personName(player), quickMetrics, benchmarks),
+        playerContextSection(data),
         radarFeature,
         node("div", { class: "profile-metric-groups" }, (isGoalkeeper ? [
           metricGroup("Defesa do gol", [["saves", "Defesas", ""], ["saves_per_90", "Defesas por 90", ""], ["rating", "Rating médio", ""]]),
@@ -2719,7 +3000,7 @@
       ].filter(Boolean));
     }
     return node("article", { class: "player-profile-view" }, [
-      node("header", { class: "player-profile-identity" }, [playerPhotoNode(player), node("span", {}, [node("small", { class: "player-profile-team", text: `${displayTeamName(player.team_name)} · ${resolvedPlayerPosition(player)}` }), node("h3", { text: personName(player) })])]),
+      node("header", { class: "player-profile-identity" }, [playerPhotoNode(player), node("span", {}, [node("small", { class: "player-profile-team", text: `${displayTeamName(player.team_name)} · ${resolvedPlayerPosition(player)}` }), node("h3", { text: personName(player) })]), node("button", { type: "button", class: "profile-compare-shortcut", text: "Comparar com outro jogador", onclick: () => goToCompare("player", player.player_id) })]),
       profileSummaryLine(summaryDefinitions.map(([key, labelText, unit]) => metric(key, labelText, unit))),
       node("div", { class: "player-profile-content" }, content),
     ]);
@@ -5202,19 +5483,24 @@
       return;
     }
     const params = new URLSearchParams(location.search);
-    let mode = params.get("type") === "team" ? "team" : "player";
+    let mode = ["team", "compare"].includes(params.get("type")) ? params.get("type") : "player";
     const initialId = params.get("id");
     const fragment = dashboardShell("Perfil", "Análises individuais adaptadas ao tipo e à função selecionada.", data);
     const content = node("div", { class: "profile-mode-content" });
     const tabs = attachTabListKeyNav(node("div", { class: "profile-mode-tabs", role: "tablist", "aria-label": "Tipo de perfil" }, [
-      profileModeButton("player", "Jogador"), profileModeButton("team", "Seleção"),
+      profileModeButton("player", "Jogador"), profileModeButton("team", "Seleção"), profileModeButton("compare", "Comparar"),
     ]));
     function profileModeButton(key, labelText) {
       return node("button", { type: "button", role: "tab", text: labelText, "data-mode": key, onclick: () => { mode = key; history.replaceState(null, "", `${routePath(state.year, "profile")}?type=${key}`); draw(); } });
     }
     function draw() {
       tabs.querySelectorAll("button").forEach(button => { const active = button.dataset.mode === mode; button.classList.toggle("is-active", active); button.setAttribute("aria-selected", String(active)); });
-      content.replaceChildren(mode === "player" ? profilePlayerSelector(data.players || [], data.filters || {}, mode === params.get("type") ? initialId : null) : profileTeamSelector(data.teams || [], mode === params.get("type") ? initialId : null));
+      const isInitialMode = mode === params.get("type");
+      content.replaceChildren(
+        mode === "player" ? profilePlayerSelector(data.players || [], data.filters || {}, isInitialMode ? initialId : null)
+          : mode === "team" ? profileTeamSelector(data.teams || [], isInitialMode ? initialId : null)
+            : profileCompareSelector(data, isInitialMode ? { kind: params.get("kind"), a: params.get("a"), b: params.get("b") } : null),
+      );
     }
     fragment.append(tabs, content); draw(); els.view.replaceChildren(fragment);
   }
@@ -5334,6 +5620,418 @@
     return node("div", { class: "profile-experience" }, [node("section", { class: "profile-selector-panel" }, [node("div", { class: "profile-selector-fields" }, node("label", {}, [node("span", { text: "Buscar seleção" }), search])), results, node("div", { class: "profile-selection-bar" }, [selected, tabs])]), detail]);
   }
 
+  function compareAxisChip(labelText, valueA, valueB) {
+    return node("span", { class: "insight-evidence", title: `${labelText}: ${formatValue(valueA)}/100 × ${formatValue(valueB)}/100` }, [
+      node("strong", { text: `${formatValue(valueA)} × ${formatValue(valueB)}` }),
+      node("span", { text: labelText }),
+    ]);
+  }
+
+  function sharedRadarAxes(a, b) {
+    const own = (a.radar || []).filter(axis => metricAvailable(axis.value));
+    const other = new Map((b.radar || []).filter(axis => metricAvailable(axis.value)).map(axis => [axis.axis, number(axis.value)]));
+    return own.filter(axis => other.has(axis.axis)).map(axis => ({ axis: axis.axis, a: number(axis.value), b: other.get(axis.axis), available_metrics: axis.available_metrics }));
+  }
+
+  function playerMatchupInsights(a, b) {
+    const pa = a.player || {}, pb = b.player || {};
+    const nameA = personName(pa), nameB = personName(pb);
+    const shared = sharedRadarAxes(a, b);
+    if (!shared.length) {
+      return [{
+        tag: "Funções diferentes",
+        title: "Comparação direta limitada",
+        text: `${nameA} e ${nameB} cumprem funções sem eixos estatísticos em comum (caso típico: goleiro contra jogador de linha). Compare cada um dentro da própria função nos perfis individuais.`,
+      }];
+    }
+    const axisName = axis => RADAR_LABELS[axis] || axis;
+    const edgesA = shared.filter(item => item.a - item.b >= 12).sort((left, right) => (right.a - right.b) - (left.a - left.b));
+    const edgesB = shared.filter(item => item.b - item.a >= 12).sort((left, right) => (right.b - right.a) - (left.b - left.a));
+    const balanced = shared.filter(item => Math.abs(item.a - item.b) < 12);
+    const listNames = items => items.slice(0, 3).map(item => axisName(item.axis)).join(", ").replace(/, ([^,]*)$/, " e $1");
+    const insights = [];
+    if (edgesA.length) insights.push({
+      side: "a",
+      tag: displayTeamName(pa.team_name),
+      title: `Onde ${nameA} leva a melhor`,
+      text: `Vantagem clara em ${listNames(edgesA)} — território em que ${nameA} supera ${nameB} neste recorte da Copa.`,
+      evidence: edgesA.slice(0, 4).map(item => compareAxisChip(axisName(item.axis), item.a, item.b)),
+    });
+    if (edgesB.length) insights.push({
+      side: "b",
+      tag: displayTeamName(pb.team_name),
+      title: `Onde ${nameB} leva a melhor`,
+      text: `Vantagem clara em ${listNames(edgesB)} — território em que ${nameB} supera ${nameA} neste recorte da Copa.`,
+      evidence: edgesB.slice(0, 4).map(item => compareAxisChip(axisName(item.axis), item.b, item.a)),
+    });
+    if (balanced.length) insights.push({
+      tag: "Equilíbrio",
+      title: "Territórios disputados",
+      text: `Em ${listNames(balanced)}, os dois entregam nível parecido — a diferença tende a vir do contexto de equipe, não do repertório individual.`,
+      evidence: balanced.slice(0, 4).map(item => compareAxisChip(axisName(item.axis), item.a, item.b)),
+    });
+    if (!insights.length) insights.push({
+      tag: "Equilíbrio",
+      title: "Perfis muito próximos",
+      text: `${nameA} e ${nameB} apresentam leituras estatísticas quase idênticas neste recorte — escolha entre eles passa por características que os números da Copa ainda não separam.`,
+    });
+    return insights;
+  }
+
+  function teamMatchupInsights(a, b) {
+    // One card per rule type: when both sides qualify for the same reading, only the side
+    // with the stronger case keeps it — repeated mirrored cards dilute the editorial value.
+    const candidates = [];
+    const sides = [["a", a, b], ["b", b, a]];
+    const balanceA = number(a.benchmarks?.metrics?.xg_difference?.percentile);
+    const balanceB = number(b.benchmarks?.metrics?.xg_difference?.percentile);
+    if (balanceA !== null && balanceB !== null && Math.abs(balanceA - balanceB) >= 15) {
+      const leader = balanceA > balanceB ? a : b;
+      const trailer = balanceA > balanceB ? b : a;
+      candidates.push({
+        key: "campaign",
+        strength: 200 + Math.abs(balanceA - balanceB),
+        insight: {
+          side: balanceA > balanceB ? "a" : "b",
+          tag: "Campanha",
+          title: `${teamName(leader.team)} chega em vantagem`,
+          text: `Pelo saldo de xG da campanha (${formatValue(leader.team?.xg_difference)} contra ${formatValue(trailer.team?.xg_difference)}), ${teamName(leader.team)} vem produzindo e cedendo em patamar superior ao de ${teamName(trailer.team)}.`,
+        },
+      });
+    }
+    for (const [side, self, other] of sides) {
+      const s = key => number(self.benchmarks?.metrics?.[key]?.percentile);
+      const o = key => number(other.benchmarks?.metrics?.[key]?.percentile);
+      const sv = key => number(self.team?.[key]);
+      const ov = key => number(other.team?.[key]);
+      const selfName = teamName(self.team), otherName = teamName(other.team);
+      const consider = (key, strength, insight) => candidates.push({ key, strength, insight: { side, ...insight } });
+      if (s("xg_per_game") !== null && s("xg_per_game") >= 60 && o("xga_per_game") !== null && o("xga_per_game") <= 40) consider("attack_vs_defense", s("xg_per_game") + (100 - o("xga_per_game")), {
+        tag: "Ataque × defesa",
+        title: `${selfName} ataca onde ${otherName} sofre`,
+        text: `${selfName} cria ${formatValue(sv("xg_per_game"))} de xG por jogo, entre os melhores ataques da Copa, contra uma defesa que cede ${formatValue(ov("xga_per_game"))} de xG por jogo, entre as mais expostas. É o desequilíbrio mais claro do confronto.`,
+      });
+      if (s("average_possession") !== null && s("average_possession") >= 60 && (s("pass_accuracy") === null || s("pass_accuracy") >= 50) && o("recoveries_per_game") !== null && o("recoveries_per_game") <= 45) consider("control", s("average_possession") + (100 - o("recoveries_per_game")), {
+        tag: "Controle",
+        title: `${selfName} pode ditar o ritmo`,
+        text: `Com ${formatValue(sv("average_possession"))}% de posse média e circulação segura, ${selfName} tende a ficar com a bola diante de um adversário que recupera pouco (${formatValue(ov("recoveries_per_game"))} recuperações por jogo). Jogo longo favorece quem controla.`,
+      });
+      if (s("recoveries_per_game") !== null && s("recoveries_per_game") >= 60 && o("pass_accuracy") !== null && o("pass_accuracy") <= 40) consider("press", s("recoveries_per_game") + (100 - o("pass_accuracy")), {
+        tag: "Pressão",
+        title: `${selfName} pode sufocar a saída de ${otherName}`,
+        text: `${selfName} recupera ${formatValue(sv("recoveries_per_game"))} bolas por jogo, e ${otherName} circula com precisão abaixo da maioria da Copa (${formatValue(ov("pass_accuracy"))}%). Pressão alta na construção adversária é um caminho claro de chance.`,
+      });
+      if (s("shots_against_per_game") !== null && s("shots_against_per_game") >= 60 && o("shots_per_game") !== null && o("shots_per_game") >= 60) consider("block_vs_volume", s("shots_against_per_game") + o("shots_per_game"), {
+        tag: "Choque de estilos",
+        title: `${selfName} pode frear o volume de ${otherName}`,
+        text: `${otherName} finaliza muito (${formatValue(ov("shots_per_game"))} por jogo), mas ${selfName} é uma das seleções que menos cede finalização (${formatValue(sv("shots_against_per_game"))} sofridas por jogo). Quem impuser seu padrão leva o duelo.`,
+      });
+      if (s("goals_minus_xg") !== null && s("goals_minus_xg") >= 70) consider("efficiency", s("goals_minus_xg"), {
+        tag: "Eficiência",
+        title: `${selfName} converte acima do esperado`,
+        text: `${selfName} soma ${formatValue(sv("goals_minus_xg"))} gols acima do xG na campanha. Em jogo truncado e de poucas chances, essa eficiência costuma ser o fator decisivo.`,
+        tone: "warning",
+      });
+    }
+    const byKey = new Map();
+    for (const candidate of candidates) {
+      const current = byKey.get(candidate.key);
+      if (!current || candidate.strength > current.strength) byKey.set(candidate.key, candidate);
+    }
+    const insights = [...byKey.values()].sort((left, right) => right.strength - left.strength).map(candidate => candidate.insight);
+    if (insights.length <= 1) {
+      const shared = sharedRadarAxes(a, b).sort((left, right) => Math.abs(right.a - right.b) - Math.abs(left.a - left.b));
+      const top = shared.filter(item => Math.abs(item.a - item.b) >= 10).slice(0, 3);
+      if (top.length) insights.push({
+        tag: "Raio-x",
+        title: "Diferenças mais relevantes",
+        text: `Sem um desequilíbrio tático evidente, o confronto se decide nos detalhes — estes são os eixos em que as campanhas mais divergem.`,
+        evidence: top.map(item => compareAxisChip(RADAR_LABELS[item.axis] || item.axis, item.a, item.b)),
+      });
+      else insights.push({
+        tag: "Equilíbrio",
+        title: "Campanhas espelhadas",
+        text: `${teamName(a.team)} e ${teamName(b.team)} chegam com números muito próximos em ataque, defesa e controle. Bola parada, eficiência pontual e episódios individuais tendem a decidir.`,
+      });
+    }
+    return insights.slice(0, 5);
+  }
+
+  const COMPARE_TEAM_METRICS = [
+    ["played", "Jogos", "", "higher"], ["wins", "Vitórias", "", "higher"], ["goals_per_game", "Gols por jogo", "", "higher"],
+    ["xg_per_game", "xG por jogo", "", "higher"], ["shots_per_game", "Finalizações por jogo", "", "higher"], ["conversion", "Conversão", "%", "higher"],
+    ["goals_against_per_game", "Gols sofridos por jogo", "", "lower"], ["xga_per_game", "xG cedido por jogo", "", "lower"], ["shots_against_per_game", "Finalizações sofridas por jogo", "", "lower"],
+    ["average_possession", "Posse média", "%", "higher"], ["pass_accuracy", "Precisão de passe", "%", "higher"], ["recoveries_per_game", "Recuperações por jogo", "", "higher"],
+    ["tackles_per_game", "Desarmes por jogo", "", "higher"], ["xg_difference", "Saldo de xG", "", "higher"], ["goals_minus_xg", "Gols acima do xG", "", "higher"],
+  ];
+  const COMPARE_OUTFIELD_METRICS = [
+    ["minutes_played", "Minutos", " min", "higher"], ["games", "Jogos", "", "higher"], ["goals", "Gols", "", "higher"],
+    ["xg", "xG", "", "higher"], ["goals_per_90", "Gols por 90", "", "higher"], ["xg_per_90", "xG por 90", "", "higher"],
+    ["shots_per_90", "Finalizações por 90", "", "higher"], ["shot_conversion", "Conversão", "%", "higher"], ["assists", "Assistências", "", "higher"],
+    ["xa_per_90", "xA por 90", "", "higher"], ["key_passes_per_90", "Passes para finalização por 90", "", "higher"], ["pass_accuracy", "Precisão de passe", "%", "higher"],
+    ["duels_won", "Duelos vencidos", "", "higher"], ["aerial_won", "Duelos aéreos vencidos", "", "higher"], ["defensive_actions_per_90", "Ações defensivas por 90", "", "higher"],
+    ["rating", "Rating médio", "", "higher"],
+  ];
+  const COMPARE_GOALKEEPER_METRICS = [
+    ["minutes_played", "Minutos", " min", "higher"], ["games", "Jogos", "", "higher"], ["saves", "Defesas", "", "higher"],
+    ["saves_per_90", "Defesas por 90", "", "higher"], ["accurate_passes", "Passes certos", "", "higher"], ["pass_accuracy", "Precisão de passe", "%", "higher"],
+    ["long_pass_accuracy", "Precisão de passe longo", "%", "higher"], ["rating", "Rating médio", "", "higher"],
+  ];
+  const COMPARE_NEUTRAL_METRICS = [
+    ["minutes_played", "Minutos", " min", "higher"], ["games", "Jogos", "", "higher"], ["accurate_passes", "Passes certos", "", "higher"],
+    ["pass_accuracy", "Precisão de passe", "%", "higher"], ["rating", "Rating médio", "", "higher"],
+  ];
+
+  function isGoalkeeperEntity(player) {
+    return player?.macroposition === "Goleiro" || positionLabel(player?.position) === "GOL";
+  }
+
+  function compareMetricTable(kind, a, b) {
+    const rowA = kind === "player" ? a.player || {} : a.team || {};
+    const rowB = kind === "player" ? b.player || {} : b.team || {};
+    let definitions = COMPARE_TEAM_METRICS, notice = null;
+    if (kind === "player") {
+      const gkA = isGoalkeeperEntity(rowA), gkB = isGoalkeeperEntity(rowB);
+      if (gkA && gkB) definitions = COMPARE_GOALKEEPER_METRICS;
+      else if (gkA || gkB) { definitions = COMPARE_NEUTRAL_METRICS; notice = "Goleiro e jogador de linha têm repertórios distintos — a tabela mostra apenas métricas comuns às duas funções."; }
+      else definitions = COMPARE_OUTFIELD_METRICS;
+    }
+    const rows = definitions.map(([key, labelText, unit, direction]) => {
+      const va = number(rowA[key]), vb = number(rowB[key]);
+      if (va === null && vb === null) return null;
+      const leadA = va !== null && vb !== null && va !== vb && (direction === "lower" ? va < vb : va > vb);
+      const leadB = va !== null && vb !== null && va !== vb && !leadA;
+      return node("tr", {}, [
+        node("td", { class: leadA ? "is-lead-a" : "", text: va === null ? "—" : `${formatValue(va)}${unit}` }),
+        node("td", { class: "compare-metric-label", text: labelText }),
+        node("td", { class: leadB ? "is-lead-b" : "", text: vb === null ? "—" : `${formatValue(vb)}${unit}` }),
+      ]);
+    }).filter(Boolean);
+    if (!rows.length) return null;
+    const nameA = kind === "player" ? personName(rowA) : teamName(rowA);
+    const nameB = kind === "player" ? personName(rowB) : teamName(rowB);
+    return node("section", { class: "compare-table-section" }, [
+      node("header", {}, [node("h3", { text: "Números lado a lado" }), node("p", { text: notice || "O valor destacado indica quem leva a melhor em cada métrica (considerando se mais alto ou mais baixo é melhor)." })]),
+      node("div", { class: "table-wrap compare-table" }, [node("table", {}, [
+        node("thead", {}, node("tr", {}, [
+          node("th", { class: "is-side-a" }, [flagNode({ team_name: rowA.team_name || (kind === "team" ? rawTeamName(rowA) : null) }), node("span", { text: nameA })]),
+          node("th", { text: "Métrica" }),
+          node("th", { class: "is-side-b" }, [flagNode({ team_name: rowB.team_name || (kind === "team" ? rawTeamName(rowB) : null) }), node("span", { text: nameB })]),
+        ])),
+        node("tbody", {}, rows),
+      ])]),
+    ]);
+  }
+
+  function compareRadarFeature(kind, a, b) {
+    const shared = sharedRadarAxes(a, b);
+    const rowA = kind === "player" ? a.player || {} : a.team || {};
+    const rowB = kind === "player" ? b.player || {} : b.team || {};
+    const nameA = kind === "player" ? personName(rowA) : teamName(rowA);
+    const nameB = kind === "player" ? personName(rowB) : teamName(rowB);
+    if (shared.length < 3) {
+      return node("section", { class: "compare-radar-section" }, [
+        node("header", {}, [node("h3", { text: "Radar do confronto" })]),
+        node("p", { class: "profile-empty", text: kind === "player" ? "Goleiro e jogador de linha são avaliados em eixos diferentes — use a tabela e as leituras abaixo." : "Não há eixos suficientes em comum neste recorte." }),
+      ]);
+    }
+    const axesA = shared.map(item => ({ axis: item.axis, value: item.a, available_metrics: item.available_metrics }));
+    const axesB = shared.map(item => ({ axis: item.axis, value: item.b }));
+    const chart = radarChart(axesA, `${nameA} vs ${nameB}`, axesB, nameB, true);
+    const selectedLegend = chart.querySelector?.(".radar-legend .is-selected");
+    if (selectedLegend) selectedLegend.textContent = nameA;
+    const note = kind === "player"
+      ? "Notas 0–100: cada jogador é medido contra a média da própria posição na Copa."
+      : "Notas 0–100 em relação às demais seleções da Copa — diretamente comparáveis.";
+    return node("section", { class: "compare-radar-section" }, [
+      node("header", {}, [node("h3", { text: "Radar do confronto" }), node("p", { text: `${nameA} vs ${nameB}` })]),
+      node("div", { class: "compare-radar" }, chart),
+      node("p", { class: "profile-radar-note", text: note }),
+    ]);
+  }
+
+  function compareIdentityStrip(kind, a, b) {
+    const sideCard = (payload, side) => {
+      if (kind === "player") {
+        const player = payload.player || {};
+        return node("article", { class: `compare-side is-side-${side}` }, [
+          playerPhotoNode(player),
+          node("span", {}, [
+            node("strong", { text: personName(player) }),
+            node("small", { text: `${displayTeamName(player.team_name)} · ${resolvedPlayerPosition(player)}` }),
+            node("small", { text: `${formatValue(player.minutes_played)} min · ${formatValue(player.games)} ${number(player.games) === 1 ? "jogo" : "jogos"}` }),
+          ]),
+        ]);
+      }
+      const team = payload.team || {};
+      return node("article", { class: `compare-side is-side-${side}` }, [
+        flagNode(team, "flag-large"),
+        node("span", {}, [
+          node("strong", { text: teamName(team) }),
+          node("small", { text: [team.group_name ? `Grupo ${team.group_name}` : "Copa 2026", team.classification_status].filter(Boolean).join(" · ") }),
+          node("small", { text: `${formatValue(team.played)} jogos · ${formatValue(team.wins)} vitórias · saldo de xG ${signedStandingValue(team.xg_difference)}` }),
+        ]),
+      ]);
+    };
+    return node("div", { class: "compare-identity" }, [sideCard(a, "a"), node("span", { class: "compare-vs", text: "×", "aria-hidden": "true" }), sideCard(b, "b")]);
+  }
+
+  function compareResultView(kind, a, b) {
+    if (!a?.available || !b?.available) return emptyState("Comparação indisponível", "Não foi possível carregar os dois perfis neste recorte.");
+    const insights = kind === "player" ? playerMatchupInsights(a, b) : teamMatchupInsights(a, b);
+    const insightsTitle = kind === "player" ? "Onde cada um leva a melhor" : "Onde cada um pode ferir o outro";
+    const insightsSubtitle = kind === "player"
+      ? "Leitura dos eixos comparativos dos dois jogadores neste recorte da Copa."
+      : "Cruzamento das forças de um lado com as fragilidades do outro, pelas métricas da campanha.";
+    return node("div", { class: "compare-result" }, [
+      compareIdentityStrip(kind, a, b),
+      compareRadarFeature(kind, a, b),
+      insightSection(insightsTitle, insightsSubtitle, insights, "compare-insights"),
+      compareMetricTable(kind, a, b),
+    ].filter(Boolean));
+  }
+
+  function profileCompareSelector(data, initial = null) {
+    let kind = initial?.kind === "team" ? "team" : "player";
+    const slots = { a: null, b: null };
+    const payloads = { a: null, b: null };
+    let token = 0;
+    const output = node("div", { class: "profile-analysis-host compare-output" });
+    const kindTabs = attachTabListKeyNav(node("div", { class: "player-profile-tabs compare-kind-tabs", role: "tablist", "aria-label": "Tipo de comparação" }, [
+      ["player", "Jogadores"], ["team", "Seleções"],
+    ].map(([key, labelText]) => node("button", { type: "button", role: "tab", "data-kind": key, text: labelText, onclick: () => setKind(key) }))));
+    const pickers = { a: buildPicker("a"), b: buildPicker("b") };
+    const pickersRow = node("div", { class: "compare-pickers" }, [pickers.a.panel, pickers.b.panel]);
+
+    function entityList() {
+      if (kind === "team") return [...(data.teams || [])].sort((left, right) => teamName(left).localeCompare(teamName(right), "pt-BR"));
+      return [...(data.players || [])].sort((left, right) => (number(right.minutes_played) || 0) - (number(left.minutes_played) || 0));
+    }
+    function entityId(row) { return kind === "team" ? row.team_id : row.player_id; }
+    function entityRow(row) {
+      const primary = kind === "team" ? teamName(row) : personName(row);
+      const secondary = kind === "team"
+        ? `${row.group_name ? `Grupo ${row.group_name}` : "Copa 2026"} · ${row.classification_status || "Em disputa"}`
+        : `${displayTeamName(row.team_name)} · ${resolvedPlayerPosition(row)}`;
+      return [flagNode(row), node("span", {}, [node("strong", { text: primary }), node("small", { text: secondary })])];
+    }
+    function buildPicker(slot) {
+      const search = node("input", { type: "search", placeholder: kind === "team" ? "Buscar seleção" : "Buscar jogador", autocomplete: "off" });
+      const results = node("div", { class: "profile-selector-results compare-picker-results" });
+      const selected = node("div", { class: "profile-selected-entity", text: "Escolha abaixo." });
+      const title = node("h4", { class: "compare-picker-title", text: "" });
+      const panel = node("section", { class: `profile-selector-panel compare-picker is-side-${slot}` }, [
+        title,
+        node("div", { class: "profile-selector-fields" }, node("label", {}, [node("span", { text: "Buscar" }), search])),
+        results,
+        node("div", { class: "profile-selection-bar" }, selected),
+      ]);
+      search.oninput = () => drawResults(slot);
+      return { panel, search, results, selected, title };
+    }
+    function drawResults(slot) {
+      const picker = pickers[slot];
+      const query = picker.search.value.trim().toLocaleLowerCase("pt-BR");
+      const otherId = slots[slot === "a" ? "b" : "a"] ? entityId(slots[slot === "a" ? "b" : "a"]) : null;
+      const matches = entityList().filter(row => {
+        if (entityId(row) === otherId) return false;
+        if (!query) return true;
+        const haystack = kind === "team" ? teamName(row) : `${personName(row)} ${displayTeamName(row.team_name)}`;
+        return haystack.toLocaleLowerCase("pt-BR").includes(query);
+      });
+      if (!matches.length) {
+        picker.results.replaceChildren(node("p", { class: "profile-selector-empty", text: "Nada encontrado com essa busca." }));
+        return;
+      }
+      const rows = matches.slice(0, 30);
+      picker.results.replaceChildren(...rows.map(row => node("button", {
+        type: "button",
+        class: slots[slot] && entityId(slots[slot]) === entityId(row) ? "is-selected" : "",
+        onclick: () => select(slot, row),
+      }, entityRow(row))));
+      if (matches.length > rows.length) picker.results.append(node("p", { class: "profile-selector-truncated", text: `Mostrando ${rows.length} de ${matches.length} — refine a busca para ver mais.` }));
+    }
+    function drawSelected(slot) {
+      const picker = pickers[slot];
+      const row = slots[slot];
+      if (!row) { picker.selected.textContent = "Escolha abaixo."; return; }
+      picker.selected.replaceChildren(...entityRow(row));
+    }
+    function drawTitles() {
+      const noun = kind === "team" ? "Seleção" : "Jogador";
+      pickers.a.title.textContent = `${noun} A`;
+      pickers.b.title.textContent = `${noun} B`;
+      pickers.a.search.placeholder = kind === "team" ? "Buscar seleção" : "Buscar jogador";
+      pickers.b.search.placeholder = pickers.a.search.placeholder;
+    }
+    function syncUrl() {
+      const params = new URLSearchParams({ type: "compare", kind });
+      if (slots.a) params.set("a", entityId(slots.a));
+      if (slots.b) params.set("b", entityId(slots.b));
+      history.replaceState(null, "", `${routePath(state.year, "profile")}?${params}`);
+    }
+    function drawOutput() {
+      if (!slots.a || !slots.b) {
+        output.replaceChildren(node("p", { class: "profile-empty", text: kind === "team" ? "Escolha duas seleções para ver o confronto." : "Escolha dois jogadores para ver a comparação." }));
+        return;
+      }
+      if (!payloads.a || !payloads.b) {
+        output.replaceChildren(node("p", { class: "profile-loading", text: "Carregando comparação..." }));
+        return;
+      }
+      output.replaceChildren(compareResultView(kind, payloads.a, payloads.b));
+    }
+    async function load() {
+      const current = ++token;
+      payloads.a = null; payloads.b = null;
+      drawOutput();
+      if (!slots.a || !slots.b) return;
+      const fetchOne = id => kind === "team"
+        ? getJSON(`/editions/${state.year}/teams/${encodeURIComponent(id)}`)
+        : getJSON(`/editions/${state.year}/players/${encodeURIComponent(id)}?scope=all`);
+      try {
+        const [resultA, resultB] = await Promise.all([fetchOne(entityId(slots.a)), fetchOne(entityId(slots.b))]);
+        if (current !== token) return;
+        payloads.a = resultA; payloads.b = resultB;
+        drawOutput();
+      } catch (error) {
+        if (error?.name !== "AbortError" && current === token) output.replaceChildren(emptyState("Comparação indisponível", "Não foi possível carregar um dos perfis."));
+      }
+    }
+    function select(slot, row) {
+      slots[slot] = row;
+      drawSelected(slot); drawResults("a"); drawResults("b"); syncUrl(); load();
+    }
+    function setKind(next) {
+      if (next === kind) return;
+      kind = next; token += 1;
+      slots.a = null; slots.b = null; payloads.a = null; payloads.b = null;
+      drawKindTabs(); drawTitles(); drawSelected("a"); drawSelected("b");
+      pickers.a.search.value = ""; pickers.b.search.value = "";
+      drawResults("a"); drawResults("b"); syncUrl(); drawOutput();
+    }
+    function drawKindTabs() {
+      kindTabs.querySelectorAll("button").forEach(button => { const active = button.dataset.kind === kind; button.classList.toggle("is-active", active); button.setAttribute("aria-selected", String(active)); });
+    }
+    drawKindTabs(); drawTitles(); drawResults("a"); drawResults("b"); drawOutput();
+    if (initial?.a || initial?.b) {
+      const list = entityList();
+      const findRow = id => list.find(row => entityId(row) === id) || null;
+      slots.a = initial.a ? findRow(initial.a) : null;
+      slots.b = initial.b && initial.b !== initial.a ? findRow(initial.b) : null;
+      drawSelected("a"); drawSelected("b"); drawResults("a"); drawResults("b"); syncUrl();
+      if (slots.a && slots.b) load();
+    }
+    return node("div", { class: "compare-experience" }, [
+      node("header", { class: "compare-header" }, [
+        node("p", { class: "compare-intro", text: "Coloque dois perfis lado a lado: radar sobreposto, leituras de confronto e números métrica a métrica." }),
+        kindTabs,
+      ]),
+      pickersRow,
+      output,
+    ]);
+  }
+
   function teamProfileQuickRead(team, benchmarks) {
     const attack = number(benchmarks?.metrics?.xg_per_game?.percentile);
     const defense = number(benchmarks?.metrics?.xga_per_game?.percentile);
@@ -5402,6 +6100,7 @@
     } else {
       content = node("div", { class: "team-profile-general" }, [
         teamProfileQuickRead(team, benchmarks),
+        teamDiagnosisSection(data),
         teamRadarFeature(team, radar, benchmarkRadar, benchmarkLabel, leaderRadar),
         node("div", { class: "profile-metric-groups" }, [
           // Mirrors the radar's "Ataque" and "Finalização" axes together — both are covered here
@@ -5415,7 +6114,7 @@
       ].filter(Boolean));
     }
     return node("article", { class: "team-profile-view" }, [
-      node("header", { class: "player-profile-identity team-profile-identity" }, [flagNode(team, "flag-large"), node("span", {}, [node("small", { text: [team.group_name ? `Grupo ${team.group_name}` : "Copa 2026", team.classification_status].filter(Boolean).join(" · ") }), node("h3", { text: teamName(team) }), node("p", { text: `${formatValue(team.played)} jogos · ${formatValue(team.wins)} vitórias · ${formatValue(team.goals_for)} gols · saldo de xG ${signedStandingValue(team.xg_difference)}` })])]),
+      node("header", { class: "player-profile-identity team-profile-identity" }, [flagNode(team, "flag-large"), node("span", {}, [node("small", { text: [team.group_name ? `Grupo ${team.group_name}` : "Copa 2026", team.classification_status].filter(Boolean).join(" · ") }), node("h3", { text: teamName(team) }), node("p", { text: `${formatValue(team.played)} jogos · ${formatValue(team.wins)} vitórias · ${formatValue(team.goals_for)} gols · saldo de xG ${signedStandingValue(team.xg_difference)}` })]), node("button", { type: "button", class: "profile-compare-shortcut", text: "Comparar com outra seleção", onclick: () => goToCompare("team", team.team_id) })]),
       profileSummaryLine([metricWithComparison("Jogos", team.played), metric("wins", "Vitórias"), metric("goals_for", "Gols"), metric("xg", "xG"), metric("xga", "xG cedido"), metric("xg_difference", "Saldo de xG")]),
       node("div", { class: "player-profile-content team-profile-content" }, content),
     ]);
