@@ -72,25 +72,6 @@ services:
       - postgres
       - minio
 
-  streamlit:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: worldcup_streamlit
-    env_file:
-      - .env
-    volumes:
-      - .:/app
-    working_dir: /app
-    ports:
-      - "${STREAMLIT_PORT}:8501"
-    command: streamlit run app/streamlit_app.py --server.address=0.0.0.0
-    networks:
-      - worldcup_network
-    depends_on:
-      - postgres
-      - minio
-
   web:
     build:
       context: .

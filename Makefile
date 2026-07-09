@@ -31,9 +31,6 @@ pipeline:
 	docker compose run --rm app python src/build_gold_world_cup.py
 	docker compose run --rm app python src/validate_world_cup_data.py
 
-streamlit:
-	docker compose up streamlit
-
 player_offensive:
 	docker compose run --rm app python src/build_gold_player_offensive.py
 

@@ -1,6 +1,6 @@
-pandas
-pyarrow
-fastapi
-uvicorn[standard]
-httpx
-pytest
+pandas==3.0.3
+pyarrow==24.0.0
+fastapi==0.138.0
+uvicorn[standard]==0.49.0
+httpx==0.28.1
+pytest==9.1.1

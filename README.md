@@ -1,6 +1,6 @@
 # World Cup Analytics
 
-World Cup Analytics is a local analytics project for exploring FIFA World Cup data with a bronze/silver/gold data pipeline and a Streamlit application.
+World Cup Analytics is a local analytics project for exploring FIFA World Cup data with a bronze/silver/gold data pipeline and a FastAPI-served web application.
 
 The current focus is turning StatsBomb World Cup data into usable competition, team, and player views.
 
@@ -11,9 +11,9 @@ The application supports two source profiles:
 
 ## Primary Web Application
 
-The product interface is now a FastAPI-served web application with an edition
+The product interface is a FastAPI-served web application with an edition
 switcher at the top, navigation derived from data coverage, and a cross-edition
-history area. Streamlit remains available as an internal exploration interface.
+history area.
 
 The edition pages prioritize sports analysis: KPIs, rankings, scorecards,
 goals-versus-xG comparison, shot maps, match-level xG flow, and mirrored FIFA
@@ -68,17 +68,6 @@ FIFA PDF outputs are written as CSV datasets:
 - Silver domains: match summary, team key statistics, phases of play,
   attempts at goal, player metrics, and extraction issues.
 
-### Streamlit Application
-
-The app currently contains these views:
-
-- Main match-level shot and xG overview.
-- Player shot map.
-- Player analytics with radar, heatmap, goal-mouth view, time bins, body-part profile, percentiles, and shot table.
-- Player rankings by xG, goals, shots, conversion, accuracy, G-xG, xG per shot, and big chances.
-- Tournament history/competition view with 2026 groups as the default, group standings cards, group fixtures, knockout bracket boxes, champions, scorers, and historical summary.
-- Team analytics with team showcase, performance card, xG ranking, radar, accumulated xG, rolling xG form, heatmap, and shot breakdown.
-
 ### 2026 Competition Structure
 
 The app has a local gold seed for the 2026 World Cup:
@@ -106,16 +95,16 @@ make player_offensive
 make tournament_structure
 ```
 
-Start the Streamlit application:
+Start the web application:
 
 ```bash
-make streamlit
+make web_up
 ```
 
 The app is served at:
 
 ```text
-http://localhost:8501
+http://localhost:8010
 ```
 
 Use the edition selector in the application header to switch between 2022 and
@@ -398,16 +387,10 @@ a numeric value cannot be normalized safely.
 
 ## Current Design Direction
 
-The project is still using Streamlit intentionally. Streamlit is useful while the data model, gold tables, and analytical flows are still evolving quickly.
-
-The UI is moving toward richer, card-based layouts:
-
-- Group tables rendered as visual cards.
-- Fixtures listed below each group.
-- Knockout rounds rendered as bracket-style match boxes.
-- Team and player pages organized with sidebar menus.
-
-If the UI needs become more product-like, the likely next frontend step is a React/Next.js app backed by FastAPI or another lightweight API layer. Streamlit can then remain as the internal exploration interface.
+The product interface is the FastAPI web application under `webapp/`, with an
+editorial sports identity (dark cards, strong typography, colored accents). The
+frontend is a single-page application in vanilla JavaScript served from
+`webapp/static/`.
 
 ## Known Gaps
 
@@ -415,7 +398,6 @@ If the UI needs become more product-like, the likely next frontend step is a Rea
 - Historical group letters are inferred from group-stage match components when the local gold layer does not contain explicit group labels.
 - 2026 fixtures are placeholders. Real dates, venues, scores, and standings should be updated incrementally when data becomes available.
 - Country flags and team/player display-name administration are not implemented yet.
-- Some UI pieces use custom HTML/CSS inside Streamlit; this works for now, but it is a reason to consider a dedicated frontend later.
 
 ## What Will Be Implemented Next
 
