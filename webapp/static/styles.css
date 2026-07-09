@@ -3449,16 +3449,6 @@ body[data-page="overview"][data-skin="2026"] .home-pulse-phase > span {
   gap: 3px;
 }
 
-body[data-page="overview"][data-skin="2026"] .home-pulse-headline {
-  max-width: 760px;
-  margin: 0;
-  color: var(--wc26-text);
-  font-size: 13px;
-  font-weight: 750;
-  line-height: 1.45;
-  text-align: right;
-}
-
 body[data-page="overview"][data-skin="2026"] .home-pulse-phase small,
 body[data-page="overview"][data-skin="2026"] .home-pulse-column header small,
 body[data-page="overview"][data-skin="2026"] .home-bracket-round header small {
@@ -5960,7 +5950,6 @@ body.is-match-center[data-skin="2026"] .lineup-unit h4 {
   body[data-page="overview"][data-skin="2026"] .home-bracket-rounds { grid-template-columns: 1fr; }
   body[data-page="overview"][data-skin="2026"] .home-bracket-round + .home-bracket-round { border-top: 1px solid rgba(36, 58, 102, .65); border-left: 0; }
   body[data-page="overview"][data-skin="2026"] .home-pulse-phase { align-items: flex-start; flex-direction: column; gap: 9px; }
-  body[data-page="overview"][data-skin="2026"] .home-pulse-headline { text-align: left; }
   body[data-page="overview"][data-skin="2026"] .section-heading > span { display: none; }
   body[data-page="overview"][data-skin="2026"] .discovery-category-grid { grid-template-columns: 1fr; }
   body[data-page="overview"][data-skin="2026"] .discovery-category-card { min-height: 0; padding: 16px; }
@@ -6429,4 +6418,46 @@ body[data-page="profile"][data-skin="2026"] .compare-result { display: grid; gap
   body[data-page="profile"][data-skin="2026"] .compare-identity { grid-template-columns: 1fr; }
   body[data-page="profile"][data-skin="2026"] .compare-vs { justify-self: center; }
   body[data-page="profile"][data-skin="2026"] .profile-compare-shortcut { margin-left: 0; }
+}
+
+/* ---- Barra de progresso da edição (Home) ---- */
+
+body[data-skin="2026"] .home-summary-block {
+  display: grid;
+  gap: 12px;
+}
+
+body[data-skin="2026"] .home-competition-progress {
+  display: grid;
+  gap: 6px;
+}
+
+body[data-skin="2026"] .home-progress-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--wc26-text-soft);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+body[data-skin="2026"] .home-progress-meta small {
+  color: var(--wc26-text-muted);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+body[data-skin="2026"] .home-progress-track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .08);
+  overflow: hidden;
+}
+
+body[data-skin="2026"] .home-progress-track i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--wc26-teal);
 }

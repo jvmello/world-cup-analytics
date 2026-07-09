@@ -1218,14 +1218,14 @@
     if (summary) fragment.append(summary);
 
     const pulse = homePulse(data.pulse || {});
-    if (pulse) fragment.append(section("Pulso da Copa", data.pulse?.current_phase || "Agora no torneio", pulse, "home-pulse-section"));
+    if (pulse) fragment.append(section("Pulso da Copa", null, pulse, "home-pulse-section"));
 
     const bracket = homeBracketSummary(data.knockout_summary || {});
-    if (bracket) fragment.append(section("Caminho do mata-mata", "Rota até a final", bracket, "home-bracket-section"));
+    if (bracket) fragment.append(section("Caminho do mata-mata", null, bracket, "home-bracket-section"));
 
     const leaders = data.leaders || {};
     const highlights = homeHighlights(data.highlights || {}, leaders);
-    if (highlights) fragment.append(section("Destaques da Copa", "Quem está definindo a edição", highlights, "home-highlights-section"));
+    if (highlights) fragment.append(section("Destaques da Copa", null, highlights, "home-highlights-section"));
 
     const leaderPanels = [
       ["Jogadores", "Gols", leaders.players?.goals, "goals", "player"],
@@ -1237,29 +1237,49 @@
     ].filter(([, , rows]) => rows?.length).map(([kicker, title, rows, metric, entity]) =>
       homeRankingPanel({ kicker, title, rows, metric, entity })
     );
-    if (leaderPanels.length) fragment.append(section("Líderes da Copa", "Top 5 · ranking completo no detalhe", node("div", { class: "home-ranking-grid" }, leaderPanels), "home-leaders-section"));
+    if (leaderPanels.length) fragment.append(section("Líderes da Copa", null, node("div", { class: "home-ranking-grid" }, leaderPanels), "home-leaders-section"));
 
     const explorer = homeDiscoveryLab(data.discoveries || {});
-    if (explorer) fragment.append(section("Explorar estatísticas", "Leituras menos óbvias da edição", explorer, "home-explore-section"));
+    if (explorer) fragment.append(section("Explorar estatísticas", null, explorer, "home-explore-section"));
     if (!summary && !leaderPanels.length) fragment.append(emptyState());
     els.view.replaceChildren(fragment);
   }
 
+  function homeCompetitionProgress(summary) {
+    const finished = number(summary.finished), total = number(summary.matches);
+    if (finished === null || total === null || total <= 0) return null;
+    const percent = Math.max(0, Math.min(100, finished / total * 100));
+    const percentLabel = `${formatValue(Math.round(percent))}%`;
+    return node("div", { class: "home-competition-progress", role: "img", "aria-label": `${percentLabel} da competição concluída: ${formatValue(finished)} de ${formatValue(total)} jogos disputados.` }, [
+      node("div", { class: "home-progress-meta" }, [
+        node("span", { text: `${percentLabel} da competição concluída` }),
+        node("small", { text: `${formatValue(finished)} de ${formatValue(total)} jogos` }),
+      ]),
+      node("div", { class: "home-progress-track" }, [node("i", { style: `width:${percent.toFixed(1)}%`, "aria-hidden": "true" })]),
+    ]);
+  }
+
   function homeSummaryStrip(summary) {
     const metrics = [
+      ["Gols", summary.goals],
+      ["Gols por jogo", summary.goals_per_match],
+      ["xG total", summary.xg],
+      ["xG por jogo", summary.xg_per_match],
+      ["Finalizações", summary.shots],
       ["Conversão média", summary.shot_conversion, metricAvailable(summary.shot_conversion) ? `${formatValue(summary.shot_conversion)}%` : null],
       ["Clean sheets", summary.clean_sheets],
-      ["Gols", summary.goals], ["Gols por jogo", summary.goals_per_match],
-      ["Finalizações", summary.shots], ["xG total", summary.xg],
-      ["Jogadores", summary.players], ["Seleções", summary.teams],
+      ["Jogadores", summary.players],
     ].filter(([, value]) => value !== null && value !== undefined);
     if (!metrics.length) return null;
-    return section("Resumo da edição", "Panorama rápido", node("div", { class: "home-summary-strip" }, metrics.map(([metric, value, display]) =>
-      node("div", { class: "home-summary-metric" }, [
-        node("strong", { text: display || formatValue(value) }),
-        node("span", { text: metric }),
-      ])
-    )), "home-summary-section");
+    return section("Resumo da edição", null, node("div", { class: "home-summary-block" }, [
+      node("div", { class: "home-summary-strip" }, metrics.map(([metric, value, display]) =>
+        node("div", { class: "home-summary-metric" }, [
+          node("strong", { text: display || formatValue(value) }),
+          node("span", { text: metric }),
+        ])
+      )),
+      homeCompetitionProgress(summary),
+    ].filter(Boolean)), "home-summary-section");
   }
 
   function knockoutSideNode(side, className = "") {
@@ -1284,18 +1304,6 @@
     if (dateKey(date) === dateKey(tomorrow)) return `Amanhã, ${time}`;
     const shortDate = new Intl.DateTimeFormat("pt-BR", { timeZone: timezone, day: "2-digit", month: "2-digit" }).format(date);
     return `${shortDate}, ${time}`;
-  }
-
-  function homePulseHeadline(pulse) {
-    const phase = pulse?.current_phase || "Copa em andamento";
-    const classified = pulse?.classified_recent || [];
-    if (!classified.length) return `${phase} em andamento: os próximos classificados serão definidos em campo.`;
-    if (classified.length === 1) return `${phase} em andamento: ${displayTeamName(classified[0].winner_name)} já está nas oitavas.`;
-    if (classified.length === 2) {
-      const names = classified.map(item => displayTeamName(item.winner_name));
-      return `${phase} em andamento: ${names[0]} e ${names[1]} já estão nas oitavas.`;
-    }
-    return `${phase} em andamento: ${classified.length} vagas nas oitavas já foram definidas.`;
   }
 
   function teamNameWithArticle(team) {
@@ -1383,7 +1391,7 @@
           : node("p", { class: "home-empty-line", text: "As próximas classificações aparecerão aqui." }),
       ]),
       node("article", { class: "home-pulse-column" }, [
-        node("header", {}, [node("small", { text: pulse?.next_phase || "Próxima fase" }), node("h3", { text: "Próximos encaixes" })]),
+        node("header", {}, [node("small", { text: pulse?.next_phase || "Próxima fase" }), node("h3", { text: "Próximos confrontos" })]),
         next.length
           ? node("div", { class: "home-pulse-list" }, next.map(match => homeBracketMatch(match)))
           : node("p", { class: "home-empty-line", text: "Os próximos confrontos ainda estão sendo definidos." }),
@@ -1392,7 +1400,6 @@
     return node("div", { class: "home-pulse" }, [
       node("div", { class: "home-pulse-phase" }, [
         node("span", {}, [node("small", { text: "Fase atual" }), node("strong", { text: pulse.current_phase || "Em andamento" })]),
-        node("p", { class: "home-pulse-headline", text: homePulseHeadline(pulse) }),
       ]),
       node("div", { class: "home-pulse-grid" }, columns),
     ]);
@@ -1541,6 +1548,10 @@
   }
 
   function openPlayerQuickView(player) {
+    if (player?.player_id) {
+      goToProfile("player", player.player_id);
+      return;
+    }
     openQuickView({
       kicker: "Resumo do jogador",
       titleContent: node("span", { class: "quick-entity-title" }, [flagNode(player, "flag-medium"), node("span", { text: personName(player) })]),
@@ -1556,6 +1567,10 @@
   }
 
   function openHomeTeamQuickView(team) {
+    if (team?.team_id) {
+      goToProfile("team", team.team_id);
+      return;
+    }
     const selectedTeam = rawTeamName(team);
     const nextMatches = [
       ...(state.overviewData?.matches_today || []),
@@ -1714,7 +1729,7 @@
     const player = highlights.top_player;
     const match = leaders.matches?.shots?.[0];
     const items = [
-      team ? { kicker: "Seleção em destaque", entity: "team", item: team, reason: `${formatValue(team.xg)} xG e saldo de ${signedStandingValue(team.goal_difference)} gols na fase de grupos.`, stats: [["Pts", team.points], ["GP", team.goals_for], ["GC", team.goals_against]] } : null,
+      team ? { kicker: "Seleção em destaque", entity: "team", item: team, reason: `${formatValue(team.xg)} xG e saldo de ${signedStandingValue(team.goal_difference)} gols na Copa.`, stats: [["Jogos", team.played], ["GP", team.goals_for], ["GC", team.goals_against]] } : null,
       player ? { kicker: "Jogador em destaque", entity: "player", item: player, reason: `${formatValue(player.goals)} gols em ${formatValue(player.minutes_played)} minutos, liderando a artilharia.`, stats: [["Jogos", player.games], ["Gols", player.goals], ["Assist.", player.assists]] } : null,
       match ? { kicker: "Partida em destaque", entity: "match", item: match, reason: `${formatValue(match.shots)} finalizações fizeram deste o jogo de maior volume ofensivo.`, stats: [["Chutes", match.shots], ["xG", match.xg_total]] } : null,
     ].filter(Boolean);
@@ -5071,6 +5086,12 @@
   }
 
   function openMatchQuickView(match) {
+    // Clicking a match goes straight to the full match page — the summary drawer only
+    // remains as a fallback for rows that don't carry a match_id (undefined bracket slots).
+    if (match?.match_id) {
+      routeTo("matches", match.match_id);
+      return;
+    }
     const teams = quickMatchTeams(match);
     const date = match?.match_date || match?.kickoff_at;
     const hasScore = match?.home_score !== null && match?.home_score !== undefined

@@ -153,6 +153,11 @@ class TheStatsApiBronzeService:
         pulse = self.home_pulse(fixtures, now=now)
         knockout_summary = self.home_knockout_summary(fixtures, pulse=pulse)
         discoveries = self.home_discoveries(player_rows, team_rows, match_details)
+        eliminated = self._eliminated_team_names(fixtures)
+        featured_team = next(
+            (row for row in compact_teams.get("xg", []) if row.get("team_name") not in eliminated),
+            (compact_teams.get("xg") or [None])[0],
+        )
         return json_safe(
             {
                 "year": year,
@@ -172,7 +177,9 @@ class TheStatsApiBronzeService:
                 "knockout_summary": knockout_summary,
                 "discoveries": discoveries,
                 "highlights": {
-                    "top_team": (compact_teams.get("xg") or [None])[0],
+                    # A statistically dominant but already-eliminated team is not "defining the
+                    # Cup" anymore — the featured team is the strongest xG side still alive.
+                    "top_team": featured_team,
                     "top_player": (compact_players.get("goals") or [None])[0],
                     "team_ranking": compact_teams.get("xg", []),
                     "player_ranking": compact_players.get("goals", []),
@@ -509,6 +516,29 @@ class TheStatsApiBronzeService:
         )
         reference = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
         return bool(parsed and has_score and parsed <= reference - timedelta(hours=4))
+
+    @staticmethod
+    def _eliminated_team_names(fixtures: list[dict[str, Any]]) -> set[str]:
+        """Teams knocked out of the tournament: losers of decided knockout matches."""
+        eliminated: set[str] = set()
+        for match in fixtures:
+            if match.get("group_name"):
+                continue
+            home_score = number(match.get("home_score"))
+            away_score = number(match.get("away_score"))
+            if home_score is None or away_score is None:
+                continue
+            if home_score != away_score:
+                loser = match.get("home_team") if away_score > home_score else match.get("away_team")
+            else:
+                penalty_home = number(match.get("penalty_home_score"))
+                penalty_away = number(match.get("penalty_away_score"))
+                if penalty_home is None or penalty_away is None or penalty_home == penalty_away:
+                    continue
+                loser = match.get("home_team") if penalty_away > penalty_home else match.get("away_team")
+            if loser:
+                eliminated.add(str(loser))
+        return eliminated
 
     @staticmethod
     def _compact_player(row: dict[str, Any]) -> dict[str, Any]:
@@ -1227,6 +1257,24 @@ class TheStatsApiBronzeService:
                 row["shots"] = (row.get("shots") or 0) + int(team.get("shots") or 0)
                 row["goals"] = (row.get("goals") or 0) + int(team.get("goals") or 0)
             match = detail["match"]
+            # Campaign record derived from every played match (group + knockout). The standings
+            # base rows only cover the group stage, so once knockout bundles exist the standings
+            # `played` would divide metrics accumulated over more matches than it counts.
+            home_score = number(match.get("home_score"))
+            away_score = number(match.get("away_score"))
+            if home_score is not None and away_score is not None:
+                for team, scored, conceded in (
+                    (match.get("home_team"), home_score, away_score),
+                    (match.get("away_team"), away_score, home_score),
+                ):
+                    row = by_name.get(team)
+                    if not row:
+                        continue
+                    row["campaign_played"] = int(row.get("campaign_played") or 0) + 1
+                    row["campaign_goals_for"] = int(row.get("campaign_goals_for") or 0) + int(scored)
+                    row["campaign_goals_against"] = int(row.get("campaign_goals_against") or 0) + int(conceded)
+                    outcome = "wins" if scored > conceded else "losses" if scored < conceded else "draws"
+                    row[f"campaign_{outcome}"] = int(row.get(f"campaign_{outcome}") or 0) + 1
             xg_rows: dict[str, dict[str, Any]] = {}
             for item in detail["stats_comparison"]:
                 xg_rows.setdefault(str(item.get("metric")), item)
@@ -1264,6 +1312,13 @@ class TheStatsApiBronzeService:
                 if opponent_on_target is not None:
                     row["shots_on_target_against"] = int(row.get("shots_on_target_against") or 0) + int(opponent_on_target)
         for row in rows:
+            campaign_played = int(row.pop("campaign_played", 0) or 0)
+            campaign = {key: int(row.pop(f"campaign_{key}", 0) or 0) for key in ("wins", "draws", "losses", "goals_for", "goals_against")}
+            # Only replace the standings record when the played matches cover at least the group
+            # stage — if bundles are missing, the group-only standings stay authoritative.
+            if campaign_played >= int(row.get("played") or 0):
+                row["played"] = campaign_played
+                row.update(campaign)
             row["xg"] = round(float(row.get("xg") or 0), 2)
             row["xga"] = round(float(row.get("xga") or 0), 2)
             row["xg_difference"] = round(row["xg"] - row["xga"], 2)
@@ -2411,17 +2466,21 @@ class TheStatsApiBronzeService:
             1 for item in finished
             if int(item.get("home_score") or 0) == 0 or int(item.get("away_score") or 0) == 0
         )
+        xg_total = round(sum(float(team.get("xg") or 0) for team in teams), 2)
+        # Only players who actually stepped on the pitch count for the edition summary.
+        active_players = sum(1 for row in players if float(row.get("minutes_played") or 0) > 0)
         return {
             "matches": len(fixtures),
             "finished": len(finished),
             "teams": len(teams),
-            "players": len(players),
+            "players": active_players,
             "goals": goals,
             "goals_per_match": round(goals / len(finished), 2) if finished else None,
             "shots": shots,
             "shot_conversion": round(goals / shots * 100, 1) if shots else None,
             "clean_sheets": clean_sheets,
-            "xg": round(sum(float(team.get("xg") or 0) for team in teams), 2),
+            "xg": xg_total,
+            "xg_per_match": round(xg_total / len(finished), 2) if finished else None,
         }
 
     @staticmethod
@@ -2865,27 +2924,47 @@ class TheStatsApiBronzeService:
 
     @staticmethod
     def player_leaders(players: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+        # Full rankings (no top-10 cap): the UI shows Top 5 and opens the whole list on demand.
+        # Count-like metrics drop zero rows so the "complete ranking" ends where the stat ends;
+        # signed/average metrics keep every measured player.
         metrics = ("goals", "xg", "shots", "shots_on_target", "xg_per_shot", "goals_minus_xg", "assists", "rating")
-        return {metric: sorted([row for row in players if row.get(metric) is not None], key=lambda row: row.get(metric) or 0, reverse=True)[:10] for metric in metrics}
+        keep_zero = {"goals_minus_xg", "rating"}
+        played = [row for row in players if float(row.get("minutes_played") or 0) > 0]
+        return {
+            metric: sorted(
+                [
+                    row
+                    for row in played
+                    if row.get(metric) is not None
+                    and (metric in keep_zero or float(row.get(metric) or 0) > 0)
+                ],
+                key=lambda row: row.get(metric) or 0,
+                reverse=True,
+            )
+            for metric in metrics
+        }
 
     @staticmethod
     def team_leaders(teams: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
         metrics = ("xg", "xga", "xg_difference", "shots", "goals_for", "points")
         rankings = {}
         for metric in metrics:
-            rows = sorted(
+            rankings[metric] = sorted(
                 [row for row in teams if row.get(metric) is not None],
                 key=lambda row: row.get(metric) or 0,
                 reverse=True,
             )
-            rankings[metric] = rows if metric == "xg_difference" else rows[:10]
         return rankings
 
     @staticmethod
     def match_rankings(matches: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
         return {
-            "xg_total": sorted(matches, key=lambda row: row.get("xg_total") or 0, reverse=True)[:10],
-            "shots": sorted(matches, key=lambda row: row.get("shots") or 0, reverse=True)[:10],
+            metric: sorted(
+                [row for row in matches if row.get(metric) is not None],
+                key=lambda row: row.get(metric) or 0,
+                reverse=True,
+            )
+            for metric in ("xg_total", "shots")
         }
 
     @staticmethod

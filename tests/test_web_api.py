@@ -1934,8 +1934,8 @@ def test_2026_home_is_a_compact_editorial_match_center() -> None:
 
     for function_name in (
         "homeSummaryStrip",
+        "homeCompetitionProgress",
         "homePulse",
-        "homePulseHeadline",
         "homeFriendlyKickoff",
         "homeBracketSummary",
         "compactMatchRow",
@@ -1959,7 +1959,11 @@ def test_2026_home_is_a_compact_editorial_match_center() -> None:
         assert heading in overview
 
     assert "home-summary-strip" in app_js
-    assert "home-pulse-headline" in app_js
+    # The stale pulse headline ("N vagas nas oitavas...") was removed on 2026-07-09:
+    # the phase strip alone states where the tournament is.
+    assert "function homePulseHeadline" not in app_js
+    assert "home-pulse-headline" not in app_js
+    assert "home-competition-progress" in app_js
     assert "home-match-row" in app_js
     assert "home-ranking-row" in app_js
     for tab in ("Jogadores", "Seleções", "Partidas", "Curiosidades"):
@@ -1979,7 +1983,7 @@ def test_2026_home_is_a_compact_editorial_match_center() -> None:
         app_js.index("function homeSummaryStrip"):
         app_js.index("function knockoutSideNode")
     ]
-    for metric in ("summary.shot_conversion", "summary.clean_sheets", "summary.goals", "summary.goals_per_match", "summary.teams", "summary.shots", "summary.xg", "summary.players"):
+    for metric in ("summary.shot_conversion", "summary.clean_sheets", "summary.goals", "summary.goals_per_match", "summary.xg_per_match", "summary.shots", "summary.xg", "summary.players"):
         assert metric in summary_strip
     assert not any(
         term in overview

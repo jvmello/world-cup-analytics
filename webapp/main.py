@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Response
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -30,6 +31,19 @@ def create_app(
     admin_db_path: Path | str | None = None,
 ) -> FastAPI:
     app = FastAPI(title="World Cup Analytics API", version="1.0.0")
+    # CORS: never "*" in production. Comma-separated list via ALLOWED_ORIGINS
+    # (e.g. "https://worldcup.jvmello.dev,http://localhost:8010" for local dev).
+    allowed_origins = [
+        origin.strip()
+        for origin in os.getenv("ALLOWED_ORIGINS", "https://worldcup.jvmello.dev").split(",")
+        if origin.strip()
+    ]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type", "X-Admin-Key", "X-Admin-Actor"],
+    )
     service = DataService(data_root, admin_db_path=admin_db_path)
     enabled = admin_enabled if admin_enabled is not None else os.getenv("ENABLE_ADMIN_TOOLS", "false").strip().lower() in {"1", "true", "yes", "on"}
     configured_key = admin_api_key if admin_api_key is not None else os.getenv("ADMIN_API_KEY", "").strip()
