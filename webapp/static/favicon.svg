@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <!-- Marca worldcup.dev Analytics: donut em 4 cores com barras de gráfico -->
+  <rect width="48" height="48" rx="10" fill="#141414"/>
+  <path d="M24 24 L24 4 A20 20 0 0 0 4 24 Z" fill="#9b5cf6"/>
+  <path d="M24 24 L44 24 A20 20 0 0 0 24 4 Z" fill="#10ce8e"/>
+  <path d="M24 24 L24 44 A20 20 0 0 0 44 24 Z" fill="#f2503b"/>
+  <path d="M24 24 L4 24 A20 20 0 0 0 24 44 Z" fill="#338ef7"/>
+  <circle cx="24" cy="24" r="11.4" fill="#141414"/>
+  <rect x="17.8" y="24.6" width="3.4" height="6.2" rx="1" fill="#f4f2e9"/>
+  <rect x="22.3" y="19" width="3.4" height="11.8" rx="1" fill="#f4f2e9"/>
+  <rect x="26.8" y="22" width="3.4" height="8.8" rx="1" fill="#f4f2e9"/>
+</svg>

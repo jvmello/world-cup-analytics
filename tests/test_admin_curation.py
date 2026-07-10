@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
+import unittest
+
 from fastapi.testclient import TestClient
 
 from webapp.curation_repository import CurationRepository
@@ -13,8 +14,10 @@ from webapp.player_positions import apply_player_override, assign_benchmark_coho
 # ADMIN DESATIVADO POR ORA (2026-07-09): as rotas /api/admin/* e o painel /admin estão
 # comentados em webapp/main.py para não subirem à produção. Os testes que exercitam
 # essas rotas ficam pulados até a reativação; os de curadoria pura continuam valendo.
-ADMIN_DISABLED = pytest.mark.skip(
-    reason="Admin desativado por ora — rotas comentadas em webapp/main.py"
+# (unittest.skip em vez de pytest.mark.skip: o container `app` roda a suíte via
+# unittest e não tem pytest instalado.)
+ADMIN_DISABLED = unittest.skip(
+    "Admin desativado por ora — rotas comentadas em webapp/main.py"
 )
 
 

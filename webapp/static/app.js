@@ -197,8 +197,11 @@
     els.select.value = state.year;
     state.edition = state.editions.find(item => editionYear(item) === state.year) || null;
     const coverage = state.edition ? editionCoverage(state.edition) : "Acervo em preparação";
+    // Na edição corrente a marca fala por si — a linha de status só aparece no arquivo.
+    const coverageLine = els.coverage.closest(".coverage");
+    if (coverageLine) coverageLine.hidden = state.year === DEFAULT_YEAR;
     els.coverage.textContent = state.year === DEFAULT_YEAR
-      ? `Central analítica da Copa do Mundo ${state.year}`
+      ? ""
       : `Arquivo da Copa do Mundo ${state.year} · ${coverage}`;
     els.footerSource.textContent = "Créditos e fontes consolidados na documentação do projeto.";
     renderNav();
@@ -6411,13 +6414,13 @@
     fragment.append(section("Dados", null, node("p", {
       text: "As estatísticas, eventos, escalações e demais informações analíticas exibidas neste produto têm como fonte a TheStatsAPI.",
     })));
-    // Portfolio link placeholder — uncomment and fill in once jvmello.dev is live.
-    // const portfolioUrl = "https://jvmello.dev";
-    const portfolioUrl = null;
     fragment.append(section("Criação", null, node("div", {}, [
-      node("p", { text: "João Vitor Machado de Mello" }),
-      portfolioUrl ? node("p", {}, node("a", { href: portfolioUrl, target: "_blank", rel: "noopener", text: "Portfólio" })) : null,
-    ].filter(Boolean))));
+      node("p", {}, [
+        node("span", { text: "Projeto de João Vitor Machado de Mello — mais trabalhos em " }),
+        node("a", { href: "https://jvmello.dev", target: "_blank", rel: "noopener", text: "jvmello.dev" }),
+        node("span", { text: "." }),
+      ]),
+    ])));
     els.view.replaceChildren(fragment);
   }
 

@@ -1296,8 +1296,11 @@ def test_2026_theme_uses_black_editorial_world_cup_tokens() -> None:
     ):
         assert token in styles
     assert 'content="#000000"' in index
-    assert '<strong>Analytics</strong>' in index
-    assert '<small>World Cup 2026</small>' in index
+    # Marca atual (2026-07-10): logo SVG (donut 4 cores + barras) e wordmark "worldcup".
+    assert 'class="brand-logo"' in index
+    assert '<strong class="brand-word">worldcup</strong>' in index
+    assert '<small>Analytics · 2026</small>' in index
+    assert "Central analítica" not in index
     assert 'body[data-skin="2026"] .match-score-card' in styles
     assert 'body[data-skin="2026"] .impact-card' in styles
     assert 'body[data-skin="2026"] .player-metrics-table tbody tr.is-selected' in styles

@@ -92,6 +92,12 @@ thestatsapi-silver:
 thestatsapi-serving:
 	docker compose run --rm app python -m thestatsapi.serving
 
+thestatsapi-sync:
+	docker compose run --rm app python -m thestatsapi.sync
+
+thestatsapi-sync-dry:
+	docker compose run --rm app python -m thestatsapi.sync --dry-run --skip-fixtures
+
 thestatsapi-gold:
 	docker compose run --rm app python -m thestatsapi.gold
 

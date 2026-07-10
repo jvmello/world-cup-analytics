@@ -55,10 +55,7 @@ a { color: inherit; }
 .site-header { border-bottom: 1px solid var(--line); background: rgba(16, 17, 15, .94); backdrop-filter: blur(14px); }
 .masthead { min-height: 112px; display: grid; grid-template-columns: 1fr auto minmax(260px, .65fr); align-items: center; gap: 32px; }
 .brand { display: inline-flex; width: fit-content; align-items: center; gap: 12px; text-decoration: none; text-transform: uppercase; }
-.brand-mark {
-  display: grid; width: 45px; height: 45px; place-items: center; transform: rotate(-4deg);
-  background: var(--accent); color: var(--accent-ink); font: 900 27px/1 Georgia, serif;
-}
+.brand-logo { display: block; flex: 0 0 auto; width: 44px; height: 44px; }
 .brand strong { display: block; font: 800 clamp(18px, 2.2vw, 27px)/.9 Georgia, serif; letter-spacing: -.04em; }
 .brand small { display: block; margin-top: 5px; color: var(--accent); font-size: 10px; font-weight: 800; letter-spacing: .28em; }
 .edition-control { display: flex; align-items: center; gap: 11px; }
@@ -72,6 +69,7 @@ select {
 select:disabled { opacity: .55; cursor: not-allowed; }
 .select-wrap:has(select:disabled)::after { opacity: .55; }
 .coverage { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.coverage[hidden] { display: none; }
 .status-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 13%, transparent); }
 .nav-layer { border-top: 1px solid var(--line); background: var(--surface); }
 .nav-row { min-height: 52px; display: flex; align-items: stretch; }
@@ -857,36 +855,21 @@ body[data-skin="2026"] .masthead {
   min-height: 96px;
 }
 
-body[data-skin="2026"] .brand-mark {
-  position: relative;
-  width: 48px;
-  height: 54px;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, .2);
-  border-radius: 8px;
-  transform: none;
-  background: var(--wc26-surface-elevated);
-  color: var(--wc26-text);
-  box-shadow: none;
-  font-family: var(--wc26-display-font);
-  font-size: 20px;
-  font-stretch: normal;
-  font-weight: 900;
-  line-height: 1;
-}
-
-body[data-skin="2026"] .brand-mark::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto;
-  height: 5px;
-  background: var(--wc26-gradient-main);
-}
-
 body[data-skin="2026"] .brand-copy {
   display: grid;
   gap: 3px;
 }
+
+/* Wordmark "worldcup.dev": minúsculo e sem o contorno do display font — o logo
+   colorido ao lado já carrega o peso visual da marca. */
+body[data-skin="2026"] .brand strong.brand-word {
+  font: 700 clamp(19px, 2.1vw, 25px)/1 Georgia, serif;
+  letter-spacing: -.01em;
+  color: var(--wc26-text);
+  text-transform: none;
+  -webkit-text-stroke: 0;
+}
+
 
 body[data-skin="2026"] .shirt-number,
 body[data-skin="2026"] .capability-status {
@@ -895,7 +878,6 @@ body[data-skin="2026"] .capability-status {
   box-shadow: none;
 }
 
-body[data-skin="2026"] .brand strong,
 body[data-skin="2026"] h1,
 body[data-skin="2026"] .section-heading h2,
 body[data-skin="2026"] .score-line strong,
@@ -5890,7 +5872,7 @@ body.is-match-center[data-skin="2026"] .lineup-unit h4 {
 @media (max-width: 640px) {
   .shell { width: min(calc(100% - 24px), var(--max)); }
   .masthead { min-height: 80px; }
-  .brand-mark { width: 38px; height: 38px; font-size: 22px; }
+  .brand-logo { width: 36px; height: 36px; }
   .brand strong { font-size: 17px; }
   .brand small { font-size: 8px; }
   .edition-control { gap: 6px; }

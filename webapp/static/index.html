@@ -4,8 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#000000">
-  <meta name="description" content="World Cup Analytics — dados, contexto e história das Copas do Mundo.">
-  <title>World Cup Analytics</title>
+  <meta name="description" content="worldcup.dev Analytics — dados, contexto e história das Copas do Mundo.">
+  <title>worldcup.dev · Analytics 2026</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <link rel="stylesheet" href="/static/styles.css">
   <script src="/static/app.js" defer></script>
 </head>
@@ -14,11 +15,20 @@
 
   <header class="site-header">
     <div class="masthead shell">
-      <a class="brand" href="/2026" aria-label="World Cup 2026 Analytics — início">
-        <span class="brand-mark" aria-hidden="true"><span>26</span></span>
+      <a class="brand" href="/2026" aria-label="worldcup Analytics 2026 — início">
+        <svg class="brand-logo" viewBox="0 0 48 48" aria-hidden="true" focusable="false">
+          <path d="M24 24 L24 2 A22 22 0 0 0 2 24 Z" fill="#9b5cf6"/>
+          <path d="M24 24 L46 24 A22 22 0 0 0 24 2 Z" fill="#10ce8e"/>
+          <path d="M24 24 L24 46 A22 22 0 0 0 46 24 Z" fill="#f2503b"/>
+          <path d="M24 24 L2 24 A22 22 0 0 0 24 46 Z" fill="#338ef7"/>
+          <circle cx="24" cy="24" r="12.5" fill="#141414"/>
+          <rect x="17.4" y="24.4" width="3.6" height="6.6" rx="1" fill="#f4f2e9"/>
+          <rect x="22.2" y="18.6" width="3.6" height="12.4" rx="1" fill="#f4f2e9"/>
+          <rect x="27" y="21.8" width="3.6" height="9.2" rx="1" fill="#f4f2e9"/>
+        </svg>
         <span class="brand-copy">
-          <strong>Analytics</strong>
-          <small>World Cup 2026</small>
+          <strong class="brand-word">worldcup</strong>
+          <small>Analytics · 2026</small>
         </span>
       </a>
 
@@ -31,9 +41,9 @@
         </div>
       </div>
 
-      <div class="coverage" id="coverage-line" aria-live="polite">
+      <div class="coverage" id="coverage-line" aria-live="polite" hidden>
         <span class="status-dot" aria-hidden="true"></span>
-        <span id="coverage-text">Central analítica da Copa do Mundo</span>
+        <span id="coverage-text"></span>
       </div>
     </div>
 
