@@ -11,6 +11,7 @@ import pandas as pd
 
 from .catalog import DEFAULT_EDITION, edition_catalog
 from .curation_repository import CurationRepository
+from .gold_payloads import GoldPayloadRepository
 from .thestatsapi_service import TheStatsApiBronzeService
 
 
@@ -66,6 +67,7 @@ class DataService:
         *,
         curation_repository: CurationRepository | None = None,
         admin_db_path: Path | str | None = None,
+        gold_payload_repository: Any | None = None,
     ) -> None:
         self.data_root = Path(data_root)
         database_path = admin_db_path or os.getenv("ADMIN_DATABASE_PATH") or self.data_root / "admin/world_cup_admin.db"
@@ -74,6 +76,9 @@ class DataService:
             data_root,
             curation_repository=self.curation,
         )
+        normalized_data_root = str(self.data_root)
+        self.gold_enabled = gold_payload_repository is not None or normalized_data_root in {"data", "/app/data"}
+        self.gold_payloads = gold_payload_repository or GoldPayloadRepository()
 
     def catalog(self) -> dict[str, Any]:
         return edition_catalog(self.data_root)
@@ -93,6 +98,68 @@ class DataService:
 
     def _has_thestatsapi(self, year: int) -> bool:
         return year == 2026 and self.thestatsapi.available(year)
+
+    def _gold_cutover_active(self, year: int) -> bool:
+        return year == 2026 and self.gold_enabled
+
+    def _gold_payload(
+        self,
+        year: int,
+        endpoint: str,
+        *,
+        entity_id: str | None = None,
+        scope: str | None = None,
+    ) -> dict[str, Any] | None:
+        if year != 2026:
+            return None
+        if not self.gold_enabled:
+            return None
+        return self.gold_payloads.get_payload(
+            year,
+            endpoint,
+            entity_id=entity_id,
+            scope=scope,
+        )
+
+    def raw_gold_payload(
+        self,
+        year: int,
+        endpoint: str,
+        *,
+        entity_id: str | None = None,
+        scope: str | None = None,
+    ) -> str | None:
+        if not self._gold_cutover_active(year):
+            return None
+        getter = getattr(self.gold_payloads, "get_payload_text", None)
+        if getter is None:
+            return None
+        return getter(year, endpoint, entity_id=entity_id, scope=scope)
+
+    def _gold_or_unavailable(
+        self,
+        year: int,
+        endpoint: str,
+        *,
+        entity_id: str | None = None,
+        scope: str | None = None,
+        notice: str = "Dados da edição ainda não foram publicados.",
+        extra: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        payload = self._gold_payload(
+            year,
+            endpoint,
+            entity_id=entity_id,
+            scope=scope,
+        )
+        if payload is not None:
+            return payload
+        return {
+            "year": year,
+            "available": False,
+            "notice": notice,
+            **(extra or {}),
+        }
 
     def _read_parquet(self, relative: str) -> pd.DataFrame:
         path = self.data_root / relative
@@ -240,7 +307,12 @@ class DataService:
         }
 
     def overview(self, year: int) -> dict[str, Any]:
+        if self._gold_cutover_active(year):
+            return self._gold_or_unavailable(year, "overview")
         if self._has_thestatsapi(year):
+            payload = self._gold_payload(year, "overview")
+            if payload is not None:
+                return payload
             return self.thestatsapi.overview(year)
         matches = self.matches_frame(year)
         team_metrics = self.teams_frame(year)
@@ -330,7 +402,16 @@ class DataService:
         return str(final["home_team"] if home > away else final["away_team"])
 
     def competition(self, year: int) -> dict[str, Any]:
+        if self._gold_cutover_active(year):
+            return self._gold_or_unavailable(
+                year,
+                "competition",
+                extra={"groups": [], "best_thirds": [], "knockout": {"rounds": []}},
+            )
         if self._has_thestatsapi(year):
+            payload = self._gold_payload(year, "competition")
+            if payload is not None:
+                return payload
             return self.thestatsapi.competition(year)
         groups = self._for_year(
             self._read_parquet(
@@ -371,7 +452,16 @@ class DataService:
         }
 
     def teams(self, year: int) -> dict[str, Any]:
+        if self._gold_cutover_active(year):
+            return self._gold_or_unavailable(
+                year,
+                "teams",
+                extra={"summary": {}, "rankings": {}, "items": []},
+            )
         if self._has_thestatsapi(year):
+            payload = self._gold_payload(year, "teams")
+            if payload is not None:
+                return payload
             return self.thestatsapi.teams(year)
         frame = self.teams_frame(year)
         available = not frame.empty
@@ -407,7 +497,16 @@ class DataService:
         }
 
     def players(self, year: int) -> dict[str, Any]:
+        if self._gold_cutover_active(year):
+            return self._gold_or_unavailable(
+                year,
+                "players",
+                extra={"summary": {}, "leaders": {}, "scatter": [], "items": []},
+            )
         if self._has_thestatsapi(year):
+            payload = self._gold_payload(year, "players")
+            if payload is not None:
+                return payload
             return self.thestatsapi.players(year)
         frame = self.players_frame(year)
         available = not frame.empty
@@ -461,7 +560,16 @@ class DataService:
         }
 
     def matches(self, year: int) -> dict[str, Any]:
+        if self._gold_cutover_active(year):
+            return self._gold_or_unavailable(
+                year,
+                "matches",
+                extra={"summary": {}, "stage_distribution": [], "items": []},
+            )
         if self._has_thestatsapi(year):
+            payload = self._gold_payload(year, "matches")
+            if payload is not None:
+                return payload
             return self.thestatsapi.matches(year)
         frame = self.matches_frame(year)
         available = not frame.empty
@@ -515,7 +623,24 @@ class DataService:
         return int(total) if float(total).is_integer() else round(float(total), 2)
 
     def shots(self, year: int) -> dict[str, Any]:
+        if self._gold_cutover_active(year):
+            return self._gold_or_unavailable(
+                year,
+                "shots",
+                extra={
+                    "summary": {},
+                    "shot_map": [],
+                    "player_leaders": [],
+                    "team_summary": [],
+                    "xg_flow": [],
+                    "breakdowns": {},
+                    "items": [],
+                },
+            )
         if self._has_thestatsapi(year):
+            payload = self._gold_payload(year, "shots")
+            if payload is not None:
+                return payload
             return self.thestatsapi.shots(year)
         frame = self._for_year(
             self._read_parquet(
@@ -691,10 +816,24 @@ class DataService:
         }
 
     def thestatsapi_match(self, year: int) -> dict[str, Any]:
+        if self._gold_cutover_active(year):
+            return self._gold_or_unavailable(year, "thestatsapi_match")
+        payload = self._gold_payload(year, "thestatsapi_match")
+        if payload is not None:
+            return payload
         return self.thestatsapi.opening_match(year)
 
     def profiles(self, year: int) -> dict[str, Any]:
+        if self._gold_cutover_active(year):
+            return self._gold_or_unavailable(
+                year,
+                "profiles",
+                extra={"players": [], "teams": [], "filters": {}},
+            )
         if self._has_thestatsapi(year):
+            payload = self._gold_payload(year, "profiles")
+            if payload is not None:
+                return payload
             return self.thestatsapi.profiles(year)
         return {
             "year": year,
@@ -705,7 +844,17 @@ class DataService:
         }
 
     def match_detail(self, year: int, match_id: str) -> dict[str, Any]:
+        if self._gold_cutover_active(year):
+            return self._gold_or_unavailable(
+                year,
+                "match_detail",
+                entity_id=match_id,
+                notice="Partida não encontrada no recorte publicado.",
+            )
         if self._has_thestatsapi(year):
+            payload = self._gold_payload(year, "match_detail", entity_id=match_id)
+            if payload is not None:
+                return payload
             return self.thestatsapi.match_detail(year, match_id)
         return {
             "year": year,
@@ -720,7 +869,26 @@ class DataService:
         scope: str = "all",
         match_id: str | None = None,
     ) -> dict[str, Any]:
+        if self._gold_cutover_active(year):
+            payload_scope = f"match:{match_id}" if scope == "match" and match_id else scope
+            return self._gold_or_unavailable(
+                year,
+                "player_detail",
+                entity_id=player_id,
+                scope=payload_scope,
+                notice="Não há dados do jogador neste recorte.",
+                extra={"context": {"scope": scope, "match_id": match_id}},
+            )
         if self._has_thestatsapi(year):
+            payload_scope = f"match:{match_id}" if scope == "match" and match_id else scope
+            payload = self._gold_payload(
+                year,
+                "player_detail",
+                entity_id=player_id,
+                scope=payload_scope,
+            )
+            if payload is not None:
+                return payload
             return self.thestatsapi.player_detail(
                 year,
                 player_id,
@@ -734,7 +902,17 @@ class DataService:
         }
 
     def team_detail(self, year: int, team_id: str) -> dict[str, Any]:
+        if self._gold_cutover_active(year):
+            return self._gold_or_unavailable(
+                year,
+                "team_detail",
+                entity_id=team_id,
+                notice="Seleção não encontrada no recorte publicado.",
+            )
         if self._has_thestatsapi(year):
+            payload = self._gold_payload(year, "team_detail", entity_id=team_id)
+            if payload is not None:
+                return payload
             return self.thestatsapi.team_detail(year, team_id)
         return {
             "year": year,
@@ -754,6 +932,24 @@ class DataService:
         }
 
     def official_metrics(self, year: int) -> dict[str, Any]:
+        if self._gold_cutover_active(year):
+            return self._gold_or_unavailable(
+                year,
+                "official_metrics",
+                notice="Métricas oficiais ainda não estão disponíveis para esta edição.",
+                extra={
+                    "scoreboard": None,
+                    "team_comparison": [],
+                    "phase_comparison": [],
+                    "player_leaders": {},
+                    "team_metrics": [],
+                    "phases_of_play": [],
+                    "player_metrics": [],
+                },
+            )
+        payload = self._gold_payload(year, "official_metrics")
+        if payload is not None:
+            return payload
         teams = self._read_csv(year, "team_key_statistics.csv")
         phases = self._read_csv(year, "phases_of_play.csv")
         players = self._read_csv(year, "player_metrics.csv")
@@ -887,6 +1083,15 @@ class DataService:
         }
 
     def availability(self, year: int) -> dict[str, Any]:
+        if self._gold_cutover_active(year):
+            return self._gold_or_unavailable(
+                year,
+                "availability",
+                extra={"source": "TheStatsAPI", "coverage": {}, "capabilities": []},
+            )
+        payload = self._gold_payload(year, "availability")
+        if payload is not None:
+            return payload
         edition = self.edition(year) or {}
         labels = {
             "overview": "Resumo do torneio",

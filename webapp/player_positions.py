@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from datetime import datetime, timezone
 from typing import Any
 
 
@@ -167,7 +166,7 @@ def infer_match_positions(
     players: list[dict[str, Any]],
     events: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    now = datetime.now(timezone.utc).isoformat()
+    derived_at = f"derived:thestatsapi:{match_id}"
     lineup_by_player: dict[str, dict[str, Any]] = {}
     team_context: dict[str, dict[str, Any]] = {}
     for side in ("home", "away"):
@@ -219,8 +218,8 @@ def infer_match_positions(
                 "slot_label": role if source == "formation_slot" else None,
                 "formation_mapped": bool(context.get("formation_mapped")),
                 "lineup_order_reliable": bool(context.get("slot_order_reliable")),
-                "created_at": now,
-                "updated_at": now,
+                "created_at": derived_at,
+                "updated_at": derived_at,
             }
         )
 

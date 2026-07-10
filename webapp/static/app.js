@@ -588,7 +588,9 @@
   function scoreCard(match, { hero = false } = {}) {
     const home = first(match, ["home_team"], "Mandante");
     const away = first(match, ["away_team"], "Visitante");
-    const stage = first(match, ["competition_stage", "group_name", "stage"], "Partida");
+    // ?? em vez de first(): partidas de mata-mata trazem group_name: null, que não pode
+    // engolir o stage válido logo depois.
+    const stage = match?.competition_stage ?? match?.group_name ?? match?.stage ?? "Partida";
     const stageLabel = /^[A-Z]$/i.test(String(stage)) ? `Grupo ${stage}` : matchStageLabel(stage);
     const date = first(match, ["match_date", "date"], null);
     const goals = Array.isArray(match?.goals) ? match.goals : [];
@@ -856,14 +858,20 @@
     goal: "Gol", save: "Defendido", saved: "Defendido", miss: "Para fora",
     off_target: "Para fora", block: "Bloqueado", blocked: "Bloqueado", post: "Na trave",
   };
+  // As fontes divergem no separador: TheStatsAPI usa underscore (left_foot, set_piece),
+  // StatsBomb usa espaço ("Left Foot", "Open Play") — as chaves cobrem as três formas.
   const BODY_PART_LABELS = {
-    "right-foot": "Pé direito", "left-foot": "Pé esquerdo", head: "Cabeça", other: "Outra parte",
+    "right-foot": "Pé direito", "right_foot": "Pé direito", "right foot": "Pé direito",
+    "left-foot": "Pé esquerdo", "left_foot": "Pé esquerdo", "left foot": "Pé esquerdo",
+    head: "Cabeça", other: "Outra parte",
   };
   const SHOT_TYPE_LABELS = {
-    assisted: "Jogada assistida", "open-play": "Bola rolando", corner: "Escanteio",
-    regular: "Bola rolando", "set-piece": "Bola parada", "fast-break": "Contra-ataque",
-    "throw-in-set-piece": "Lateral ensaiado", "free-kick": "Falta",
-    penalty: "Pênalti", rebound: "Rebote",
+    assisted: "Jogada assistida", "open-play": "Bola rolando", "open play": "Bola rolando", corner: "Escanteio",
+    regular: "Bola rolando", "set-piece": "Bola parada", "set_piece": "Bola parada", "set piece": "Bola parada",
+    "fast-break": "Contra-ataque", "fast_break": "Contra-ataque", "fast break": "Contra-ataque",
+    "throw-in-set-piece": "Lateral ensaiado", "throw_in_set_piece": "Lateral ensaiado",
+    "free-kick": "Falta", "free_kick": "Falta", "free kick": "Falta",
+    penalty: "Pênalti", shootout: "Disputa de pênaltis", rebound: "Rebote",
   };
 
   function shotKey(shot) {
@@ -898,6 +906,43 @@
     ]);
   }
 
+  // Campo 120×80 com marcações em proporção real (105×68 m): grande área 16,5 m de
+  // profundidade × 40,32 m de largura, pequena área 5,5 × 18,32 m, pênalti a 11 m.
+  const PITCH = (() => {
+    const xAt = pct => 1 + pct * 1.18;
+    const yAt = pct => 1 + pct * 0.78;
+    const length = 105, width = 68;
+    const boxX = xAt(16.5 / length * 100), sixX = xAt(5.5 / length * 100), spotX = xAt(11 / length * 100);
+    const boxHalf = 40.32 / width * 50, sixHalf = 18.32 / width * 50;
+    const boxY = yAt(50 - boxHalf), boxHeight = yAt(50 + boxHalf) - boxY;
+    const sixY = yAt(50 - sixHalf), sixHeight = yAt(50 + sixHalf) - sixY;
+    return {
+      xAt, yAt, spotX,
+      markings: [
+        ["line", { x1: 60, y1: 1, x2: 60, y2: 79 }],
+        ["circle", { cx: 60, cy: 40, r: 9.15 / length * 118 }],
+        ["rect", { x: 1, y: boxY, width: boxX - 1, height: boxHeight }],
+        ["rect", { x: 120 - boxX, y: boxY, width: boxX - 1, height: boxHeight }],
+        ["rect", { x: 1, y: sixY, width: sixX - 1, height: sixHeight }],
+        ["rect", { x: 120 - sixX, y: sixY, width: sixX - 1, height: sixHeight }],
+        ["circle", { cx: spotX, cy: 40, r: 0.7 }],
+        ["circle", { cx: 120 - spotX, cy: 40, r: 0.7 }],
+        ["rect", { x: 1, y: 1, width: 118, height: 78 }],
+      ],
+    };
+  })();
+
+  const PENALTY_SHOT_TYPES = new Set(["penalty", "shootout"]);
+
+  function isPenaltyShot(item) {
+    return Boolean(item?.is_penalty) || PENALTY_SHOT_TYPES.has(String(item?.shot_type || "").toLowerCase());
+  }
+
+  // TheStatsAPI publica coordenadas em % (x = distância do gol atacado no comprimento,
+  // y = posição na largura); as linhas trazem a chave `xg`/`is_penalty`. As edições de
+  // arquivo (StatsBomb) já chegam no espaço 120×80 e não têm essas chaves.
+  const shotUsesPercentUnits = item => item?.xg !== undefined || item?.is_penalty !== undefined;
+
   function shotMap(rows, { selectedKey = null, onSelect = null, compactMarkers = false } = {}) {
     const home = first(rows[0] || {}, ["home_team"], null);
     const away = first(rows[0] || {}, ["away_team"], null);
@@ -905,34 +950,38 @@
       const rawX = number(item?.x);
       const rawY = number(item?.y);
       const isAway = away && item?.team_name === away;
-      return {
-        item,
-        x: rawX === null ? null : isAway ? 120 - rawX : rawX,
-        y: rawY === null ? null : rawY,
-        teamIndex: isAway ? 1 : 0,
-      };
-    })
-      .filter(shot => shot.x !== null && shot.y !== null);
+      const teamIndex = isAway ? 1 : 0;
+      if (rawX === null || rawY === null) return null;
+      let x, y;
+      if (isPenaltyShot(item)) {
+        // Pênaltis (do tempo de jogo) sempre na marca da cal; cobranças de disputa
+        // nem chegam ao mapa — vivem na seção própria de pênaltis.
+        x = PITCH.spotX;
+        y = 40;
+      } else if (shotUsesPercentUnits(item)) {
+        x = PITCH.xAt(rawX);
+        y = PITCH.yAt(rawY);
+      } else {
+        x = rawX;
+        y = rawY;
+      }
+      // Visitante espelhado com rotação de 180° (x e y), preservando o lado do campo
+      // em que a jogada aconteceu em relação à direção de ataque.
+      return { item, x: isAway ? 120 - x : x, y: isAway ? 80 - y : y, teamIndex };
+    }).filter(Boolean);
     if (!shots.length) return emptyState("Mapa de chutes indisponível", "Não há coordenadas de finalização para esta edição.");
     const svg = svgNode("svg", {
       viewBox: "0 0 120 80",
+      class: "pitch-svg",
       role: "img",
       "aria-label": `Campo com ${shots.length} finalizações`,
       style: matchPalette(home, away),
     });
     svg.append(svgNode("title", {}, "Mapa de finalizações. Gols aparecem em destaque."));
-    const markings = [
-      ["rect", { x: 1, y: 1, width: 118, height: 78 }],
-      ["line", { x1: 60, y1: 1, x2: 60, y2: 79 }],
-      ["circle", { cx: 60, cy: 40, r: 10 }],
-      ["rect", { x: 1, y: 18, width: 18, height: 44 }],
-      ["rect", { x: 101, y: 18, width: 18, height: 44 }],
-      ["rect", { x: 1, y: 30, width: 6, height: 20 }],
-      ["rect", { x: 113, y: 30, width: 6, height: 20 }],
-      ["circle", { cx: 12, cy: 40, r: 0.7 }],
-      ["circle", { cx: 108, cy: 40, r: 0.7 }],
-    ];
-    markings.forEach(([tag, attrs]) => svg.append(svgNode(tag, { ...attrs, class: "pitch-line" })));
+    for (let band = 0; band < 10; band += 1) {
+      svg.append(svgNode("rect", { x: 1 + band * 11.8, y: 1, width: 11.8, height: 78, class: `pitch-stripe${band % 2 ? " is-alt" : ""}` }));
+    }
+    PITCH.markings.forEach(([tag, attrs]) => svg.append(svgNode(tag, { ...attrs, class: "pitch-line" })));
     shots.forEach(({ item, x, y, teamIndex }) => {
       const goal = Boolean(item?.is_goal) || String(item?.shot_outcome).toLowerCase() === "goal";
       const cx = Math.max(1, Math.min(119, x));
@@ -3943,6 +3992,130 @@
     return `xG do mapa de chutes: ${byShot}. xG agregado da visão geral: ${overview}. Pequenas diferenças refletem a fonte de cada cálculo.`;
   }
 
+  const PENALTY_RESULT_LABELS = { goal: "Gol", save: "Defendida pelo goleiro", saved: "Defendida pelo goleiro", miss: "Para fora", post: "Na trave" };
+  const PENALTY_PHASE_LABELS = { shootout: "Disputa de pênaltis", in_game: "Tempo de jogo" };
+  const GOAL_MOUTH_LABELS = {
+    low_centre: "Baixa, ao centro", high_centre: "Alta, ao centro",
+    low_left: "Baixa, à esquerda", low_right: "Baixa, à direita",
+    high_left: "Alta, à esquerda", high_right: "Alta, à direita",
+    high: "Por cima do gol", left: "À esquerda, para fora", right: "À direita, para fora",
+    close_left: "Rente ao poste esquerdo", close_right: "Rente ao poste direito",
+  };
+
+  function penaltyMapPanel(data) {
+    const kicks = data.penalties || [];
+    if (!kicks.length) return null;
+    const match = data.match || {};
+    const teams = [match.home_team, match.away_team].filter(name => kicks.some(kick => kick.team_name === name));
+    const state = { team: "all", selected: 0 };
+    const output = node("div", { class: "penalty-map-body" });
+    const kickKey = kick => `${kick.order}`;
+    const shootoutScore = metricAvailable(match.penalty_home_score) && metricAvailable(match.penalty_away_score)
+      ? `${displayTeamName(match.home_team)} ${formatValue(match.penalty_home_score)}–${formatValue(match.penalty_away_score)} ${displayTeamName(match.away_team)} na disputa por pênaltis`
+      : null;
+    const filters = node("div", { class: "segmented-control penalty-map-filters" }, [
+      ["all", "Todas"], ...teams.map(team => [team, displayTeamName(team)]),
+    ].map(([key, labelText]) => node("button", {
+      type: "button", text: labelText,
+      onclick: event => {
+        state.team = key;
+        event.currentTarget.parentElement.querySelectorAll("button").forEach(button => button.classList.toggle("is-active", button === event.currentTarget));
+        draw();
+      },
+      class: key === "all" ? "is-active" : "",
+    })));
+    function filteredKicks() {
+      return kicks.filter(kick => state.team === "all" || kick.team_name === state.team);
+    }
+    function goalFrame(rows) {
+      // Baliza na visão do batedor. Nos dados do provedor, y menor = lado direito do
+      // batedor (validado contra goal_mouth_location left/right em toda a edição), então
+      // o eixo é invertido. Postes em y 44,62/55,38; travessão em z=35 na escala da fonte.
+      const xFor = value => Math.max(3, Math.min(97, 50 + (50 - value) * 6.9));
+      const yFor = value => Math.max(4, 48 - Math.max(0, value) * 0.706);
+      const svg = svgNode("svg", { viewBox: "0 0 100 56", class: "penalty-goal-svg", role: "img", "aria-label": `Destino de ${rows.length} cobranças de pênalti, na visão do batedor` });
+      const postLeft = xFor(55.38), postRight = xFor(44.62), bar = yFor(35);
+      for (let line = 1; line < 6; line += 1) {
+        svg.append(svgNode("line", { x1: postLeft + (postRight - postLeft) / 6 * line, y1: bar, x2: postLeft + (postRight - postLeft) / 6 * line, y2: 48, class: "penalty-net" }));
+      }
+      for (let line = 1; line < 4; line += 1) {
+        svg.append(svgNode("line", { x1: postLeft, y1: bar + (48 - bar) / 4 * line, x2: postRight, y2: bar + (48 - bar) / 4 * line, class: "penalty-net" }));
+      }
+      svg.append(
+        svgNode("line", { x1: 0, y1: 48, x2: 100, y2: 48, class: "penalty-ground" }),
+        svgNode("path", { d: `M ${postLeft} 48 L ${postLeft} ${bar} L ${postRight} ${bar} L ${postRight} 48`, class: "penalty-frame" }),
+      );
+      const occupied = new Map();
+      rows.forEach(kick => {
+        if (kick.goal_mouth_y === null || kick.goal_mouth_y === undefined || kick.goal_mouth_z === null || kick.goal_mouth_z === undefined) return;
+        let cx = xFor(number(kick.goal_mouth_y)), cy = yFor(number(kick.goal_mouth_z));
+        const cell = `${Math.round(cx / 6)}|${Math.round(cy / 6)}`;
+        const bumps = occupied.get(cell) || 0;
+        occupied.set(cell, bumps + 1);
+        cx = Math.max(4, Math.min(96, cx + bumps * 4.6));
+        const teamIndex = kick.team_name === match.away_team ? 1 : 0;
+        const selected = kicks.indexOf(kick) === state.selected;
+        const group = svgNode("g", {
+          transform: `translate(${cx} ${cy})`,
+          class: `penalty-kick is-${kick.is_goal ? "goal" : "missed"}${selected ? " is-selected" : ""}`,
+          style: `--team-color:${teamColor(kick.team_name, teamIndex)}`,
+          tabindex: "0",
+          role: "button",
+          "aria-pressed": String(selected),
+          "aria-label": `Cobrança ${kick.order}: ${personName(kick)}, ${PENALTY_RESULT_LABELS[String(kick.result || "").toLowerCase()] || "resultado não informado"}`,
+        });
+        group.append(svgNode("circle", { r: 3.3, class: "penalty-kick-badge" }));
+        if (kick.is_goal) group.append(svgNode("path", { d: "M -1.5 0.1 L -0.5 1.3 L 1.6 -1.2", class: "penalty-kick-glyph" }));
+        else if (String(kick.result || "").toLowerCase() === "save") group.append(svgNode("rect", { x: -1.1, y: -1.1, width: 2.2, height: 2.2, class: "penalty-kick-glyph is-filled" }));
+        else group.append(svgNode("path", { d: "M -1.3 -1.3 L 1.3 1.3 M -1.3 1.3 L 1.3 -1.3", class: "penalty-kick-glyph" }));
+        const select = () => { state.selected = kicks.indexOf(kick); draw(); };
+        group.addEventListener("click", select);
+        group.addEventListener("keydown", event => {
+          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); select(); }
+        });
+        svg.append(group);
+      });
+      return svg;
+    }
+    function kickCard(kick) {
+      if (!kick) return null;
+      const details = [
+        ["Resultado", PENALTY_RESULT_LABELS[String(kick.result || "").toLowerCase()] || "Não informado"],
+        ["Destino", GOAL_MOUTH_LABELS[String(kick.goal_mouth_location || "").toLowerCase()] || "Não informado"],
+        ["Parte do corpo", BODY_PART_LABELS[String(kick.body_part || "").toLowerCase()] || "Não informada"],
+        ["Momento", PENALTY_PHASE_LABELS[kick.phase] || "Não informado"],
+        kick.phase === "in_game" && metricAvailable(kick.xg) ? ["xG", formatValue(kick.xg)] : null,
+      ].filter(Boolean);
+      return node("article", { class: "penalty-kick-card" }, [
+        node("header", {}, [
+          flagNode(kick),
+          node("span", {}, [node("strong", { text: personName(kick) }), node("small", { text: displayTeamName(kick.team_name) })]),
+          node("time", { text: `${formatValue(kick.minute)}'` }),
+        ]),
+        node("dl", {}, details.map(([labelText, value]) => node("div", {}, [node("dt", { text: labelText }), node("dd", { text: value })]))),
+      ]);
+    }
+    function draw() {
+      const rows = filteredKicks();
+      if (!rows.some(kick => kicks.indexOf(kick) === state.selected)) state.selected = kicks.indexOf(rows[0]);
+      output.replaceChildren(
+        node("div", { class: "penalty-goal-wrap" }, [goalFrame(rows), node("p", { class: "penalty-map-caption", text: "Baliza na visão do batedor · ✓ gol · ✕ perdido · ■ defendido · cor = seleção" })]),
+        kickCard(kicks[state.selected]),
+      );
+    }
+    draw();
+    return node("article", { class: "finalizations-panel penalty-map-panel" }, [
+      node("div", { class: "subsection-heading" }, [
+        node("h3", { text: "Mapa de pênaltis" }),
+        node("span", { text: `${kicks.length} ${kicks.length === 1 ? "cobrança" : "cobranças"}` }),
+      ]),
+      shootoutScore ? node("p", { class: "penalty-map-score", text: shootoutScore }) : null,
+      node("p", { class: "penalty-map-note", text: "Cobranças da disputa por pênaltis ficam fora do mapa de chutes e do xG da partida; pênaltis no tempo de jogo seguem contando." }),
+      filters,
+      output,
+    ].filter(Boolean));
+  }
+
   function finalizationsPanel(data, match) {
     const context = xgContext(data, match);
     return node("div", { class: "finalizations-stack" }, [
@@ -3955,6 +4128,7 @@
           ? interactiveShotMap(data.shot_map)
           : emptyState("Mapa de chutes ainda não disponível para esta partida."),
       ]),
+      penaltyMapPanel(data),
       node("article", { class: "finalizations-panel" }, [
         node("div", { class: "subsection-heading" }, node("h3", { text: "Fluxo de xG" })),
         context ? node("p", { class: "xg-context", text: context }) : null,
@@ -3962,7 +4136,7 @@
           ? xgFlowPlot(data.xg_flow)
           : emptyState("Fluxo de xG ainda não disponível para esta partida."),
       ]),
-    ]);
+    ].filter(Boolean));
   }
 
   function radarChart(profile = [], title = "Radar do jogador", benchmark = [], benchmarkLabel = "Média comparativa", large = false, leader = [], leaderLabel = "Líder") {
@@ -4336,10 +4510,14 @@
     const width = 100, height = 38;
     const svg = svgNode("svg", {
       viewBox: `0 0 ${width} ${height}`,
+      class: "pitch-svg pitch-svg-crop",
       role: "img",
       "aria-label": `Área de finalização com ${clean.length} finalizações do jogador`,
     });
     svg.append(svgNode("title", {}, "Mapa de finalizações do jogador — área de finalização recortada, gol no topo."));
+    for (let band = 0; band < 10; band += 1) {
+      svg.append(svgNode("rect", { x: band * 10, y: 0, width: 10, height, class: `pitch-stripe${band % 2 ? " is-alt" : ""}` }));
+    }
     svg.append(svgNode("rect", { x: 0, y: 0, width, height, class: "pitch-line pitch-crop" }));
     const markings = [
       ["rect", { x: 20, y: 0, width: 60, height: 16 }],
@@ -4350,8 +4528,9 @@
     svg.append(svgNode("line", { x1: 0, y1: height - .5, x2: width, y2: height - .5, class: "pitch-crop-edge" }));
     clean.forEach(({ shot, x, y }) => {
       const goal = Boolean(shot.is_goal);
-      const cx = Math.max(1, Math.min(width - 1, y));
-      const cy = Math.max(1, Math.min(height - 1, x));
+      const penalty = isPenaltyShot(shot);
+      const cx = penalty ? 50 : Math.max(1, Math.min(width - 1, y));
+      const cy = penalty ? 10.5 : Math.max(1, Math.min(height - 1, x));
       const xg = Math.max(0, number(shot.xg ?? shot.statsbomb_xg) || 0);
       const size = Math.max(1, Math.min(3.2, 1 + xg * 4));
       const colorStyle = color ? { style: `--team-color:${color}` } : {};
@@ -4785,7 +4964,7 @@
         : `${filtered.length} chutes · ${goals} gols · ${formatValue(xg)} xG`;
       const content = [
         activeFilters.length ? node("p", { class: "shot-filter-status", text: `Filtro ativo: ${activeFilters.join(" · ")}` }) : null,
-        node("p", { class: "shot-summary", text: summary.replace(/ xG$/, " xG por chutes") }),
+        node("p", { class: "shot-summary", text: summary }),
         shotMap(filtered, {
           selectedKey: selected.shot,
           onSelect: shot => {

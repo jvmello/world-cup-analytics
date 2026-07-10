@@ -6461,3 +6461,103 @@ body[data-skin="2026"] .home-progress-track i {
   border-radius: 999px;
   background: var(--wc26-teal);
 }
+
+/* ---- Mapas de finalização: listras desenhadas dentro do SVG (alinhadas ao campo) ---- */
+
+.pitch-wrap svg.pitch-svg { background: none; }
+.pitch-wrap svg.pitch-svg-crop { aspect-ratio: 100 / 38; max-height: 420px; }
+
+.pitch-stripe { fill: #194833; }
+.pitch-stripe.is-alt { fill: #17422f; }
+
+body[data-skin="2026"] .pitch-wrap svg.pitch-svg { background: none; }
+body[data-skin="2026"] .pitch-stripe { fill: #0b4738; }
+body[data-skin="2026"] .pitch-stripe.is-alt { fill: #0a3d34; }
+
+/* ---- Mapa de pênaltis (detalhe da partida) ---- */
+
+.penalty-map-panel .penalty-map-score {
+  margin: 0 0 4px;
+  color: var(--wc26-text, var(--ink));
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.penalty-map-panel .penalty-map-note {
+  margin: 0 0 12px;
+  color: var(--wc26-text-muted, var(--muted));
+  font-size: 10px;
+}
+
+.penalty-map-filters { margin-bottom: 12px; }
+
+.penalty-map-body { display: grid; gap: 12px; }
+
+.penalty-goal-wrap {
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 6px;
+  padding: 18px 14px 10px;
+  background: #0b4738;
+}
+
+.penalty-goal-svg { display: block; width: 100%; max-height: 330px; }
+
+.penalty-frame { fill: none; stroke: #f4efe2; stroke-width: 1.4; stroke-linejoin: round; }
+.penalty-ground { stroke: rgba(244, 239, 226, .55); stroke-width: .5; }
+.penalty-net { stroke: rgba(244, 239, 226, .14); stroke-width: .3; }
+
+.penalty-kick { cursor: pointer; }
+.penalty-kick:focus-visible { outline: none; }
+.penalty-kick-badge { fill: var(--team-color, var(--wc26-teal)); stroke: rgba(0, 0, 0, .35); stroke-width: .3; }
+.penalty-kick.is-missed .penalty-kick-badge { fill-opacity: .55; }
+.penalty-kick-glyph { fill: none; stroke: #101010; stroke-width: .75; stroke-linecap: round; stroke-linejoin: round; }
+.penalty-kick-glyph.is-filled { fill: #101010; stroke: none; }
+.penalty-kick.is-selected .penalty-kick-badge,
+.penalty-kick:focus-visible .penalty-kick-badge { stroke: #ffffff; stroke-width: .8; }
+
+.penalty-map-caption {
+  margin: 8px 0 0;
+  color: rgba(244, 239, 226, .75);
+  font-size: 10px;
+  text-align: center;
+}
+
+.penalty-kick-card {
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 6px;
+  padding: 12px 14px;
+  background: var(--wc26-surface-alt, var(--surface-2));
+}
+
+.penalty-kick-card header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.penalty-kick-card header span { display: grid; gap: 1px; }
+.penalty-kick-card header strong { font-size: 14px; }
+.penalty-kick-card header small { color: var(--wc26-text-muted, var(--muted)); font-size: 10px; }
+.penalty-kick-card header time { margin-left: auto; font-weight: 800; }
+
+.penalty-kick-card dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.penalty-kick-card dt {
+  color: var(--wc26-text-muted, var(--muted));
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.penalty-kick-card dd {
+  margin: 3px 0 0;
+  font-size: 12px;
+  font-weight: 700;
+}

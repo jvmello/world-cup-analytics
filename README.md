@@ -273,13 +273,55 @@ command refreshes fixtures and standings, and one command fetches a match bundle
 `unavailable`, while the remaining endpoints continue. Rate limits and 5xx
 responses use bounded retry/backoff in the client.
 
-Silver and Gold commands are present but intentionally non-materializing until
-real response shapes are validated:
+The serving Gold build is reconstructed from local Bronze only. It does not
+call TheStatsAPI. The build materializes the PostgreSQL substrate in schema
+`gold` (`matches`, `match_players`, `match_shots`, `players_agg`, `teams_agg`,
+`standings`, `edition_summary`) and the ready-to-serve JSON contracts in
+`gold.api_payloads` using staging tables and an atomic transaction:
 
 ```bash
 make thestatsapi-silver
+make thestatsapi-serving
 make thestatsapi-gold
 ```
+
+`make thestatsapi-gold` is kept as a compatibility alias for the same serving
+builder. Use `python -m thestatsapi.serving --dry-run` inside the app container
+when you only want to validate Bronze readability and row counts without
+writing PostgreSQL.
+
+For the public 2026 API path, `gold.api_payloads` is the serving source. The
+Bronze files remain the rebuild source, but are not read during public requests
+once the app is running against the standard `data` or `/app/data` root. If a
+payload is missing, the endpoint returns a product-safe unavailable response
+instead of rebuilding from Bronze inside the request. Isolated test/dev roots
+can still use the legacy Bronze path when Gold is not enabled.
+
+Phase 3 cutover latency was measured inside the Docker app container against
+the local PostgreSQL service after `make thestatsapi-serving`. The route path
+serves raw JSON from `gold.api_payloads` without rehydrating the payload in
+Python:
+
+| Endpoint | p50 | p95 | Payload |
+| --- | ---: | ---: | ---: |
+| `/overview` | 32 ms | 48 ms | 2.2 MB |
+| `/competition` | 13 ms | 16 ms | 86 KB |
+| `/matches` | 13 ms | 14 ms | 97 KB |
+| `/teams` | 16 ms | 19 ms | 330 KB |
+| `/shots` | 36 ms | 47 ms | 3.3 MB |
+| `/matches/{match_id}` | 25 ms | 33 ms | 1.7 MB |
+| `/teams/{team_id}` | 21 ms | 24 ms | 1.4 MB |
+| `/players/{player_id}` | 12 ms | 14 ms | 121 KB |
+| `/players/{player_id}?scope=match` | 12 ms | 15 ms | 65 KB |
+| `/availability` | 11 ms | 13 ms | 1 KB |
+| `/profiles` | 170 ms | 201 ms | 14 MB |
+| `/players` | 1200 ms | 2956 ms | 87 MB |
+
+All measured routes except `/players` and `/profiles` are under the 100 ms
+target. Those two endpoints now avoid Bronze reads, but still exceed the target
+because the current frontend contract ships very large full-edition payloads.
+The next optimization should split or compact those contracts before treating
+the 100 ms target as complete for the full surface.
 
 Generate the internal player-position inference diagnostic without changing Bronze data:
 

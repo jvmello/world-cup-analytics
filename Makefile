@@ -89,8 +89,11 @@ thestatsapi-group-stage-rich:
 thestatsapi-silver:
 	docker compose run --rm --no-deps app python -m thestatsapi.silver
 
+thestatsapi-serving:
+	docker compose run --rm app python -m thestatsapi.serving
+
 thestatsapi-gold:
-	docker compose run --rm --no-deps app python -m thestatsapi.gold
+	docker compose run --rm app python -m thestatsapi.gold
 
 thestatsapi-position-report:
 	docker compose run --rm --no-deps app python -m thestatsapi.position_report --year 2026

@@ -769,6 +769,23 @@ class TheStatsApiBronzeService:
         match_id: str | None = None,
     ) -> dict[str, Any]:
         details = self._all_match_details(year)
+        return self._player_detail_from_details(
+            year,
+            player_id,
+            details,
+            scope=scope,
+            match_id=match_id,
+        )
+
+    def _player_detail_from_details(
+        self,
+        year: int,
+        player_id: str,
+        details: list[dict[str, Any]],
+        scope: str = "all",
+        match_id: str | None = None,
+        scoped_players: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         scope = scope if scope in {"all", "group_stage", "knockout", "match"} else "all"
         player_matches = [
             detail
@@ -838,10 +855,19 @@ class TheStatsApiBronzeService:
                 "context": {"scope": scope, "match_id": match_id},
                 "available_matches": available_matches,
             }
-        scoped_players = self._aggregate_player_analytics(
-            self._aggregate_players(scoped_details)
-        )
-        summary = next(row for row in scoped_players if row.get("player_id") == player_id)
+        if scoped_players is None:
+            scoped_players = self._aggregate_player_analytics(
+                self._aggregate_players(scoped_details)
+            )
+        summary = next((row for row in scoped_players if row.get("player_id") == player_id), None)
+        if summary is None:
+            return {
+                "year": year,
+                "available": False,
+                "notice": "Não há dados do jogador neste recorte.",
+                "context": {"scope": scope, "match_id": match_id},
+                "available_matches": available_matches,
+            }
         macroposition = summary.get("radar_profile_group") or macroposition_for(summary.get("position"))
         benchmark_position = summary.get("benchmark_position") or macroposition
         peers = [row for row in scoped_players if row.get("benchmark_position") == benchmark_position and float(row.get("minutes_played") or 0) >= 30]
@@ -946,6 +972,14 @@ class TheStatsApiBronzeService:
 
     def team_detail(self, year: int, team_id: str) -> dict[str, Any]:
         details = self._all_match_details(year)
+        return self._team_detail_from_details(year, team_id, details)
+
+    def _team_detail_from_details(
+        self,
+        year: int,
+        team_id: str,
+        details: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         standings = self.standings_by_group(year)
         teams = self.team_rows(year, standings, details)
         team = next((row for row in teams if row.get("team_id") == team_id), None)
@@ -1485,6 +1519,7 @@ class TheStatsApiBronzeService:
             "events": event_rows,
             "event_breakdown": self._event_breakdown(event_rows),
             "shot_map": shot_map,
+            "penalties": self._penalties(shots_raw),
             "team_summary": self._team_summary(shot_map),
             "xg_flow": self._xg_flow(shot_map),
             "notice": None,
@@ -2131,6 +2166,20 @@ class TheStatsApiBronzeService:
 
     @staticmethod
     def _match_goals(shots: list[dict[str, Any]], events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        # The shot map only carries the minute, so same-minute goals (common in stoppage
+        # time, which the provider reports as plain 90') tie. The event timeline carries a
+        # `sequence` — use it as the within-minute tiebreak so goals keep the real order.
+        goal_sequences: dict[tuple[Any, str], Any] = {}
+        for event in events:
+            if str(event.get("type") or "") not in {"goal", "own_goal", "penalty_scored"}:
+                continue
+            key = (event.get("minute"), str(event.get("player_name") or "").casefold())
+            goal_sequences.setdefault(key, event.get("sequence"))
+
+        def order_key(row: dict[str, Any]) -> tuple[float, float]:
+            sequence = number(row.get("sequence"))
+            return (float(row.get("minute") or 0), sequence if sequence is not None else float("inf"))
+
         goals = [
             {
                 "minute": shot.get("minute"),
@@ -2139,31 +2188,77 @@ class TheStatsApiBronzeService:
                 "player_id": shot.get("player_id"),
                 "player_name": shot.get("player_name"),
                 "xg": shot.get("xg"),
+                "sequence": goal_sequences.get(
+                    (shot.get("minute"), str(shot.get("player_name") or "").casefold())
+                ),
                 "source": "shotmap",
             }
             for shot in shots
             if shot.get("is_goal")
         ]
         if goals:
-            return sorted(goals, key=lambda row: row.get("minute") or 0)
+            return sorted(goals, key=order_key)
         return sorted(
             [
                 {
                     "minute": event.get("minute"),
                     "team_name": event.get("team_name"),
                     "player_name": event.get("player_name"),
+                    "sequence": event.get("sequence"),
                     "source": "events",
                 }
                 for event in events
                 if event.get("type") == "goal"
             ],
-            key=lambda row: row.get("minute") or 0,
+            key=order_key,
         )
+
+    @staticmethod
+    def _penalties(shots: Any) -> list[dict[str, Any]]:
+        """Every penalty kick of the match (shootout and in-game), with goal-mouth placement.
+
+        Shootout kicks are kept out of the shot map and of every xG aggregate — the provider
+        assigns a flat ~0.82 xG to each kick, which would pollute match/player numbers. In-game
+        penalties keep counting in the shot map and xG; here they only gain the placement view."""
+        kicks = []
+        for shot in shots if isinstance(shots, list) else []:
+            if not isinstance(shot, dict):
+                continue
+            situation = str(shot.get("situation") or "").casefold()
+            shootout = situation == "shootout"
+            if not shootout and not shot.get("is_penalty") and situation != "penalty":
+                continue
+            mouth = shot.get("goal_mouth_coordinates") if isinstance(shot.get("goal_mouth_coordinates"), dict) else {}
+            raw_xg = number(shot.get("expected_goals"))
+            kicks.append(
+                {
+                    "team_id": shot.get("team_id"),
+                    "team_name": shot.get("team_name"),
+                    "player_id": shot.get("player_id"),
+                    "player_name": shot.get("player_name"),
+                    "minute": shot.get("minute"),
+                    "phase": "shootout" if shootout else "in_game",
+                    "is_goal": bool(shot.get("is_goal")),
+                    "result": shot.get("result"),
+                    "body_part": shot.get("body_part"),
+                    "xg": None if shootout else (max(0.0, float(raw_xg)) if raw_xg is not None else None),
+                    "goal_mouth_location": shot.get("goal_mouth_location"),
+                    "goal_mouth_y": number(mouth.get("y")),
+                    "goal_mouth_z": number(mouth.get("z")),
+                }
+            )
+        kicks.sort(key=lambda row: row.get("minute") or 0)
+        for order, kick in enumerate(kicks, start=1):
+            kick["order"] = order
+        return kicks
 
     def _shot_map(self, match: dict[str, Any], shots: Any) -> list[dict[str, Any]]:
         rows = []
         for shot in shots if isinstance(shots, list) else []:
             if not isinstance(shot, dict):
+                continue
+            # Shootout kicks live in their own section (see _shootout), never in the map.
+            if str(shot.get("situation") or "").casefold() == "shootout":
                 continue
             raw_xg = number(shot.get("expected_goals"))
             shot_xg = max(0.0, float(raw_xg)) if raw_xg is not None else 0.0

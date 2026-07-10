@@ -83,22 +83,48 @@ def create_app(
                 },
             )
 
+    def raw_gold_response(
+        year: int,
+        endpoint: str,
+        *,
+        entity_id: str | None = None,
+        scope: str | None = None,
+    ) -> Response | None:
+        payload = service.raw_gold_payload(
+            year,
+            endpoint,
+            entity_id=entity_id,
+            scope=scope,
+        )
+        if payload is None:
+            return None
+        return Response(content=payload, media_type="application/json")
+
     def edition_route(
-        handler: Callable[[int], dict[str, Any]]
-    ) -> Callable[[int], dict[str, Any]]:
-        def endpoint(year: int) -> dict[str, Any]:
+        handler: Callable[[int], dict[str, Any]],
+        *,
+        gold_endpoint: str | None = None,
+    ) -> Callable[[int], Any]:
+        def endpoint(year: int) -> Any:
             require_year(year)
+            if gold_endpoint:
+                raw = raw_gold_response(year, gold_endpoint)
+                if raw is not None:
+                    return raw
             return handler(year)
 
         return endpoint
 
     app.get("/api/health")(lambda: {"status": "ok", "default_year": DEFAULT_EDITION})
     app.get("/api/editions")(service.catalog)
-    app.get("/api/editions/{year}/overview")(edition_route(service.overview))
-    app.get("/api/editions/{year}/competition")(edition_route(service.competition))
+    app.get("/api/editions/{year}/overview")(edition_route(service.overview, gold_endpoint="overview"))
+    app.get("/api/editions/{year}/competition")(edition_route(service.competition, gold_endpoint="competition"))
 
-    def team_detail(year: int, team_id: str) -> dict[str, Any]:
+    def team_detail(year: int, team_id: str) -> Any:
         require_year(year)
+        raw = raw_gold_response(year, "team_detail", entity_id=team_id)
+        if raw is not None:
+            return raw
         return service.team_detail(year, team_id)
 
     def player_detail(
@@ -106,30 +132,42 @@ def create_app(
         player_id: str,
         scope: str = "all",
         match_id: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> Any:
         require_year(year)
+        payload_scope = f"match:{match_id}" if scope == "match" and match_id else scope
+        raw = raw_gold_response(
+            year,
+            "player_detail",
+            entity_id=player_id,
+            scope=payload_scope,
+        )
+        if raw is not None:
+            return raw
         return service.player_detail(year, player_id, scope=scope, match_id=match_id)
 
-    def match_detail(year: int, match_id: str) -> dict[str, Any]:
+    def match_detail(year: int, match_id: str) -> Any:
         require_year(year)
+        raw = raw_gold_response(year, "match_detail", entity_id=match_id)
+        if raw is not None:
+            return raw
         return service.match_detail(year, match_id)
 
     app.get("/api/editions/{year}/teams/{team_id}")(team_detail)
     app.get("/api/editions/{year}/players/{player_id}")(player_detail)
     app.get("/api/editions/{year}/matches/{match_id}")(match_detail)
-    app.get("/api/editions/{year}/teams")(edition_route(service.teams))
-    app.get("/api/editions/{year}/players")(edition_route(service.players))
-    app.get("/api/editions/{year}/profiles")(edition_route(service.profiles))
-    app.get("/api/editions/{year}/matches")(edition_route(service.matches))
-    app.get("/api/editions/{year}/shots")(edition_route(service.shots))
+    app.get("/api/editions/{year}/teams")(edition_route(service.teams, gold_endpoint="teams"))
+    app.get("/api/editions/{year}/players")(edition_route(service.players, gold_endpoint="players"))
+    app.get("/api/editions/{year}/profiles")(edition_route(service.profiles, gold_endpoint="profiles"))
+    app.get("/api/editions/{year}/matches")(edition_route(service.matches, gold_endpoint="matches"))
+    app.get("/api/editions/{year}/shots")(edition_route(service.shots, gold_endpoint="shots"))
     app.get("/api/editions/{year}/thestatsapi-match")(
-        edition_route(service.thestatsapi_match)
+        edition_route(service.thestatsapi_match, gold_endpoint="thestatsapi_match")
     )
     app.get("/api/editions/{year}/official-metrics")(
-        edition_route(service.official_metrics)
+        edition_route(service.official_metrics, gold_endpoint="official_metrics")
     )
     app.get("/api/editions/{year}/availability")(
-        edition_route(service.availability)
+        edition_route(service.availability, gold_endpoint="availability")
     )
     app.get("/api/history")(service.history)
 
