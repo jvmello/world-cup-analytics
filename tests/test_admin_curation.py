@@ -3,11 +3,19 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from webapp.curation_repository import CurationRepository
 from webapp.main import create_app
 from webapp.player_positions import apply_player_override, assign_benchmark_cohorts
+
+# ADMIN DESATIVADO POR ORA (2026-07-09): as rotas /api/admin/* e o painel /admin estão
+# comentados em webapp/main.py para não subirem à produção. Os testes que exercitam
+# essas rotas ficam pulados até a reativação; os de curadoria pura continuam valendo.
+ADMIN_DISABLED = pytest.mark.skip(
+    reason="Admin desativado por ora — rotas comentadas em webapp/main.py"
+)
 
 
 def _write_json(root: Path, relative: str, payload: object) -> None:
@@ -124,6 +132,7 @@ def test_manual_position_precedes_inference_and_changes_benchmark_cohort() -> No
     assert all(player["primary_inferred_role"] == "Ponta" for player in assigned)
 
 
+@ADMIN_DISABLED
 def test_admin_feature_flag_key_crud_and_public_resolution(tmp_path: Path) -> None:
     data_root = _admin_data_root(tmp_path)
     database = tmp_path / "admin.db"
@@ -176,6 +185,7 @@ def test_admin_feature_flag_key_crud_and_public_resolution(tmp_path: Path) -> No
     assert reverted["player"]["resolved_position"] == "Centroavante"
 
 
+@ADMIN_DISABLED
 def test_admin_spa_is_separate_from_public_navigation(tmp_path: Path) -> None:
     static = Path(__file__).parents[1] / "webapp/static"
     disabled = TestClient(create_app(data_root=_admin_data_root(tmp_path), static_dir=static, admin_enabled=False, admin_db_path=tmp_path / "off.db"))
@@ -195,3 +205,30 @@ def test_admin_spa_is_separate_from_public_navigation(tmp_path: Path) -> None:
         assert contract in admin_js
     assert "playerPhotoNode" in public_js
     assert "@media (max-width: 600px)" in admin_css
+
+
+def test_admin_surface_is_fully_disabled_for_now(tmp_path: Path) -> None:
+    """Trava do desligamento temporário: mesmo com admin_enabled=True e chave configurada,
+    nenhuma rota administrativa nem asset do painel pode responder."""
+    static = Path(__file__).parents[1] / "webapp/static"
+    client = TestClient(
+        create_app(
+            data_root=_admin_data_root(tmp_path),
+            static_dir=static,
+            admin_enabled=True,
+            admin_api_key="uma-chave-qualquer",
+            admin_db_path=tmp_path / "on.db",
+        )
+    )
+    assert client.get("/api/admin/config").status_code == 404
+    assert client.get("/api/admin/players").status_code == 404
+    assert client.get("/api/admin/teams").status_code == 404
+    assert client.put("/api/admin/players/pl_1/overrides", json={}).status_code in (404, 405)
+    assert client.get("/admin").status_code == 404
+    assert client.get("/admin/teams").status_code == 404
+    assert client.get("/static/admin.html").status_code == 404
+    assert client.get("/static/admin.js").status_code == 404
+    assert client.get("/static/admin.css").status_code == 404
+    # a superfície pública segue intacta
+    assert client.get("/static/app.js").status_code == 200
+    assert client.get("/api/health").status_code == 200
