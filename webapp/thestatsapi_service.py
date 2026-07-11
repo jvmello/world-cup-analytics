@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from .kit_colors import kits_for
 from .player_analytics import (
     build_reference_distribution,
     calculate_player_radar,
@@ -1576,7 +1577,7 @@ class TheStatsApiBronzeService:
         )
         officials = officials or self._match_officials(source)
         fixture_referee = self._official_name(source.get("referee"))
-        return {
+        summary = {
             "match_id": source.get("id") or source.get("match_id") or fallback_match_id,
             "match_date": source.get("utc_date"),
             "group_name": source.get("group_label"),
@@ -1603,6 +1604,17 @@ class TheStatsApiBronzeService:
             "var": officials.get("var"),
             "avar": officials.get("avar"),
         }
+        # Kit colors worn in this specific match (FIFA colour designation, curated
+        # in kit_pallete/*.md); None when the phase file is not published yet.
+        kits = kits_for(
+            summary.get("stage"),
+            summary.get("group_name"),
+            summary.get("home_team"),
+            summary.get("away_team"),
+        )
+        summary["home_kit"] = (kits or {}).get(summary.get("home_team"))
+        summary["away_kit"] = (kits or {}).get(summary.get("away_team"))
+        return summary
 
     @staticmethod
     def _venue_parts(value: Any) -> tuple[str | None, str | None]:

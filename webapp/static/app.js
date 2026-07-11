@@ -449,8 +449,23 @@
     return teamColors[teamCode(team)] || ["#66ffd7", "#ff3c1f", "#c8ff1d", "#2167ff"][fallbackIndex % 4];
   }
 
-  function matchPalette(home, away) {
-    return `--home-color:${teamColor(home, 0)};--away-color:${teamColor(away, 1)};`;
+  // Kit da partida (cores de camisa designadas pela FIFA) quando o payload traz
+  // home_kit/away_kit; fora disso, cai nas cores fixas de identidade.
+  function matchKits(match) {
+    if (!match) return null;
+    const kits = {};
+    if (match.home_kit && match.home_team) kits[match.home_team] = match.home_kit;
+    if (match.away_kit && match.away_team) kits[match.away_team] = match.away_kit;
+    return Object.keys(kits).length ? kits : null;
+  }
+
+  function kitColor(kits, name, fallbackIndex = 0) {
+    const kit = kits?.[name];
+    return kit?.display_hex || kit?.hex || teamColor(name, fallbackIndex);
+  }
+
+  function matchPalette(home, away, kits = null) {
+    return `--home-color:${kitColor(kits, home, 0)};--away-color:${kitColor(kits, away, 1)};`;
   }
 
   function formatMatchDate(value) {
@@ -612,7 +627,7 @@
       stadiumLabel ? ["Estádio", stadiumLabel] : null,
       referee ? ["Árbitro", referee] : null,
     ].filter(Boolean);
-    return node("article", { class: `score-card${hero ? " match-score-card" : ""}`, style: matchPalette(home, away) }, [
+    return node("article", { class: `score-card${hero ? " match-score-card" : ""}`, style: matchPalette(home, away, matchKits(match)) }, [
       node("div", { class: "score-meta" }, [
         node("span", {}, [node("strong", { text: stageLabel }), node("em", { class: `match-status is-${status.toLowerCase().replace(/\s+/g, "-")}`, text: status })]),
         node("time", { dateTime: date || "", text: formatMatchDate(date).replace(", ", " · ") }),
@@ -946,7 +961,7 @@
   // Archive editions (StatsBomb) already arrive in the 120×80 space and lack those keys.
   const shotUsesPercentUnits = item => item?.xg !== undefined || item?.is_penalty !== undefined;
 
-  function shotMap(rows, { selectedKey = null, onSelect = null, compactMarkers = false } = {}) {
+  function shotMap(rows, { selectedKey = null, onSelect = null, compactMarkers = false, kits = null } = {}) {
     const home = first(rows[0] || {}, ["home_team"], null);
     const away = first(rows[0] || {}, ["away_team"], null);
     const shots = rows.map(item => {
@@ -978,7 +993,7 @@
       class: "pitch-svg",
       role: "img",
       "aria-label": `Campo com ${shots.length} finalizações`,
-      style: matchPalette(home, away),
+      style: matchPalette(home, away, kits),
     });
     svg.append(svgNode("title", {}, "Mapa de finalizações. Gols aparecem em destaque."));
     for (let band = 0; band < 10; band += 1) {
@@ -997,7 +1012,7 @@
         ? svgNode("polygon", {
           points: starPoints(cx, cy, size * (compactMarkers ? 1.25 : 1.2), 0.22),
           class: `shot-point team-${teamIndex} is-goal${selected ? " is-selected" : ""}`,
-          style: `--team-color:${teamColor(item?.team_name, teamIndex)}`,
+          style: `--team-color:${kitColor(kits, item?.team_name, teamIndex)}`,
           tabindex: "0",
           "aria-label": `${personName(item)}, ${teamName(item)}, gol, xG ${formatValue(item?.statsbomb_xg)}`,
           ...(onSelect ? { "aria-pressed": String(selected), role: "button" } : { role: "img" }),
@@ -1007,7 +1022,7 @@
           cy,
           r: size,
           class: `shot-point team-${teamIndex}${selected ? " is-selected" : ""}`,
-          style: `--team-color:${teamColor(item?.team_name, teamIndex)}`,
+          style: `--team-color:${kitColor(kits, item?.team_name, teamIndex)}`,
           tabindex: "0",
           "aria-label": `${personName(item)}, ${teamName(item)}, finalização, xG ${formatValue(item?.statsbomb_xg)}`,
           ...(onSelect ? { "aria-pressed": String(selected), role: "button" } : { role: "img" }),
@@ -1037,7 +1052,7 @@
     ]);
   }
 
-  function xgFlowPlot(rows) {
+  function xgFlowPlot(rows, kits = null) {
     const teams = [...new Set(rows.map(row => row.team_name).filter(Boolean))];
     const clean = rows
       .map(item => ({
@@ -1071,7 +1086,7 @@
     teams.forEach((team, teamIndex) => {
       const points = clean.filter(point => point.team === team);
       if (!points.length) return;
-      const color = teamColor(team, teamIndex);
+      const color = kitColor(kits, team, teamIndex);
       let path = `M ${pad} ${height - pad}`;
       points.forEach(point => {
         const x = pad + point.minute / maxMinute * (width - pad * 2);
@@ -1129,7 +1144,7 @@
       node("div", { class: "chart-legend xg-total-legend" }, teams.map((team, index) => {
         const total = clean.filter(point => point.team === team).at(-1)?.value;
         return node("span", {}, [
-          node("i", { class: `legend-line team-${index % 2}`, style: `--team-color:${teamColor(team, index)}` }),
+          node("i", { class: `legend-line team-${index % 2}`, style: `--team-color:${kitColor(kits, team, index)}` }),
           `${displayTeamName(team)} · ${formatValue(total)} xG`,
         ]);
       })),
@@ -3811,7 +3826,7 @@
 
   const LOWER_IS_BETTER_METRICS = ["fouls", "yellow_cards", "red_cards", "big_chances_missed", "offsides", "dispossessed"];
 
-  function comparisonBars(rows, className = "") {
+  function comparisonBars(rows, className = "", kits = null) {
     if (!rows?.length) return emptyState("Visão geral indisponível", "As métricas comparativas ainda não estão disponíveis para esta partida.");
     return node("div", { class: `comparison-stack ${className}`.trim() }, rows.map(row => {
       const lowerIsBetter = LOWER_IS_BETTER_METRICS.includes(row.metric);
@@ -3821,7 +3836,7 @@
         tabIndex: 0,
         "aria-label": title,
         "data-tooltip": title,
-        style: matchPalette(row.home_team, row.away_team),
+        style: matchPalette(row.home_team, row.away_team, kits),
       }, [
         node("strong", { class: "comparison-value", text: formatValue(row.home_value) }),
         node("div", { class: "comparison-main" }, [
@@ -3903,6 +3918,7 @@
   }
 
   function matchOverview(data, match) {
+    const kits = matchKits(match);
     const rows = unifiedComparisonRows(data, match);
     if (!rows.length) return emptyState("Visão geral ainda não disponível para esta partida.");
     const byMetric = new Map(rows.map(row => [row.metric, row]));
@@ -3917,12 +3933,12 @@
       ? node("div", { class: "overview-groups" }, groups.map(([title, metrics]) =>
           node("article", { class: "overview-group" }, [
             node("h3", { text: title }),
-            comparisonBars(metrics, "comparison-stack-compact"),
+            comparisonBars(metrics, "comparison-stack-compact", kits),
           ])
         ))
-      : comparisonBars(rows.slice(0, 10));
+      : comparisonBars(rows.slice(0, 10), "", kits);
     return node("div", { class: "match-overview-content" }, [
-      node("div", { class: "comparison-team-legend", style: matchPalette(match?.home_team, match?.away_team) }, [
+      node("div", { class: "comparison-team-legend", style: matchPalette(match?.home_team, match?.away_team, kits) }, [
         node("span", {}, [node("i", { class: "legend-dot is-home" }), teamLabel(match?.home_team)]),
         node("span", {}, [node("i", { class: "legend-dot is-away" }), teamLabel(match?.away_team)]),
         node("small", { text: "Em faltas e cartões, menor é melhor." }),
@@ -4062,7 +4078,7 @@
         const group = svgNode("g", {
           transform: `translate(${cx} ${cy})`,
           class: `penalty-kick is-${kick.is_goal ? "goal" : "missed"}${selected ? " is-selected" : ""}`,
-          style: `--team-color:${teamColor(kick.team_name, teamIndex)}`,
+          style: `--team-color:${kitColor(matchKits(match), kick.team_name, teamIndex)}`,
           tabindex: "0",
           role: "button",
           "aria-pressed": String(selected),
@@ -4129,7 +4145,7 @@
           data.shot_map?.length ? node("span", { text: `${data.shot_map.length} chutes` }) : null,
         ]),
         data.shot_map?.length
-          ? interactiveShotMap(data.shot_map)
+          ? interactiveShotMap(data.shot_map, matchKits(data.match))
           : emptyState("Mapa de chutes ainda não disponível para esta partida."),
       ]),
       penaltyMapPanel(data),
@@ -4137,7 +4153,7 @@
         node("div", { class: "subsection-heading" }, node("h3", { text: "Fluxo de xG" })),
         context ? node("p", { class: "xg-context", text: context }) : null,
         data.xg_flow?.length
-          ? xgFlowPlot(data.xg_flow)
+          ? xgFlowPlot(data.xg_flow, matchKits(data.match))
           : emptyState("Fluxo de xG ainda não disponível para esta partida."),
       ]),
     ].filter(Boolean));
@@ -4893,7 +4909,7 @@
     return node("div", { class: "player-explorer" }, [withHorizontalScrollFade(table, { wrapClass: "player-table-scroll-wrap", bg: "var(--surface)" }), detail]);
   }
 
-  function interactiveShotMap(rows = []) {
+  function interactiveShotMap(rows = [], kits = null) {
     const selected = { team: "all", player: "all", mode: "all", shot: null };
     const modeLabels = { goals: "Somente gols", on_target: "No alvo", high_xg: "xG alto" };
     const teams = [...new Set(rows.map(row => row.team_name).filter(Boolean))].sort();
@@ -4970,6 +4986,7 @@
         activeFilters.length ? node("p", { class: "shot-filter-status", text: `Filtro ativo: ${activeFilters.join(" · ")}` }) : null,
         node("p", { class: "shot-summary", text: summary }),
         shotMap(filtered, {
+          kits,
           selectedKey: selected.shot,
           onSelect: shot => {
             selected.shot = shotKey(shot);
