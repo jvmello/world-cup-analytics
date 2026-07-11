@@ -794,6 +794,8 @@ def test_shot_breakdown_charts_are_pie_charts() -> None:
 
     assert ".pie-chart-wrap" in styles
     assert ".pie-slice" in styles
+    assert "body[data-skin=\"2026\"] .breakdown-bars .player-distribution-row" in styles
+    assert "grid-column: 2 / 3" in styles
 
 
 def test_creation_profile_lists_sort_descending_by_metric() -> None:
@@ -1126,6 +1128,9 @@ def test_competition_frontend_has_group_and_knockout_product_views() -> None:
     assert "competition-group-table" in styles
     assert "best-thirds-table" in styles
     assert "knockout-board" in styles
+    assert "grid-template-columns: minmax(72px, 1fr) minmax(44px, auto) minmax(72px, 1fr)" in styles
+    assert ".knockout-team .team-label > span:last-child { overflow: hidden; text-overflow: ellipsis; }" in styles
+    assert ".knockout-match-line > .score-text" in styles
     assert "competition-row-qualified" in styles
     assert "competition-row-third" in styles
     assert "competition-row-out" in styles
@@ -1621,6 +1626,9 @@ def test_analytical_pages_separate_overviews_from_individual_profiles() -> None:
     assert ".team-editorial-highlights" in styles
     assert ".team-comparison-map" in styles
     assert ".team-collective-profile" in styles
+    assert 'body[data-page="teams"][data-skin="2026"] .team-collective-panel .breakdown-bars' in styles
+    assert 'body[data-page="teams"][data-skin="2026"] .team-collective-panel .player-distribution-track' in styles
+    assert "--wc26-body-font:" in styles
     assert "meta instanceof Node" in app_js
     assert 'body[data-skin="2026"] .home-ranking-entity,' in styles
     for selector in (
@@ -1800,6 +1808,8 @@ def test_about_page_is_reachable_and_credits_data_source_and_author() -> None:
 
     # nav placement: static secondary link, not inside the main menu
     assert '<a class="history-link" href="/about">Sobre' in index_html
+    assert '<a class="history-link" href="/about">Sobre</a>' in index_html
+    assert 'href="/about">Sobre <span aria-hidden="true">↗</span>' not in index_html
 
     # mobile nav fallback (JS-injected) mirrors the same secondary placement
     assert 'href: "/about", text: "Sobre"' in app_js
