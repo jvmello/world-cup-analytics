@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import json
 import re
 from collections import Counter, defaultdict
@@ -1471,7 +1473,7 @@ class TheStatsApiBronzeService:
         reference = reference_distribution or build_reference_distribution(
             self._reference_player_rows(year)
         )
-        player_rows = self._enrich_match_players(player_rows, reference, match)
+        player_rows = self._enrich_match_players(player_rows, reference, match, penalties=self._penalties(shots_raw))
         for player in player_rows:
             player_id = player.get("player_id")
             player_name = player.get("player_name")
@@ -1786,16 +1788,38 @@ class TheStatsApiBronzeService:
             )
         return rows
 
+    @staticmethod
+    def _impact_display_score(raw: Any) -> float | None:
+        """Soft knee above 85: keeps ordering but makes 100/100 rare — only an
+        exceptional raw score approaches the ceiling, instead of any 2-goal game
+        hitting a hard cap."""
+        value = number(raw)
+        if value is None:
+            return None
+        if value <= 85.0:
+            return round(max(0.0, value), 1)
+        return round(85.0 + 15.0 * (1.0 - math.exp(-(value - 85.0) / 30.0)), 1)
+
     def _enrich_match_players(
         self,
         players: list[dict[str, Any]],
         reference_distribution: dict[str, dict[str, dict[str, Any]]],
         match: dict[str, Any] | None = None,
+        penalties: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         if not players:
             return []
         home_team = (match or {}).get("home_team")
         away_team = (match or {}).get("away_team")
+        shootout = [kick for kick in penalties or [] if kick.get("phase") == "shootout"]
+        decisive_order = None
+        if shootout:
+            penalty_home = number((match or {}).get("penalty_home_score"))
+            penalty_away = number((match or {}).get("penalty_away_score"))
+            if penalty_home is not None and penalty_away is not None and penalty_home != penalty_away:
+                winner = home_team if penalty_home > penalty_away else away_team
+                winning_goals = [kick for kick in shootout if kick.get("team_name") == winner and kick.get("is_goal")]
+                decisive_order = winning_goals[-1].get("order") if winning_goals else None
         enriched = []
         for row in players:
             macroposition = radar_profile_group(row)
@@ -1806,12 +1830,42 @@ class TheStatsApiBronzeService:
             )
             impact = self._match_impact(row, match or {})
             team_name = row.get("team_name")
+            # Shootout context: converted/decisive kicks, keeper saves and misses
+            # weigh on top of the open-play score.
+            if shootout:
+                own_kicks = [kick for kick in shootout if kick.get("player_id") == row.get("player_id")]
+                extra, extra_reasons = 0.0, []
+                for kick in own_kicks:
+                    if kick.get("is_goal"):
+                        extra += 6.0
+                        extra_reasons.append("cobrança convertida na disputa")
+                        if kick.get("order") == decisive_order:
+                            extra += 14.0
+                            extra_reasons.append("cobrança decisiva")
+                    else:
+                        extra -= 6.0
+                        extra_reasons.append("perdeu cobrança na disputa")
+                if macroposition == "Goleiro":
+                    saved = sum(
+                        1 for kick in shootout
+                        if kick.get("team_name") not in (None, team_name)
+                        and str(kick.get("result") or "").lower() == "save"
+                    )
+                    if saved:
+                        extra += saved * 12.0
+                        extra_reasons.append(f"{saved} {'defesa' if saved == 1 else 'defesas'} na disputa")
+                if extra or extra_reasons:
+                    impact = {
+                        **impact,
+                        "score": round(max(0.0, float(impact.get("score") or 0) + extra), 1),
+                        "reasons": (extra_reasons + list(impact.get("reasons") or []))[:3],
+                    }
             opponent_name = away_team if team_name == home_team else home_team if team_name == away_team else None
             enriched.append(
                 {
                     **row,
                     "macroposition": macroposition,
-                    "impact_score": impact.get("score"),
+                    "impact_score": self._impact_display_score(impact.get("score")),
                     "impact_category": impact.get("category"),
                     "impact_reasons": impact.get("reasons", []),
                     "profile_score": analytics.get("profile_score"),
@@ -1873,7 +1927,7 @@ class TheStatsApiBronzeService:
             if defensive_actions:
                 reasons.append(f"{defensive_actions:g} ações defensivas")
             return {
-                "score": round(max(0.0, min(100.0, score)), 1),
+                "score": round(max(0.0, score), 1),
                 "category": "Destaque defensivo",
                 "reasons": reasons[:3],
             }
@@ -1908,7 +1962,7 @@ class TheStatsApiBronzeService:
         else:
             category = "Destaque da partida"
         return {
-            "score": round(max(0.0, min(100.0, score)), 1),
+            "score": round(max(0.0, score), 1),
             "category": category,
             "reasons": reasons[:3],
         }

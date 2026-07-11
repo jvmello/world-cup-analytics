@@ -13,3 +13,5 @@ A–L; status claros (Classificado / Melhor terceiro / Eliminado; nunca
 
 Aceite: em Quartas a tela abre no Mata-mata; ninguém precisa ler 12 tabelas;
 melhores terceiros explicados; zero IDs internos.
+
+**Status 2026-07-11:** implementado — aba padrão por estado, resumo estrutural (fase/vivas/último/próximo/caminho), salto A–L, digest, grupos mais calmos. Pendente: drawer full-width nos jogos do grupo.

@@ -720,22 +720,28 @@ def test_player_modal_shot_map_is_compact_with_a_numeric_summary() -> None:
     app_js = (Path(__file__).parents[1] / "webapp/static/app.js").read_text(encoding="utf-8")
     styles = (Path(__file__).parents[1] / "webapp/static/styles.css").read_text(encoding="utf-8")
 
-    shot_map_body = app_js[app_js.index("function playerShotMap("):app_js.index("function playerShotMap(") + 2200]
+    shot_map_body = app_js[app_js.index("function playerShotMap("):app_js.index("const SHOT_RESULT_TO_EVENT_TYPE")]
     assert "const width = 100, height = 38;" in shot_map_body
-    assert "const size = Math.max(1, Math.min(3.2, 1 + xg * 4));" in shot_map_body
+    assert "const markerSize = xg => Math.max(1, Math.min(2.6, 1 + Math.max(0, xg) * 2.1));" in shot_map_body
+    assert "starPoints(markerCx, markerCy, size * 0.95" in shot_map_body
+    assert "shotMatchLabel(shot)" in shot_map_body
+    assert "shotOpponentName(shot)" in shot_map_body
+    assert "jitter(index, total)" in shot_map_body
 
     # size is a genuine function of xg: low/high xG values must map to visibly different sizes
     def marker_size(xg):
-        return max(1, min(3.2, 1 + xg * 4))
+        return max(1, min(2.6, 1 + max(0, xg) * 2.1))
     assert marker_size(0.03) < marker_size(0.46) < marker_size(0.82)
-    assert round(marker_size(0.03), 2) == 1.12
-    assert round(marker_size(0.82), 2) == 3.2  # clamped ceiling
+    assert round(marker_size(0.03), 2) == 1.06
+    assert round(marker_size(0.82), 2) == 2.6  # clamped ceiling
 
     assert "function shotSummary(" in app_js
-    summary_body = app_js[app_js.index("function shotSummary("):app_js.index("function shotSummary(") + 600]
+    summary_body = app_js[app_js.index("function shotSummary("):app_js.index("function shotSummary(") + 900]
     assert '"Finalizações", shots.length' in summary_body
     assert '"Gols", goals' in summary_body
     assert '"xG", xg' in summary_body
+    assert '"Conversão"' in summary_body
+    assert '"xG por finalização"' in summary_body
     actions_panel_body = app_js[app_js.index("function playerActionsPanel("):app_js.index("function openPlayerModal(")]
     assert "shotSummary(player.player_shots || [])" in actions_panel_body
 
@@ -745,8 +751,9 @@ def test_player_modal_shot_map_is_compact_with_a_numeric_summary() -> None:
     # filters that only exist in the profile context
     shot_map_panel_body = app_js[app_js.index("function playerShotMapPanel("):app_js.index("function playerShotMinuteChart(")]
     assert "shotSummary(filtered)" in shot_map_panel_body
+    assert 'button.setAttribute("aria-pressed", String(active));' in shot_map_panel_body
     assert ".player-actions-section .pitch-wrap svg { max-height:" not in styles
-    assert ".player-pitch-wrap svg { max-height: 360px; }" in styles
+    assert ".player-pitch-wrap svg { max-height: 300px; }" in styles
 
     # no glow/neon on the shot map — flat solid colors only, matching the rest of the product
     assert ".player-shot-summary" in styles
@@ -769,11 +776,14 @@ def test_shot_breakdown_charts_are_pie_charts() -> None:
     assert "pie-legend" in pie_chart_body
 
     player_shot_breakdown_body = app_js[app_js.index("function playerShotBreakdown("):app_js.index("function playerCreationProfile(")]
-    assert "pieChart(breakdowns[key], \"goals\"" in player_shot_breakdown_body
-    assert "horizontalBars(" not in player_shot_breakdown_body
+    # Spec 011 (2026-07-11): na tela Jogadores o breakdown virou barras
+    # horizontais com valor absoluto + percentual (breakdownBars).
+    assert 'breakdownBars(breakdowns[key], "goals"' in player_shot_breakdown_body
+    assert "pieChart(" not in player_shot_breakdown_body
 
     team_collective_body = app_js[app_js.index("function teamCollectiveProfile("):app_js.index("function teamRankingExplorer(")]
-    assert 'pieChart(rows, "amount"' in team_collective_body
+    # Spec 012 (2026-07-11): perfil coletivo também virou barras com absoluto + %.
+    assert 'breakdownBars(rows, "amount"' in team_collective_body
     assert "team-collective-row" not in team_collective_body
     assert "team-collective-row" not in styles, "the now-unused bar-row CSS for team-collective must be removed, not left dead"
 
@@ -797,6 +807,26 @@ def test_creation_profile_lists_sort_descending_by_metric() -> None:
     # horizontalBars() itself doesn't sort — confirms callers must pre-sort, as playerCreationProfile now does
     horizontal_bars_body = app_js[app_js.index("function horizontalBars("):app_js.index("function horizontalBars(") + 600]
     assert "sort" not in horizontal_bars_body
+
+
+def test_specs_014_and_016_pending_polish_are_reflected_in_ui() -> None:
+    app_js = (Path(__file__).parents[1] / "webapp/static/app.js").read_text(encoding="utf-8")
+
+    team_matchup_body = app_js[app_js.index("function teamMatchupInsights("):app_js.index("const COMPARE_TEAM_METRICS")]
+    assert "scoutingTag" in team_matchup_body
+    assert '"Força"' in team_matchup_body
+    assert "Fragilidade explorável" in team_matchup_body
+    assert "Ponto de equilíbrio" in team_matchup_body
+
+    compare_result_body = app_js[app_js.index("function compareResultView("):app_js.index("function profileCompareSelector(")]
+    assert '"Scouting do confronto"' in compare_result_body
+    assert "Onde cada um pode ferir o outro" not in compare_result_body
+
+    player_context_body = app_js[app_js.index("function playerContextInsights("):app_js.index("function playerContextSection(")]
+    assert "quanto mais bola na área" not in player_context_body.lower()
+    assert "onde cada passe errado custa caro" not in player_context_body.lower()
+    assert "Contextos de destaque" in app_js
+    assert "Onde este perfil tende a render melhor" in app_js
 
 
 def test_comparison_map_restores_per90_scatter_option() -> None:
@@ -1029,8 +1059,8 @@ def test_profile_screens_get_rotated_shot_map_full_radar_and_adendo_features() -
 
     # 6: Comparáveis block wired for both entity types
     assert "function profileComparablesBlock(" in app_js
-    assert 'profileComparablesBlock(data.comparable_players, "player")' in app_js
-    assert 'profileComparablesBlock(data.comparable_teams, "team")' in app_js
+    assert 'profileComparablesBlock(data.comparable_players, "player", player.player_id)' in app_js
+    assert 'profileComparablesBlock(data.comparable_teams, "team", team.team_id)' in app_js
     assert '"comparable_players": self._nearest_by_radar' in service_src
     assert '"comparable_teams": self._nearest_by_radar' in service_src
 
@@ -1088,8 +1118,10 @@ def test_competition_frontend_has_group_and_knockout_product_views() -> None:
     assert 'aria-selected' in render
     assert 'text: "Melhores terceiros"' in render
     assert 'text: "Mata-mata"' in render
-    assert 'text: "12 grupos · 24 vagas diretas · 8 melhores terceiros"' in render
-    assert '"16 avos"' not in render
+    # Resumo estrutural (spec 009): fase atual, vivas, último definido, próximo, caminho.
+    assert "function competitionStructuralSummary" in render
+    assert '"Caminho até a final"' in render
+    assert '"Seleções vivas"' in render
     assert '"Vencedor da partida' not in render
     assert "competition-group-table" in styles
     assert "best-thirds-table" in styles
@@ -1885,12 +1917,15 @@ def test_ui_ux_audit_jogadores_and_scatter_fixes() -> None:
     assert '"Posição (detalhada)"' in overview_body
     assert '"Grupo bruto"' not in overview_body
 
-    assert 'section("Perfil das finalizações", "Dados de toda a Copa' in app_js
-    assert 'section("Perfil coletivo", "Dados de toda a Copa' in app_js
+    assert 'section("Perfil das finalizações", "Recorte fixo: toda a Copa' in app_js
+    assert 'section("Perfil coletivo", "Recorte fixo: toda a Copa' in app_js
 
     assert "function scatterEntityMarker(" in app_js
-    marker_body = app_js[app_js.index("function scatterEntityMarker("):app_js.index("function scatterEntityMarker(") + 700]
+    marker_body = app_js[app_js.index("function scatterEntityMarker("):app_js.index("function scatterEntityMarker(") + 2000]
     assert "is-dense" in marker_body
+    # Spec 011: a massa do scatter usa pontos simples; bandeira/foto só para
+    # selecionado e destaques.
+    assert "scatter-plain-dot" in marker_body
     assert ".scatter-entity-marker.is-dense" in styles
 
 
@@ -1903,6 +1938,12 @@ def test_ui_ux_audit_accessibility_and_dead_code_cleanup() -> None:
     never wired into Home."""
     app_js = (Path(__file__).parents[1] / "webapp/static/app.js").read_text(encoding="utf-8")
     styles = (Path(__file__).parents[1] / "webapp/static/styles.css").read_text(encoding="utf-8")
+
+    assert ".skip-link {" in styles
+    skip_link_body = styles[styles.index(".skip-link {"):styles.index(".skip-link:focus-visible")]
+    assert "clip-path: inset(50%)" in skip_link_body
+    assert "height: 1px" in skip_link_body and "width: 1px" in skip_link_body
+    assert ".skip-link:focus-visible { clip-path: none; height: auto; width: auto; overflow: visible; }" in styles
 
     assert "function attachTabListKeyNav(" in app_js
     assert app_js.count("attachTabListKeyNav(node(") >= 10

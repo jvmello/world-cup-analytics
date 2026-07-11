@@ -18,3 +18,5 @@ claros para futuro/encerrado/ao vivo; hover/focus visíveis em tudo.
 
 Aceite: próximo jogo em <5s; busca por seleção funciona; calendário completo
 não domina a primeira dobra; sem contradição de estados.
+
+**Status 2026-07-11:** implementado — filter bar polida, badges hoje/amanhã, busca e blocos de destaque.

@@ -12,3 +12,5 @@ clicáveis.
 
 Aceite: tela explica o jogo antes dos dados; impacto não parece arbitrário;
 gráficos legíveis; hierarquia clara; caminhos de aprofundamento evidentes.
+
+**Status 2026-07-11:** implementado — impacto com soft-knee (100 raro) + pesos de disputa de pênaltis (convertida/decisiva/defesa/perdida) com motivos; história do jogo já era stats-driven + linha de pênaltis; timeline já agrupava; subs já mostravam entrou/saiu; tabela com 8 colunas padrão + toggle completo + CTA de perfil. Pendente: escalações agrupadas por linha tática com jogadores clicáveis.
