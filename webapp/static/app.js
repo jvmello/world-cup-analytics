@@ -451,6 +451,24 @@
 
   // Kit da partida (cores de camisa designadas pela FIFA) quando o payload traz
   // home_kit/away_kit; fora disso, cai nas cores fixas de identidade.
+  function impactMaxNote(player) {
+    if (number(player?.impact_score) === null || number(player.impact_score) < 99.5) return null;
+    const reasons = [
+      number(player.goals) > 0 ? `${formatValue(player.goals)} ${number(player.goals) === 1 ? "gol" : "gols"}` : null,
+      number(player.assists) > 0 ? `${formatValue(player.assists)} assist.` : null,
+      number(player.xg) > 0 ? `${formatValue(player.xg)} xG` : null,
+      number(player.saves) > 0 ? `${formatValue(player.saves)} defesas` : null,
+    ].filter(Boolean).slice(0, 3);
+    return node("small", { class: "impact-max-note", text: `Teto da partida — nota relativa ao melhor desempenho do jogo${reasons.length ? `: ${reasons.join(", ")}` : ""}.` });
+  }
+
+  function penaltyVerdict(match) {
+    const home = number(match?.penalty_home_score), away = number(match?.penalty_away_score);
+    if (home === null || away === null || home === away) return "Decidido nos pênaltis";
+    const winner = displayTeamName(home > away ? match.home_team : match.away_team);
+    return `${winner} venceu nos pênaltis por ${formatValue(Math.max(home, away))}–${formatValue(Math.min(home, away))}`;
+  }
+
   function matchKits(match) {
     if (!match) return null;
     const kits = {};
@@ -641,7 +659,8 @@
           : node("span", { class: "score-pending", text: "×" }),
         node("strong", {}, teamSurface(away, match?.away_team_id)),
       ]),
-      penalties ? node("p", { class: "score-penalties", text: `${formatValue(match.penalty_home_score)}–${formatValue(match.penalty_away_score)} nos pênaltis` }) : null,
+      penalties ? node("p", { class: "score-penalties is-verdict", text: penaltyVerdict(match) }) : null,
+      hero && match?.stage && !match?.group_name ? node("button", { type: "button", class: "action-link score-bracket-cta", text: "Ver chaveamento →", onclick: () => goTo(state.year, "competition") }) : null,
       goals.length ? node("ol", { class: "score-goals", "aria-label": "Gols da partida" }, goals.map(goal => node("li", {
         class: goal.team_name === away ? "away" : "home",
       }, [
@@ -1010,7 +1029,7 @@
       const selected = selectedKey === key;
       const marker = goal
         ? svgNode("polygon", {
-          points: starPoints(cx, cy, size * (compactMarkers ? 1.25 : 1.2), 0.22),
+          points: starPoints(cx, cy, size * (compactMarkers ? 1.1 : 1), 0.22),
           class: `shot-point team-${teamIndex} is-goal${selected ? " is-selected" : ""}`,
           style: `--team-color:${kitColor(kits, item?.team_name, teamIndex)}`,
           tabindex: "0",
@@ -1045,8 +1064,8 @@
     return node("div", { class: "pitch-wrap" }, [
       svg,
       node("div", { class: "chart-legend" }, [
-        home ? node("span", {}, [node("i", { class: "legend-dot", style: `--team-color:${teamColor(home, 0)}` }), displayTeamName(home)]) : null,
-        away ? node("span", {}, [node("i", { class: "legend-dot", style: `--team-color:${teamColor(away, 1)}` }), displayTeamName(away)]) : null,
+        home ? node("span", {}, [node("i", { class: "legend-dot", style: `--team-color:${kitColor(kits, home, 0)}` }), displayTeamName(home)]) : null,
+        away ? node("span", {}, [node("i", { class: "legend-dot", style: `--team-color:${kitColor(kits, away, 1)}` }), displayTeamName(away)]) : null,
         node("span", { class: "shot-symbol-legend", text: "Círculo = chute · Estrela = gol · Tamanho = xG · Cor = seleção" }),
       ]),
     ]);
@@ -1294,17 +1313,26 @@
     const highlights = homeHighlights(data.highlights || {}, leaders);
     if (highlights) fragment.append(section("Destaques da Copa", null, highlights, "home-highlights-section"));
 
-    const leaderPanels = [
+    // Two distinct editorial blocks: individual leaders (3 cards) and team
+    // leaderboards (4 cards) — players and teams never share a grid.
+    const buildPanels = definitions => definitions
+      .filter(([, , rows]) => rows?.length)
+      .map(([kicker, title, rows, metric, entity]) => homeRankingPanel({ kicker, title, rows, metric, entity }));
+    const leaderPanels = buildPanels([
       ["Jogadores", "Gols", leaders.players?.goals, "goals", "player"],
       ["Jogadores", "xG", leaders.players?.xg, "xg", "player"],
       ["Jogadores", "Assistências", leaders.players?.assists, "assists", "player"],
-      ["Jogadores", "Finalizações", leaders.players?.shots, "shots", "player"],
+    ]);
+    if (leaderPanels.length) fragment.append(section("Líderes da Copa", null, node("div", { class: "home-ranking-grid is-players" }, leaderPanels), "home-leaders-section"));
+    const teamPanels = buildPanels([
       ["Seleções", "Maior xG", leaders.teams?.xg, "xg", "team"],
-      ["Seleções", "Saldo de xG", leaders.teams?.xg_difference, "xg_difference", "team"],
-    ].filter(([, , rows]) => rows?.length).map(([kicker, title, rows, metric, entity]) =>
-      homeRankingPanel({ kicker, title, rows, metric, entity })
-    );
-    if (leaderPanels.length) fragment.append(section("Líderes da Copa", null, node("div", { class: "home-ranking-grid" }, leaderPanels), "home-leaders-section"));
+      ["Seleções", "Melhor saldo de xG", leaders.teams?.xg_difference, "xg_difference", "team"],
+      ["Seleções", "Mais gols", leaders.teams?.goals_for, "goals_for", "team"],
+      // team_leaders ordena tudo do maior para o menor; para "menor xG cedido"
+      // basta inverter a lista completa.
+      ["Seleções", "Menor xG cedido", leaders.teams?.xga ? [...leaders.teams.xga].reverse() : null, "xga", "team"],
+    ]);
+    if (teamPanels.length) fragment.append(section("Seleções em destaque", null, node("div", { class: "home-ranking-grid is-teams" }, teamPanels), "home-leaders-section home-team-leaders-section"));
 
     const explorer = homeDiscoveryLab(data.discoveries || {});
     if (explorer) fragment.append(section("Explorar estatísticas", null, explorer, "home-explore-section"));
@@ -1335,7 +1363,7 @@
       ["Finalizações", summary.shots],
       ["Conversão média", summary.shot_conversion, metricAvailable(summary.shot_conversion) ? `${formatValue(summary.shot_conversion)}%` : null],
       ["Clean sheets", summary.clean_sheets],
-      ["Jogadores", summary.players],
+      ["Jogadores utilizados", summary.players],
     ].filter(([, value]) => value !== null && value !== undefined);
     if (!metrics.length) return null;
     return section("Resumo da edição", null, node("div", { class: "home-summary-block" }, [
@@ -1429,13 +1457,13 @@
       node("article", { class: "home-pulse-column" }, [
         node("header", {}, [node("small", { text: "Horários em Brasília" }), node("h3", { text: "Agenda de hoje" })]),
         today.length
-          ? node("div", { class: "home-pulse-list" }, today.slice(0, 4).map((match, index) => compactMatchRow(match, { featured: index === 0 })))
+          ? node("div", { class: "home-pulse-list" }, today.slice(0, 3).map((match, index) => compactMatchRow(match, { featured: index === 0 })))
           : node("p", { class: "home-empty-line", text: "Não há jogos programados para hoje." }),
       ]),
       node("article", { class: "home-pulse-column" }, [
         node("header", {}, [node("small", { text: "Consequências" }), node("h3", { text: "Quem avançou" })]),
         classified.length
-          ? node("div", { class: "home-pulse-list" }, classified.map(item => {
+          ? node("div", { class: "home-pulse-list" }, classified.slice(0, 4).map(item => {
             const home = item.match?.home, away = item.match?.away;
             const hasScore = metricAvailable(item.match?.home_score) && metricAvailable(item.match?.away_score);
             return node("button", {
@@ -1466,7 +1494,8 @@
     ];
     return node("div", { class: "home-pulse" }, [
       node("div", { class: "home-pulse-phase" }, [
-        node("span", {}, [node("small", { text: "Fase atual" }), node("strong", { text: pulse.current_phase || "Em andamento" })]),
+        node("span", {}, [node("small", { text: "Fase atual" }), node("strong", { class: "home-phase-now", text: pulse.current_phase || "Em andamento" })]),
+        pulse.next_phase ? node("span", { class: "home-phase-next" }, [node("small", { text: "Na sequência" }), node("strong", { text: pulse.next_phase })]) : null,
       ]),
       node("div", { class: "home-pulse-grid" }, columns),
     ]);
@@ -1523,6 +1552,12 @@
       return node("span", { class: `${className} is-placeholder`, title: placeholderText }, [
         node("span", { text: placeholderText }),
       ]);
+    }
+    if (rawName && !countryMeta[rawName]) {
+      // Placeholder de confronto futuro ("Winner of X x Y") — traduz os nomes
+      // embutidos e não tenta desenhar bandeira.
+      const translated = translateTeamsInText(rawName).replace("Winner of", "Vencedor de");
+      return node("span", { class: `${className} is-placeholder`, title: translated }, [node("span", { text: translated })]);
     }
     return teamLabel(rawName, className);
   }
@@ -1744,7 +1779,11 @@
     return node("button", {
       type: "button",
       class: "discovery-category-card",
-      onclick: () => openDiscoveryCategoryView(category),
+      onclick: () => {
+        const pages = { players: "players", teams: "teams", matches: "matches" };
+        if (pages[category.key]) goTo(state.year, pages[category.key]);
+        else openDiscoveryCategoryView(category);
+      },
       "aria-label": `Explorar estatísticas de ${category.label.toLowerCase()}`,
     }, [
       node("span", { class: "discovery-category-head" }, [
@@ -3392,7 +3431,19 @@
       els.view.replaceChildren(fragment);
       return;
     }
-    const selected = { group: "all", stage: "all", team: "all", date: "all", status: "all", grouping: "date" };
+    // Hierarquia editorial: hoje/próximos e últimos resultados antes do arquivo completo.
+    const isFinished = match => matchPublicStatus(match) === "Encerrado";
+    const upcomingRows = data.items
+      .filter(match => !isFinished(match) && matchPublicStatus(match) !== "Aguardando resultado")
+      .sort((a, b) => String(a.match_date || "9999").localeCompare(String(b.match_date || "9999")))
+      .slice(0, 4);
+    if (upcomingRows.length) fragment.append(section("Hoje e próximos", "Horários em Brasília", node("div", { class: "matches-featured-list" }, upcomingRows.map((match, index) => compactMatchRow(match, { featured: index === 0 }))), "matches-upcoming-section"));
+    const recentRows = data.items
+      .filter(isFinished)
+      .sort((a, b) => String(b.match_date || "").localeCompare(String(a.match_date || "")))
+      .slice(0, 4);
+    if (recentRows.length) fragment.append(section("Últimos resultados", null, node("div", { class: "matches-featured-list" }, recentRows.map(match => compactMatchRow(match))), "matches-recent-section"));
+    const selected = { group: "all", stage: "all", team: "all", date: "all", status: "all", grouping: "date", search: "" };
     const calendarHost = node("div");
     const resultMeta = node("span");
     let filterBar;
@@ -3401,7 +3452,10 @@
         const status = matchPublicStatus(match);
         const teams = [match.home_team, match.away_team];
         const upcoming = !["Encerrado", "Aguardando resultado"].includes(status);
-        return (selected.group === "all" || match.group_name === selected.group)
+        const query = selected.search.trim().toLocaleLowerCase("pt-BR");
+        const searchable = `${displayTeamName(match.home_team)} ${displayTeamName(match.away_team)} ${match.home_team || ""} ${match.away_team || ""}`.toLocaleLowerCase("pt-BR");
+        return (!query || searchable.includes(query))
+          && (selected.group === "all" || match.group_name === selected.group)
           && (selected.stage === "all" || match.stage === selected.stage)
           && (selected.team === "all" || teams.includes(selected.team))
           && (selected.date === "all" || match.local_date === selected.date)
@@ -3421,7 +3475,22 @@
       drawMatches();
     });
     const calendarSection = section("Calendário", "Horários em Brasília", node("div", { class: "matches-calendar-experience" }, [
-      node("div", { class: "matches-calendar-toolbar" }, [filterBar, grouping]),
+      node("div", { class: "matches-calendar-toolbar" }, [
+        node("label", { class: "matches-search" }, [
+          node("span", { text: "Buscar seleção" }),
+          node("input", { type: "search", placeholder: "Ex.: Brasil", autocomplete: "off", oninput: event => { selected.search = event.target.value; drawMatches(); } }),
+        ]),
+        summary.current_phase ? node("button", {
+          type: "button", class: "matches-phase-shortcut",
+          text: `Só ${String(summary.current_phase).toLocaleLowerCase("pt-BR")}`,
+          onclick: event => {
+            const active = event.currentTarget.classList.toggle("is-active");
+            selected.stage = active ? (data.items.find(match => matchStageLabel(match) === summary.current_phase)?.stage || "all") : "all";
+            drawMatches();
+          },
+        }) : null,
+        filterBar, grouping,
+      ].filter(Boolean)),
       calendarHost,
     ]), "matches-calendar-section");
     calendarSection.querySelector(".section-heading").append(resultMeta);
@@ -3986,6 +4055,7 @@
           node("h3", { text: player.player_name }),
           node("p", { class: "impact-role", text: [player.impact_category, player.team_name ? displayTeamName(player.team_name) : null, resolvedPlayerPosition(player)].filter(Boolean).join(" · ") }),
           node("strong", { class: "impact-inline-score", text: `${formatValue(player.impact_score)}/100` }),
+          impactMaxNote(player),
           node("p", { class: "impact-metrics", text: impactMetricLine(player) }),
         ]);
         return makePlayerSurfaceInteractive(card, fullPlayer);
@@ -4046,6 +4116,13 @@
     function filteredKicks() {
       return kicks.filter(kick => state.team === "all" || kick.team_name === state.team);
     }
+    const decisiveOrder = (() => {
+      const shootout = kicks.filter(kick => kick.phase === "shootout");
+      if (!shootout.length || !metricAvailable(match.penalty_home_score) || !metricAvailable(match.penalty_away_score)) return null;
+      const winner = number(match.penalty_home_score) > number(match.penalty_away_score) ? match.home_team : match.away_team;
+      const winning = shootout.filter(kick => kick.team_name === winner && kick.is_goal);
+      return winning.length ? winning[winning.length - 1].order : null;
+    })();
     function goalFrame(rows) {
       // Goal frame from the taker's point of view. In the provider data, lower y = the
       // taker's right (validated against goal_mouth_location left/right across the whole
@@ -4084,7 +4161,9 @@
           "aria-pressed": String(selected),
           "aria-label": `Cobrança ${kick.order}: ${personName(kick)}, ${PENALTY_RESULT_LABELS[String(kick.result || "").toLowerCase()] || "resultado não informado"}`,
         });
+        const resultLabel = PENALTY_RESULT_LABELS[String(kick.result || "").toLowerCase()] || "Resultado não informado";
         group.append(svgNode("circle", { r: 3.3, class: "penalty-kick-badge" }));
+        attachChartTooltip(group, `Cobrança ${kick.order} · ${personName(kick)} (${displayTeamName(kick.team_name)}) · ${resultLabel}${kick.order === decisiveOrder ? " · Cobrança decisiva" : ""}`);
         if (kick.is_goal) group.append(svgNode("path", { d: "M -1.5 0.1 L -0.5 1.3 L 1.6 -1.2", class: "penalty-kick-glyph" }));
         else if (String(kick.result || "").toLowerCase() === "save") group.append(svgNode("rect", { x: -1.1, y: -1.1, width: 2.2, height: 2.2, class: "penalty-kick-glyph is-filled" }));
         else group.append(svgNode("path", { d: "M -1.3 -1.3 L 1.3 1.3 M -1.3 1.3 L 1.3 -1.3", class: "penalty-kick-glyph" }));
@@ -4104,6 +4183,7 @@
         ["Destino", GOAL_MOUTH_LABELS[String(kick.goal_mouth_location || "").toLowerCase()] || "Não informado"],
         ["Parte do corpo", BODY_PART_LABELS[String(kick.body_part || "").toLowerCase()] || "Não informada"],
         ["Momento", PENALTY_PHASE_LABELS[kick.phase] || "Não informado"],
+        kick.order === decisiveOrder ? ["Peso", "Cobrança decisiva"] : null,
         kick.phase === "in_game" && metricAvailable(kick.xg) ? ["xG", formatValue(kick.xg)] : null,
       ].filter(Boolean);
       return node("article", { class: "penalty-kick-card" }, [
@@ -4126,7 +4206,7 @@
     draw();
     return node("article", { class: "finalizations-panel penalty-map-panel" }, [
       node("div", { class: "subsection-heading" }, [
-        node("h3", { text: "Mapa de pênaltis" }),
+        node("h3", { text: kicks.every(kick => kick.phase === "shootout") ? "Disputa de pênaltis" : "Pênaltis da partida" }),
         node("span", { text: `${kicks.length} ${kicks.length === 1 ? "cobrança" : "cobranças"}` }),
       ]),
       shootoutScore ? node("p", { class: "penalty-map-score", text: shootoutScore }) : null,
@@ -4556,7 +4636,7 @@
       const colorStyle = color ? { style: `--team-color:${color}` } : {};
       const marker = goal
         ? svgNode("polygon", {
-          points: starPoints(cx, cy, size * 1.3, 0.22),
+          points: starPoints(cx, cy, size * 1.15, 0.22),
           class: "shot-point is-player-shot is-goal",
           ...colorStyle,
           tabindex: "0",
@@ -4855,6 +4935,7 @@
             node("span", { class: "pill", text: resolvedPlayerPosition(selected) }),
           ]),
           node("strong", { class: "impact-score", text: `${formatValue(selected.impact_score)}/100` }),
+          impactMaxNote(selected),
         ]),
         radarChart(selected.radar || [], `${selected.player_name} na partida`),
         node("p", { class: "player-summary", text: playerSummary(selected) }),
@@ -5012,7 +5093,10 @@
     fragment.append(subnav);
     const message = first(data, ["notice", "message", "warning"]);
     if (message && !technicalTextPattern.test(message)) fragment.append(node("aside", { class: "notice", text: message }));
-    fragment.append(section("História do jogo", null, matchStoryPanel(data.match_story || []), "", "match-summary"));
+    const storyLines = metricAvailable(match?.penalty_home_score) && metricAvailable(match?.penalty_away_score)
+      ? [`${penaltyVerdict(match)}, após ${formatValue(match.home_score)}–${formatValue(match.away_score)} no tempo normal e prorrogação.`, ...(data.match_story || [])]
+      : data.match_story || [];
+    fragment.append(section("História do jogo", null, matchStoryPanel(storyLines), "", "match-summary"));
     if (data.player_impacts?.length) {
       fragment.append(section("Top impactos da partida", null, impactPanel(data.player_impacts, data.players || [])));
     }
@@ -5469,7 +5553,7 @@
       node("strong", { text: `${(group.matches || []).length} jogos` }),
       node("span", { class: "competition-chevron", text: "⌄", "aria-hidden": "true" }),
     ]);
-    return node("article", { class: "competition-group-card", "data-group": group.name }, [
+    return node("article", { class: "competition-group-card", id: `grupo-${group.name}`, "data-group": group.name }, [
       node("header", { class: "competition-group-head" }, [
         node("div", {}, [node("p", { class: "eyebrow", text: "Fase de grupos" }), node("h3", { text: `Grupo ${group.name}` })]),
         node("span", { text: "Pts · SG · GP · GC · Campanha" }),
@@ -5668,6 +5752,13 @@
     tabs[0].onclick = () => selectView("groups");
     tabs[1].onclick = () => selectView("thirds");
     tabs[2].onclick = () => selectView("knockout");
+    // Com a fase de grupos encerrada, o Mata-mata é o centro da experiência;
+    // a escolha manual (?view=groups|thirds|knockout) sempre vence.
+    const requestedView = new URLSearchParams(location.search).get("view");
+    const defaultView = ["groups", "thirds", "knockout"].includes(requestedView)
+      ? requestedView
+      : data.group_stage_complete ? "knockout" : "groups";
+    if (defaultView !== "groups") selectView(defaultView);
     fragment.append(
       node("div", { class: "competition-edition-summary" }, [
         node("span", { text: "12 grupos · 24 vagas diretas · 8 melhores terceiros" }),
@@ -5679,7 +5770,12 @@
     if (data.groups?.length) {
       const rows = [];
       for (let index = 0; index < data.groups.length; index += 2) rows.push(competitionGroupRow(data.groups.slice(index, index + 2)));
-      groupsView.append(section("Fase de grupos", `${data.groups.length} grupos`, node("div", { class: "competition-groups-grid" }, rows)));
+      const jump = node("div", { class: "group-jump-row", role: "navigation", "aria-label": "Ir para um grupo" }, data.groups.map(group =>
+        node("button", { type: "button", text: `Grupo ${group.name}`, onclick: () => document.getElementById(`grupo-${group.name}`)?.scrollIntoView({ behavior: "smooth", block: "start" }) })));
+      const digest = node("p", { class: "groups-digest", text: data.group_stage_complete
+        ? "Fase de grupos encerrada — classificação mantida como consulta histórica. Os classificados seguem no Mata-mata."
+        : "Classificação em disputa: os dois primeiros de cada grupo e os 8 melhores terceiros avançam." });
+      groupsView.append(section("Fase de grupos", `${data.groups.length} grupos`, node("div", {}, [digest, jump, node("div", { class: "competition-groups-grid" }, rows)])));
     } else {
       groupsView.append(emptyState("Grupos ainda não disponíveis", "A classificação aparecerá assim que os grupos forem definidos."));
     }
