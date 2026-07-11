@@ -240,8 +240,8 @@
     const values = entries(preferred).filter(([, value]) => ["string", "number", "boolean"].includes(typeof value)).slice(0, 8);
     if (!values.length) return null;
     return node("div", { class: "metric-grid" }, values.map(([key, value]) =>
-      node("article", { class: "metric" }, [
-        node("span", { class: "metric-label", text: label(key) }),
+      node("article", { class: "metric", "data-design-component": "metric-card", title: metricTitle(key) }, [
+        node("span", { class: "metric-label", text: metricName(key), title: metricTitle(key), "data-tooltip": metricFormula(key) || null }),
         node("strong", {
           class: "metric-value",
           text: /year|edition/i.test(key) ? text(value) : formatValue(value),
@@ -288,6 +288,46 @@
     shots_outside_box: "Chutes fora da área",
   };
   const metricName = key => metricNames[key] || label(key);
+  const METRIC_FORMULAS = {
+    goals_per_match: "Gols por jogo = gols / partidas",
+    goals_per_game: "Gols por jogo = gols / jogos",
+    goals_per_90: "Gols por 90 = gols / minutos * 90",
+    assists_per_90: "Assistências por 90 = assistências / minutos * 90",
+    xg_per_game: "xG por jogo = xG / jogos",
+    xg_per_90: "xG por 90 = xG / minutos * 90",
+    xa_per_90: "xA por 90 = xA / minutos * 90",
+    xg_per_shot: "xG por finalização = xG / finalizações",
+    goals_minus_xg: "Gols − xG = gols marcados − gols esperados",
+    xg_difference: "Saldo de xG = xG criado − xG cedido",
+    xga_per_game: "xG cedido por jogo = xG cedido / jogos",
+    shots_per_game: "Finalizações por jogo = finalizações / jogos",
+    shots_per_90: "Finalizações por 90 = finalizações / minutos * 90",
+    shots_against_per_game: "Finalizações sofridas por jogo = finalizações sofridas / jogos",
+    shot_conversion: "Conversão = gols / finalizações",
+    conversion: "Conversão = gols / finalizações",
+    shot_accuracy: "Precisão dos chutes = chutes no alvo / finalizações",
+    pass_accuracy: "Precisão de passe = passes certos / passes",
+    defensive_actions_per_90: "Ações defensivas por 90 = ações defensivas / minutos * 90",
+    recoveries_per_game: "Recuperações por jogo = recuperações / jogos",
+    tackles_per_game: "Desarmes por jogo = desarmes / jogos",
+    goals_against_per_game: "Gols sofridos por jogo = gols sofridos / jogos",
+  };
+  const RANKING_SCOPE_BY_METRIC = {
+    goals_per_match: "por jogo", goals_per_game: "por jogo", goals_per_90: "por 90",
+    assists_per_90: "por 90", xg_per_game: "por jogo", xg_per_90: "por 90",
+    xa_per_90: "por 90", shots_per_game: "por jogo", shots_per_90: "por 90",
+    xga_per_game: "por jogo", shots_against_per_game: "por jogo",
+    recoveries_per_game: "por jogo", tackles_per_game: "por jogo",
+    defensive_actions_per_90: "por 90", conversion: "percentual",
+    shot_conversion: "percentual", shot_accuracy: "percentual",
+    pass_accuracy: "percentual", xg_per_shot: "média por finalização",
+  };
+  const metricFormula = key => METRIC_FORMULAS[key] || null;
+  const rankingScope = key => RANKING_SCOPE_BY_METRIC[key] || (/_per_90$/.test(key) ? "por 90" : /_per_game$/.test(key) ? "por jogo" : /percentage|accuracy|conversion/.test(key) ? "percentual" : "total");
+  const metricTitle = key => {
+    const formula = metricFormula(key);
+    return formula ? `${metricName(key)} · ${formula}` : metricName(key);
+  };
   const EVENT_LABELS = {
     goal: "Gol",
     shot_on_target: "Chute no alvo",
@@ -517,8 +557,8 @@
     const values = keys.filter(key => summary?.[key] !== undefined && summary[key] !== null);
     if (!values.length) return null;
     return node("div", { class: "metric-grid" }, values.map(key =>
-      node("article", { class: "metric" }, [
-        node("span", { class: "metric-label", text: metricName(key) }),
+      node("article", { class: "metric", "data-design-component": "metric-card", title: metricTitle(key) }, [
+        node("span", { class: "metric-label", text: metricName(key), title: metricTitle(key), "data-tooltip": metricFormula(key) || null }),
         node("strong", { class: "metric-value", text: formatValue(summary[key]) }),
       ])
     ));
@@ -572,8 +612,10 @@
       .slice(0, limit);
     if (!clean.length) return emptyState(`Sem dados para ${metricName(metric)}`, "Esta métrica não está disponível no recorte selecionado.");
     const max = Math.max(...clean.map(item => Math.abs(item.value)), 1);
-    return node("ol", { class: "bar-chart", "aria-label": `Ranking de ${metricName(metric)}` }, clean.map(({ item, value }, index) => {
-      const tooltip = `${metricName(metric)} · ${name(item)}: ${formatValue(value)}${unit}`;
+    const scope = rankingScope(metric);
+    return node("ol", { class: "bar-chart", "data-ranking-scope": scope, "aria-label": `Ranking de ${metricName(metric)} (${scope})` }, clean.map(({ item, value }, index) => {
+      const formula = metricFormula(metric);
+      const tooltip = `${metricName(metric)} (${scope}) · ${name(item)}: ${formatValue(value)}${unit}${formula ? ` · Fórmula: ${formula}` : ""}`;
       const row = node("li", { class: "bar-row", tabIndex: 0, "aria-label": tooltip }, [
         node("span", { class: "bar-rank", text: index + 1 }),
         node("span", { class: "bar-name", text: name(item) }),
@@ -2098,7 +2140,7 @@
   }
 
   function analysisChartPanel(title, description, content, meta = null) {
-    return node("article", { class: "analysis-chart-panel" }, [
+    return node("article", { class: "analysis-chart-panel", "data-design-component": "chart-panel" }, [
       node("header", {}, [node("span", {}, [node("h3", { text: title }), node("p", { text: description })]), meta]),
       content,
     ]);

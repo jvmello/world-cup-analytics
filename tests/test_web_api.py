@@ -1966,6 +1966,51 @@ def test_ui_ux_audit_accessibility_and_dead_code_cleanup() -> None:
     assert 'if (event.key === "Enter") {\n          event.preventDefault();\n          routeTo("matches", match.match_id);' in knockout_match_card_body
 
 
+def test_world_cup_2026_design_system_contracts_are_global() -> None:
+    root = Path(__file__).parents[1]
+    app_js = (root / "webapp/static/app.js").read_text(encoding="utf-8")
+    styles = (root / "webapp/static/styles.css").read_text(encoding="utf-8")
+    spec = (root / "specs/017-ui-ux-design-system/spec.md").read_text(encoding="utf-8")
+
+    for contract in (
+        "todo gráfico deve ter título",
+        "toda métrica derivada deve ter tooltip com fórmula",
+        "todo ranking deve indicar escopo",
+        "Scatters densos usam pontos simples",
+        "estrelas em mapas de chute têm tamanho máximo",
+    ):
+        assert contract.lower() in spec.lower()
+
+    for js_contract in (
+        "const METRIC_FORMULAS = {",
+        "const RANKING_SCOPE_BY_METRIC = {",
+        "const metricFormula = key =>",
+        "const rankingScope = key =>",
+        "const metricTitle = key =>",
+        '"data-design-component": "metric-card"',
+        '"data-design-component": "chart-panel"',
+        '"data-ranking-scope": scope',
+        '`Ranking de ${metricName(metric)} (${scope})`',
+        '"data-tooltip": metricFormula(key) || null',
+    ):
+        assert js_contract in app_js
+
+    for css_contract in (
+        "--focus-ring:",
+        ".metric-label[data-tooltip]",
+        ".metric-label[data-tooltip]::after",
+        ".bar-chart::before",
+        "content: attr(data-ranking-scope)",
+        ".segmented-control button:focus-visible",
+        ".section-tabs button:focus-visible",
+        ".action-link:focus-visible",
+        'body[data-skin="2026"] .segmented-control button:focus-visible',
+        'body[data-skin="2026"] .section-tabs button:focus-visible',
+        'body[data-skin="2026"] .metric-label[data-tooltip]',
+    ):
+        assert css_contract in styles
+
+
 def test_2026_home_is_a_compact_editorial_match_center() -> None:
     root = Path(__file__).parents[1] / "webapp/static"
     app_js = (root / "app.js").read_text(encoding="utf-8")
