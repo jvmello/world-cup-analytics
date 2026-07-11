@@ -20,3 +20,5 @@ minio_data/
 .agents/
 orchestra.md
 data
+artifacts/
+kit_pallete/

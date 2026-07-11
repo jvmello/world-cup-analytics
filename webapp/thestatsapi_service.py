@@ -2213,8 +2213,8 @@ class TheStatsApiBronzeService:
             key=order_key,
         )
 
-    @staticmethod
-    def _penalties(shots: Any) -> list[dict[str, Any]]:
+    @classmethod
+    def _penalties(cls, shots: Any) -> list[dict[str, Any]]:
         """Every penalty kick of the match (shootout and in-game), with goal-mouth placement.
 
         Shootout kicks are kept out of the shot map and of every xG aggregate — the provider
@@ -2224,7 +2224,7 @@ class TheStatsApiBronzeService:
         for shot in shots if isinstance(shots, list) else []:
             if not isinstance(shot, dict):
                 continue
-            situation = str(shot.get("situation") or "").casefold()
+            situation = str(shot.get("situation") or "").casefold().replace("-", "_")
             shootout = situation == "shootout"
             if not shootout and not shot.get("is_penalty") and situation != "penalty":
                 continue
@@ -2240,7 +2240,7 @@ class TheStatsApiBronzeService:
                     "phase": "shootout" if shootout else "in_game",
                     "is_goal": bool(shot.get("is_goal")),
                     "result": shot.get("result"),
-                    "body_part": shot.get("body_part"),
+                    "body_part": cls._shot_term(shot.get("body_part")),
                     "xg": None if shootout else (max(0.0, float(raw_xg)) if raw_xg is not None else None),
                     "goal_mouth_location": shot.get("goal_mouth_location"),
                     "goal_mouth_y": number(mouth.get("y")),
@@ -2251,6 +2251,15 @@ class TheStatsApiBronzeService:
         for order, kick in enumerate(kicks, start=1):
             kick["order"] = order
         return kicks
+
+    @staticmethod
+    def _shot_term(value: Any) -> str | None:
+        """Normalize body_part/situation to underscores: older provider bundles use
+        hyphens (right-foot, set-piece) and newer ones underscores (right_foot,
+        set_piece), which duplicated aggregations and filters grouping by raw key."""
+        if value is None or value == "":
+            return None
+        return str(value).strip().casefold().replace("-", "_")
 
     def _shot_map(self, match: dict[str, Any], shots: Any) -> list[dict[str, Any]]:
         rows = []
@@ -2280,8 +2289,8 @@ class TheStatsApiBronzeService:
                     "statsbomb_xg": shot_xg,
                     "xg": shot_xg,
                     "shot_outcome": shot.get("result"),
-                    "body_part": shot.get("body_part"),
-                    "shot_type": shot.get("situation"),
+                    "body_part": self._shot_term(shot.get("body_part")),
+                    "shot_type": self._shot_term(shot.get("situation")),
                     "is_goal": shot.get("is_goal"),
                     "is_on_target": shot.get("is_on_target"),
                     "is_penalty": shot.get("is_penalty"),

@@ -11,11 +11,11 @@ from webapp.curation_repository import CurationRepository
 from webapp.main import create_app
 from webapp.player_positions import apply_player_override, assign_benchmark_cohorts
 
-# ADMIN DESATIVADO POR ORA (2026-07-09): as rotas /api/admin/* e o painel /admin estão
-# comentados em webapp/main.py para não subirem à produção. Os testes que exercitam
-# essas rotas ficam pulados até a reativação; os de curadoria pura continuam valendo.
-# (unittest.skip em vez de pytest.mark.skip: o container `app` roda a suíte via
-# unittest e não tem pytest instalado.)
+# ADMIN DISABLED FOR NOW (2026-07-09): the /api/admin/* routes and the /admin panel
+# are commented out in webapp/main.py so they don't ship to production. Tests that
+# exercise those routes stay skipped until re-enabling; pure curation tests still run.
+# (unittest.skip instead of pytest.mark.skip: the `app` container runs the suite via
+# unittest and has no pytest installed.)
 ADMIN_DISABLED = unittest.skip(
     "Admin desativado por ora — rotas comentadas em webapp/main.py"
 )
@@ -211,8 +211,8 @@ def test_admin_spa_is_separate_from_public_navigation(tmp_path: Path) -> None:
 
 
 def test_admin_surface_is_fully_disabled_for_now(tmp_path: Path) -> None:
-    """Trava do desligamento temporário: mesmo com admin_enabled=True e chave configurada,
-    nenhuma rota administrativa nem asset do painel pode responder."""
+    """Lock for the temporary shutdown: even with admin_enabled=True and a configured
+    key, no admin route or panel asset may respond."""
     static = Path(__file__).parents[1] / "webapp/static"
     client = TestClient(
         create_app(
@@ -232,6 +232,6 @@ def test_admin_surface_is_fully_disabled_for_now(tmp_path: Path) -> None:
     assert client.get("/static/admin.html").status_code == 404
     assert client.get("/static/admin.js").status_code == 404
     assert client.get("/static/admin.css").status_code == 404
-    # a superfície pública segue intacta
+    # the public surface stays intact
     assert client.get("/static/app.js").status_code == 200
     assert client.get("/api/health").status_code == 200

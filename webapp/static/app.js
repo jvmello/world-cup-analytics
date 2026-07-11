@@ -197,7 +197,7 @@
     els.select.value = state.year;
     state.edition = state.editions.find(item => editionYear(item) === state.year) || null;
     const coverage = state.edition ? editionCoverage(state.edition) : "Acervo em preparação";
-    // Na edição corrente a marca fala por si — a linha de status só aparece no arquivo.
+    // On the current edition the brand speaks for itself — the status line only shows on archive years.
     const coverageLine = els.coverage.closest(".coverage");
     if (coverageLine) coverageLine.hidden = state.year === DEFAULT_YEAR;
     els.coverage.textContent = state.year === DEFAULT_YEAR
@@ -591,8 +591,8 @@
   function scoreCard(match, { hero = false } = {}) {
     const home = first(match, ["home_team"], "Mandante");
     const away = first(match, ["away_team"], "Visitante");
-    // ?? em vez de first(): partidas de mata-mata trazem group_name: null, que não pode
-    // engolir o stage válido logo depois.
+    // ?? instead of first(): knockout matches carry group_name: null, which must not
+    // swallow the valid stage right after it.
     const stage = match?.competition_stage ?? match?.group_name ?? match?.stage ?? "Partida";
     const stageLabel = /^[A-Z]$/i.test(String(stage)) ? `Grupo ${stage}` : matchStageLabel(stage);
     const date = first(match, ["match_date", "date"], null);
@@ -861,8 +861,8 @@
     goal: "Gol", save: "Defendido", saved: "Defendido", miss: "Para fora",
     off_target: "Para fora", block: "Bloqueado", blocked: "Bloqueado", post: "Na trave",
   };
-  // As fontes divergem no separador: TheStatsAPI usa underscore (left_foot, set_piece),
-  // StatsBomb usa espaço ("Left Foot", "Open Play") — as chaves cobrem as três formas.
+  // Sources disagree on the separator: TheStatsAPI uses underscores (left_foot, set_piece),
+  // StatsBomb uses spaces ("Left Foot", "Open Play") — the keys cover all three forms.
   const BODY_PART_LABELS = {
     "right-foot": "Pé direito", "right_foot": "Pé direito", "right foot": "Pé direito",
     "left-foot": "Pé esquerdo", "left_foot": "Pé esquerdo", "left foot": "Pé esquerdo",
@@ -909,8 +909,8 @@
     ]);
   }
 
-  // Campo 120×80 com marcações em proporção real (105×68 m): grande área 16,5 m de
-  // profundidade × 40,32 m de largura, pequena área 5,5 × 18,32 m, pênalti a 11 m.
+  // 120×80 pitch with markings in real proportion (105×68 m): penalty box 16.5 m deep
+  // × 40.32 m wide, six-yard box 5.5 × 18.32 m, penalty spot at 11 m.
   const PITCH = (() => {
     const xAt = pct => 1 + pct * 1.18;
     const yAt = pct => 1 + pct * 0.78;
@@ -941,9 +941,9 @@
     return Boolean(item?.is_penalty) || PENALTY_SHOT_TYPES.has(String(item?.shot_type || "").toLowerCase());
   }
 
-  // TheStatsAPI publica coordenadas em % (x = distância do gol atacado no comprimento,
-  // y = posição na largura); as linhas trazem a chave `xg`/`is_penalty`. As edições de
-  // arquivo (StatsBomb) já chegam no espaço 120×80 e não têm essas chaves.
+  // TheStatsAPI publishes coordinates in % (x = distance from the attacked goal along the
+  // length, y = position across the width); its rows carry the `xg`/`is_penalty` keys.
+  // Archive editions (StatsBomb) already arrive in the 120×80 space and lack those keys.
   const shotUsesPercentUnits = item => item?.xg !== undefined || item?.is_penalty !== undefined;
 
   function shotMap(rows, { selectedKey = null, onSelect = null, compactMarkers = false } = {}) {
@@ -957,8 +957,8 @@
       if (rawX === null || rawY === null) return null;
       let x, y;
       if (isPenaltyShot(item)) {
-        // Pênaltis (do tempo de jogo) sempre na marca da cal; cobranças de disputa
-        // nem chegam ao mapa — vivem na seção própria de pênaltis.
+        // In-game penalties always sit on the spot; shootout kicks never reach this
+        // map — they live in the dedicated penalty section.
         x = PITCH.spotX;
         y = 40;
       } else if (shotUsesPercentUnits(item)) {
@@ -968,8 +968,8 @@
         x = rawX;
         y = rawY;
       }
-      // Visitante espelhado com rotação de 180° (x e y), preservando o lado do campo
-      // em que a jogada aconteceu em relação à direção de ataque.
+      // Away side mirrored with a 180° rotation (x and y), preserving which side of the
+      // pitch the play happened on relative to the attacking direction.
       return { item, x: isAway ? 120 - x : x, y: isAway ? 80 - y : y, teamIndex };
     }).filter(Boolean);
     if (!shots.length) return emptyState("Mapa de chutes indisponível", "Não há coordenadas de finalização para esta edição.");
@@ -4031,9 +4031,10 @@
       return kicks.filter(kick => state.team === "all" || kick.team_name === state.team);
     }
     function goalFrame(rows) {
-      // Baliza na visão do batedor. Nos dados do provedor, y menor = lado direito do
-      // batedor (validado contra goal_mouth_location left/right em toda a edição), então
-      // o eixo é invertido. Postes em y 44,62/55,38; travessão em z=35 na escala da fonte.
+      // Goal frame from the taker's point of view. In the provider data, lower y = the
+      // taker's right (validated against goal_mouth_location left/right across the whole
+      // edition), so the axis is flipped. Posts at y 44.62/55.38; crossbar at z=35 in the
+      // source scale.
       const xFor = value => Math.max(3, Math.min(97, 50 + (50 - value) * 6.9));
       const yFor = value => Math.max(4, 48 - Math.max(0, value) * 0.706);
       const svg = svgNode("svg", { viewBox: "0 0 100 56", class: "penalty-goal-svg", role: "img", "aria-label": `Destino de ${rows.length} cobranças de pênalti, na visão do batedor` });

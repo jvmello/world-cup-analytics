@@ -295,7 +295,7 @@ def build_gold_player_percentiles(player_summary: pd.DataFrame) -> pd.DataFrame:
     df["conversion_rate"] = (df["goals"] / df["shots"]).fillna(0)
     df["shot_accuracy"] = df["shot_accuracy"].fillna(0)
 
-    # Fallback enquanto a posição ainda não estiver perfeita.
+    # Fallback while the position is not perfect yet.
     # Depois podemos trocar para primary_position.
     if "position_name" not in df.columns:
         df["position_group"] = "All players"

@@ -860,8 +860,8 @@ body[data-skin="2026"] .brand-copy {
   gap: 3px;
 }
 
-/* Wordmark "worldcup.dev": minúsculo e sem o contorno do display font — o logo
-   colorido ao lado já carrega o peso visual da marca. */
+/* Wordmark "worldcup": lowercase and without the display-font stroke — the colored
+   logo next to it already carries the brand's visual weight. */
 body[data-skin="2026"] .brand strong.brand-word {
   font: 700 clamp(19px, 2.1vw, 25px)/1 Georgia, serif;
   letter-spacing: -.01em;
@@ -6102,7 +6102,7 @@ body.is-match-center[data-skin="2026"] .lineup-unit h4 {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
 
-/* ---- Leituras táticas: contextos, diagnóstico e comparação ---- */
+/* ---- Tactical readings: contexts, diagnosis and compare ---- */
 
 body[data-page="profile"][data-skin="2026"] {
   --compare-a: var(--wc26-teal);
@@ -6402,7 +6402,7 @@ body[data-page="profile"][data-skin="2026"] .compare-result { display: grid; gap
   body[data-page="profile"][data-skin="2026"] .profile-compare-shortcut { margin-left: 0; }
 }
 
-/* ---- Barra de progresso da edição (Home) ---- */
+/* ---- Edition progress bar (Home) ---- */
 
 body[data-skin="2026"] .home-summary-block {
   display: grid;
@@ -6444,7 +6444,7 @@ body[data-skin="2026"] .home-progress-track i {
   background: var(--wc26-teal);
 }
 
-/* ---- Mapas de finalização: listras desenhadas dentro do SVG (alinhadas ao campo) ---- */
+/* ---- Shot maps: stripes drawn inside the SVG (aligned with the pitch) ---- */
 
 .pitch-wrap svg.pitch-svg { background: none; }
 .pitch-wrap svg.pitch-svg-crop { aspect-ratio: 100 / 38; max-height: 420px; }
@@ -6456,7 +6456,7 @@ body[data-skin="2026"] .pitch-wrap svg.pitch-svg { background: none; }
 body[data-skin="2026"] .pitch-stripe { fill: #0b4738; }
 body[data-skin="2026"] .pitch-stripe.is-alt { fill: #0a3d34; }
 
-/* ---- Mapa de pênaltis (detalhe da partida) ---- */
+/* ---- Penalty map (match detail) ---- */
 
 .penalty-map-panel .penalty-map-score {
   margin: 0 0 4px;

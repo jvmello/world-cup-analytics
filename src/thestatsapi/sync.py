@@ -15,9 +15,9 @@ from .ingestion import default_ingestion
 from .opening_match_smoke import match_id as fixture_match_id
 from .opening_match_smoke import read_fixture_rows, team_name
 
-# player_stats é o marcador de bundle completo (mesmo critério do runbook de
-# extração): os sete endpoints são buscados juntos e o fetch é idempotente por
-# endpoint, então uma partida com player_stats salvo já foi coberta.
+# player_stats marks a complete bundle (same criterion as the extraction runbook):
+# the seven endpoints are fetched together and the fetch is idempotent per endpoint,
+# so a match with player_stats saved has already been covered.
 BUNDLE_MARKER = "player_stats/response.json"
 
 
@@ -38,7 +38,7 @@ def pending_finished_matches(
     rows: list[dict[str, Any]],
     bundled: set[str],
 ) -> list[dict[str, Any]]:
-    """Fixtures encerradas que ainda não têm bundle no Bronze, em ordem de data."""
+    """Finished fixtures that still have no bundle in Bronze, in date order."""
     pending = []
     for row in rows:
         status = str(row.get("status") or "").casefold()
@@ -61,10 +61,10 @@ def _log(message: str) -> None:
 
 
 def _acquire_lock(data_root: Path) -> TextIO | None:
-    """Lock em arquivo (flock) para o cron nunca sobrepor duas execuções.
+    """File lock (flock) so cron never overlaps two runs.
 
-    O arquivo vive em data/ (bind mount), então o lock vale entre containers do
-    mesmo host e é liberado pelo kernel se o processo morrer.
+    The file lives in data/ (bind mount), so the lock holds across containers on
+    the same host and the kernel releases it if the process dies.
     """
     lock_path = Path(data_root) / "ingestion" / "sync.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -120,7 +120,7 @@ def run_sync(
                 _log(f"({index}/{len(pending)}) resultado: {dict(result)}")
                 if result.get("failed"):
                     failures += 1
-            except Exception as error:  # rede/API: registra e segue para a próxima
+            except Exception as error:  # network/API: record and move on to the next
                 failures += 1
                 _log(f"({index}/{len(pending)}) FALHA em {pending_id}: {error}")
             if index < len(pending) and interval_seconds > 0:

@@ -1296,7 +1296,7 @@ def test_2026_theme_uses_black_editorial_world_cup_tokens() -> None:
     ):
         assert token in styles
     assert 'content="#000000"' in index
-    # Marca atual (2026-07-10): logo SVG (donut 4 cores + barras) e wordmark "worldcup".
+    # Current brand (2026-07-10): SVG logo (4-color donut + bars) and "worldcup" wordmark.
     assert 'class="brand-logo"' in index
     assert '<strong class="brand-word">worldcup</strong>' in index
     assert '<small>Analytics · 2026</small>' in index

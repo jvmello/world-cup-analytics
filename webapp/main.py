@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import os
 import re
-# import secrets  # ADMIN DESATIVADO: usado apenas pela comparação de chave administrativa
+# import secrets  # ADMIN DISABLED: only used by the admin-key comparison
 from pathlib import Path
 from typing import Any, Callable
 
-# ADMIN DESATIVADO: Body, Depends e Header eram usados apenas pelas rotas /api/admin/*.
+# ADMIN DISABLED: Body, Depends and Header were only used by the /api/admin/* routes.
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -14,12 +14,12 @@ from fastapi.staticfiles import StaticFiles
 
 from .catalog import DEFAULT_EDITION
 
-# ADMIN DESATIVADO POR ORA (2026-07-09): a área administrativa não deve subir para
-# produção nesta fase. Todo o código permanece no repositório (admin_service.py,
-# curation_repository.py, static/admin.*) — para reativar, descomente os blocos
-# marcados com "ADMIN DESATIVADO" neste arquivo e remova o skip em
-# tests/test_admin_curation.py. As curadorias já gravadas seguem sendo APLICADAS
-# na leitura (fotos/nomes/posições via DataService); apenas a edição fica fechada.
+# ADMIN DISABLED FOR NOW (2026-07-09): the admin area must not ship to production in
+# this phase. All the code stays in the repository (admin_service.py,
+# curation_repository.py, static/admin.*) — to re-enable, uncomment the blocks marked
+# "ADMIN DISABLED" in this file and remove the skip in tests/test_admin_curation.py.
+# Curation overrides already saved keep being APPLIED on read (photos/names/positions
+# via DataService); only editing is closed.
 # from .admin_service import AdminService, CurationValidationError
 from .data_service import DataService
 
@@ -28,8 +28,7 @@ ADMIN_STATIC_ASSETS = {"admin.html", "admin.js", "admin.css"}
 
 class NoCacheStaticFiles(StaticFiles):
     async def get_response(self, path: str, scope: dict[str, Any]):  # type: ignore[override]
-        # ADMIN DESATIVADO: os assets do painel não são servidos enquanto a área
-        # administrativa estiver desligada.
+        # ADMIN DISABLED: the panel assets are not served while the admin area is off.
         if Path(path).name in ADMIN_STATIC_ASSETS:
             raise HTTPException(status_code=404, detail="Not Found")
         response = await super().get_response(path, scope)
@@ -45,9 +44,9 @@ def create_app(
     admin_api_key: str | None = None,
     admin_db_path: Path | str | None = None,
 ) -> FastAPI:
-    # Docs desligadas por padrão (produção); para explorar a API localmente,
-    # suba com EXPOSE_API_DOCS=true. Obs.: o parâmetro correto é docs_url —
-    # passar `docs=None` cai silenciosamente em **extra e não desliga nada.
+    # API docs are off by default (production); to explore the API locally, start
+    # with EXPOSE_API_DOCS=true. Note: the real parameter is docs_url — passing
+    # `docs=None` falls silently into **extra and disables nothing.
     expose_docs = os.getenv("EXPOSE_API_DOCS", "false").strip().lower() in {"1", "true", "yes", "on"}
     app = FastAPI(
         title="World Cup Analytics API",
@@ -63,8 +62,8 @@ def create_app(
         for origin in os.getenv("ALLOWED_ORIGINS", "https://worldcup.jvmello.dev").split(",")
         if origin.strip()
     ]
-    # Superfície pública é somente leitura; com o admin desativado não há motivo para
-    # anunciar métodos de escrita nem headers administrativos no CORS.
+    # The public surface is read-only; with the admin disabled there is no reason to
+    # announce write methods or admin headers in CORS.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allowed_origins,
@@ -72,9 +71,9 @@ def create_app(
         allow_headers=["Content-Type"],
     )
     service = DataService(data_root, admin_db_path=admin_db_path)
-    # ADMIN DESATIVADO POR ORA: independentemente de ENABLE_ADMIN_TOOLS/admin_enabled,
-    # nenhuma rota administrativa é registrada. Os parâmetros da assinatura são
-    # mantidos para não quebrar chamadas existentes.
+    # ADMIN DISABLED FOR NOW: regardless of ENABLE_ADMIN_TOOLS/admin_enabled, no admin
+    # route is registered. The signature parameters are kept so existing callers don't
+    # break.
     del admin_enabled, admin_api_key
     # enabled = admin_enabled if admin_enabled is not None else os.getenv("ENABLE_ADMIN_TOOLS", "false").strip().lower() in {"1", "true", "yes", "on"}
     # configured_key = admin_api_key if admin_api_key is not None else os.getenv("ADMIN_API_KEY", "").strip()
@@ -102,9 +101,9 @@ def create_app(
     # def admin_validation(error: CurationValidationError) -> HTTPException:
     #     return HTTPException(status_code=422, detail=str(error))
 
-    # IDs de entidade entram em caminhos de arquivo no fallback bronze
-    # (data/bronze/.../match_id=<id>), então o formato é validado antes de qualquer uso:
-    # starlette decodifica %2F depois do roteamento, o que permitiria segmentos "../".
+    # Entity ids end up in filesystem paths on the bronze fallback
+    # (data/bronze/.../match_id=<id>), so the format is validated before any use:
+    # starlette decodes %2F after routing, which would allow "../" segments.
     safe_entity_id = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
     def require_safe_id(value: str | None) -> None:
@@ -215,7 +214,7 @@ def create_app(
     )
     app.get("/api/history")(service.history)
 
-    # ADMIN DESATIVADO POR ORA — rotas /api/admin/* não são registradas.
+    # ADMIN DISABLED FOR NOW — /api/admin/* routes are not registered.
     #
     # @app.get("/api/admin/config")
     # def admin_config() -> dict[str, Any]:
@@ -311,6 +310,15 @@ def create_app(
                 NoCacheStaticFiles(directory=resolved_static),
                 name="static",
             )
+            favicon = resolved_static / "favicon.svg"
+            if favicon.exists():
+                # Browsers and bots request /favicon.ico by default even with the
+                # <link rel="icon"> pointing at the SVG — serve the same file so the
+                # logs don't fill up with 404s.
+                @app.get("/favicon.ico", include_in_schema=False)
+                def favicon_ico() -> FileResponse:
+                    return FileResponse(favicon, media_type="image/svg+xml")
+
             index = resolved_static / "index.html"
             if index.exists():
                 def spa_index() -> FileResponse:
@@ -323,7 +331,7 @@ def create_app(
                     spa_index
                 )
 
-                # ADMIN DESATIVADO POR ORA — o painel /admin não é servido.
+                # ADMIN DISABLED FOR NOW — the /admin panel is not served.
                 # admin_index = resolved_static / "admin.html"
                 # if enabled and admin_index.exists():
                 #     @app.get("/admin", include_in_schema=False)
