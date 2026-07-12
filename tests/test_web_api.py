@@ -2356,6 +2356,130 @@ def test_home_time_and_xg_ranking_contracts_are_complete() -> None:
     assert ranking[-1]["xg_difference"] == -5
 
 
+def test_lineup_jersey_numbers_are_backfilled_from_the_edition(tmp_path: Path) -> None:
+    """Regression (Rodríguez/Freuler titulares sem número em ARG×SUI): 42 dos 104 lineups do
+    bronze vêm sem número para alguns jogadores que têm número em outros jogos. O mapa da
+    edição preenche as lacunas: números fora da faixa 1–26 da Copa (vazamento de clube)
+    perdem para os da faixa, e empates resolvem pelo jogo mais recente."""
+    root = _data_root(tmp_path)
+    _write_json(
+        root,
+        "bronze/thestatsapi/world_cup/2026/fixtures/page=1/response.json",
+        {
+            "data": [
+                {"id": "mt_early", "utc_date": "2026-06-11T18:00:00.000Z"},
+                {"id": "mt_late", "utc_date": "2026-07-01T18:00:00.000Z"},
+            ]
+        },
+    )
+    _write_json(
+        root,
+        "bronze/thestatsapi/world_cup/2026/matches/match_id=mt_early/lineups/response.json",
+        {
+            "data": {
+                "home": {
+                    "id": "tm_sui",
+                    "name": "Switzerland",
+                    "starting_xi": [
+                        {"id": "pl_club_leak", "name": "Penders", "jersey_number": 39},
+                        {"id": "pl_changed", "name": "Enciso", "jersey_number": 10},
+                        {"id": "pl_gap", "name": "Freuler", "jersey_number": 8},
+                    ],
+                    "substitutes": [],
+                },
+            }
+        },
+    )
+    _write_json(
+        root,
+        "bronze/thestatsapi/world_cup/2026/matches/match_id=mt_late/lineups/response.json",
+        {
+            "data": {
+                "home": {
+                    "id": "tm_sui",
+                    "name": "Switzerland",
+                    "starting_xi": [
+                        {"id": "pl_club_leak", "name": "Penders", "jersey_number": 1},
+                        {"id": "pl_changed", "name": "Enciso", "jersey_number": 19},
+                        {"id": "pl_gap", "name": "Freuler", "jersey_number": None},
+                        {"id": "pl_unknown", "name": "Locadia", "jersey_number": None},
+                    ],
+                    "substitutes": [],
+                },
+            }
+        },
+    )
+    service = TheStatsApiBronzeService(data_root=root)
+
+    numbers = service._jersey_numbers(2026)
+    assert numbers["pl_club_leak"] == 1  # 39 está fora da faixa 1–26 da Copa
+    assert numbers["pl_changed"] == 19  # empate 1×1 resolvido pelo jogo mais recente
+    assert numbers["pl_gap"] == 8
+    assert "pl_unknown" not in numbers  # nunca teve número: segue vazio na UI
+
+    late_lineups = json.loads(
+        (root / "bronze/thestatsapi/world_cup/2026/matches/match_id=mt_late/lineups/response.json").read_text()
+    )["data"]
+    filled = service._lineups(late_lineups, numbers)
+    by_id = {entry["id"]: entry for entry in filled["home"]["starting_xi"]}
+    assert by_id["pl_gap"]["jersey_number"] == 8
+    assert by_id["pl_unknown"]["jersey_number"] is None
+    assert by_id["pl_club_leak"]["jersey_number"] == 1  # valor do próprio jogo não é sobrescrito
+
+
+def test_own_goals_are_flagged_sided_and_kept_out_of_attempt_analytics() -> None:
+    """Regression (Argentina 3-2 Cabo Verde, 111' Diney Borges): a fonte só marca gol contra
+    no shotmap (goal_type: "own", atribuído ao time beneficiado); a timeline de eventos não tem
+    flag e credita o gol ao time do próprio autor. O gol deve aparecer na lista de gols do lado
+    beneficiado com is_own_goal, virar own_goal na timeline, e sair do mapa/agregados de xG."""
+    service = TheStatsApiBronzeService()
+    match = {"match_id": "mt_og", "home_team": "Argentina", "away_team": "Cape Verde"}
+    shots_raw = [
+        {
+            "id": "sh_1", "minute": 29, "team_id": "tm_arg", "team_name": "Argentina",
+            "player_id": "pl_messi", "player_name": "Lionel Messi",
+            "x": 10.0, "y": 50.0, "expected_goals": 0.3, "result": "goal",
+            "is_goal": True, "is_on_target": True,
+        },
+        {
+            "id": "sh_2", "minute": 111, "team_id": "tm_arg", "team_name": "Argentina",
+            "player_id": "pl_diney", "player_name": "Diney Borges",
+            "x": 4.6, "y": 47.2, "expected_goals": 0.1, "result": "goal",
+            "goal_type": "own", "is_goal": True, "is_on_target": True,
+        },
+    ]
+    events = [
+        {
+            "sequence": 94, "minute": 111, "type": "goal",
+            "team": {"id": "tm_cpv", "name": "Cape Verde"},
+            "player": {"id": "pl_diney", "name": "Diney Borges"},
+        },
+    ]
+
+    shot_map = service._shot_map(match, shots_raw)
+    assert [shot["is_own_goal"] for shot in shot_map] == [False, True]
+
+    attempts = [shot for shot in shot_map if not shot["is_own_goal"]]
+    assert [shot["shot_id"] for shot in attempts] == ["sh_1"]
+
+    event_rows = service._events(match, {"events": events})
+    service._retag_own_goal_events(event_rows, shot_map)
+    assert event_rows[0]["type"] == "own_goal"
+    assert event_rows[0]["team_name"] == "Argentina"  # lado beneficiado, não o do autor
+
+    goals = service._match_goals(shot_map, event_rows)
+    own_goal = next(goal for goal in goals if goal["minute"] == 111)
+    assert own_goal["is_own_goal"] is True
+    assert own_goal["team_name"] == "Argentina"
+
+    story = TheStatsApiBronzeService._match_story(
+        {"home_team": "Argentina", "away_team": "Cape Verde"}, [], [], shot_map
+    )
+    assert any("Diney Borges (contra)" in line for line in story)
+    # A chance mais clara nunca pode ser um gol contra, mesmo com o maior xG da lista.
+    assert not any("chance mais clara foi de Diney Borges" in line for line in story)
+
+
 def test_match_story_describes_equal_displayed_xg_as_balanced() -> None:
     story = TheStatsApiBronzeService._match_story(
         {"home_team": "Haiti", "away_team": "Scotland"},

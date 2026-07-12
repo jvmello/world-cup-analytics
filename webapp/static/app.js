@@ -330,6 +330,7 @@
   };
   const EVENT_LABELS = {
     goal: "Gol",
+    own_goal: "Gol contra",
     shot_on_target: "Chute no alvo",
     shot_off_target: "Chute para fora",
     shot_blocked: "Chute bloqueado",
@@ -347,13 +348,13 @@
     shot_post: "Na trave",
   };
   const EVENT_ICONS = {
-    goal: "●", penalty: "●", shot_on_target: "◎", shot_off_target: "○",
+    goal: "●", own_goal: "●", penalty: "●", shot_on_target: "◎", shot_off_target: "○",
     shot_blocked: "×", foul: "!", yellow_card: "■", red_card: "■",
     substitution: "⇄", corner_kick: "⚑", offside: "↥", var: "◇",
     added_time: "+", period_start: "▶", period_end: "■", shot_post: "▲",
   };
   const NARRATIVE_EVENT_TYPES = new Set([
-    "goal", "penalty", "var", "red_card", "yellow_card", "substitution", "shot_on_target",
+    "goal", "own_goal", "penalty", "var", "red_card", "yellow_card", "substitution", "shot_on_target",
   ]);
   const RADAR_LABELS = {
     Ata: "Ataque", Ataque: "Ataque",
@@ -707,7 +708,7 @@
         class: goal.team_name === away ? "away" : "home",
       }, [
         node("span", { class: "goal-minute", text: minuteLabel(goal) }),
-        node("span", { text: personName(goal) }),
+        node("span", { text: goal.is_own_goal ? `${personName(goal)} (contra)` : personName(goal) }),
       ]))) : null,
       node("dl", { class: `score-details${hero ? " score-details-compact" : ""}` }, detailRows.map(([key, value]) =>
         node("div", {}, [node("dt", { text: key }), node("dd", { text: value })])
@@ -1072,8 +1073,11 @@
         x = PITCH.spotX;
         y = 40;
       } else if (shotUsesPercentUnits(item)) {
+        // The provider's y axis runs opposite to the broadcast view (verified against
+        // TV footage), so mirror it. The cropped profile map already matches this
+        // orientation — its cx = y equals this flip after the 90° attack-up rotation.
         x = PITCH.xAt(rawX);
-        y = PITCH.yAt(rawY);
+        y = PITCH.yAt(100 - rawY);
       } else {
         x = rawX;
         y = rawY;
@@ -3891,6 +3895,11 @@
       event?.assist_name ? `assistência de ${event.assist_name}` : null,
       metricAvailable(event?.xg) ? `${formatValue(event.xg)} xG` : null,
     ].filter(Boolean).join(" · ");
+    // team_name of an own goal is the benefiting side (fixed in the backend).
+    if (type === "own_goal") return [
+      player || "Gol contra confirmado",
+      event?.team_name ? `a favor de ${displayTeamName(event.team_name)}` : null,
+    ].filter(Boolean).join(" · ");
     if (type === "substitution") {
       const incoming = event?.player_in_name || player;
       if (incoming && event?.player_out_name) return `${displayTeamName(event?.team_name)} · ${incoming} entrou no lugar de ${event.player_out_name}`;
@@ -3946,7 +3955,7 @@
       return result;
     }, {});
     return [
-      pluralCount(counts.goal, "gol", "gols"),
+      pluralCount((counts.goal || 0) + (counts.own_goal || 0), "gol", "gols"),
       pluralCount(counts.shot_on_target, "chute no alvo", "chutes no alvo"),
       pluralCount((counts.yellow_card || 0) + (counts.red_card || 0), "cartão", "cartões"),
       pluralCount(counts.substitution, "substituição", "substituições"),
@@ -3957,13 +3966,14 @@
 
   function reconciledMatchEvents(rows, match) {
     const events = [...(rows || [])];
+    const isGoalType = event => ["goal", "own_goal"].includes(String(event?.type).toLowerCase());
     const goalMinutes = new Set(events
-      .filter(event => String(event?.type).toLowerCase() === "goal")
+      .filter(isGoalType)
       .map(event => number(event?.minute))
       .filter(minute => minute !== null));
     (match?.goals || []).forEach(goal => {
       const minute = number(goal?.minute);
-      const existing = events.find(event => String(event?.type).toLowerCase() === "goal" && number(event?.minute) === minute);
+      const existing = events.find(event => isGoalType(event) && number(event?.minute) === minute);
       if (existing) {
         if (!metricAvailable(existing.xg) && metricAvailable(goal.xg)) existing.xg = goal.xg;
         if (!existing.player_name) existing.player_name = goal.player_name;
@@ -3973,10 +3983,10 @@
       events.push({
         minute,
         extra_time: goal?.extra_time,
-        type: "goal",
+        type: goal?.is_own_goal ? "own_goal" : "goal",
         team_name: goal?.team_name,
         player_name: goal?.player_name,
-        xg: goal?.xg,
+        xg: goal?.is_own_goal ? null : goal?.xg,
       });
       if (minute !== null) goalMinutes.add(minute);
     });

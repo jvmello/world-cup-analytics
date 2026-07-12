@@ -7,12 +7,29 @@ A partir da v1.0.0, mudanças de DDL são versionadas em
 ## Não lançado
 
 ### Corrigido
+- Números de camisa nas escalações: 42 das 104 partidas vinham do provedor com
+  lacunas (titulares inclusive, ex.: Rodríguez e Freuler em Argentina × Suíça).
+  Um mapa da edição (lineups de todos os jogos) preenche os buracos — números
+  fora da faixa 1–26 da Copa perdem para os da faixa, moda entre jogos, empate
+  resolvido pelo jogo mais recente. Os 11 jogadores sem número em jogo algum
+  ficam para curadoria manual em `webapp/jersey_overrides.py` (vence a
+  inferência). Requer rebuild do gold.
 - Placar de partidas decididas na prorrogação: o placar público agora inclui os
   gols do tempo extra (fonte: `after_extra_time`), e "venceu nos pênaltis" só
   aparece quando houve disputa de verdade (`penalty_shootout` + flag da fonte).
   Antes, Argentina 3–1 Suíça (prorrogação) era exibido como "1–1, Argentina
   venceu nos pênaltis por 3–1". Novo badge e narrativa "na prorrogação" no
   herói da partida, no pulso da Home e no chaveamento. Requer rebuild do gold.
+- Mapa de chutes da partida: eixo vertical espelhado para coincidir com a visão
+  de TV (o eixo y da fonte cresce no sentido oposto ao da transmissão). Ajuste
+  somente no frontend; o mapa recortado do perfil já estava na orientação certa.
+- Gols contra (13 na edição): a fonte só os marca no shotmap (`goal_type: "own"`,
+  atribuído ao time beneficiado); a timeline de eventos credita o gol ao time do
+  próprio autor, sem flag. Agora o gol aparece na lista do lado beneficiado com
+  "(contra)", vira "Gol contra" na timeline (lado corrigido via shotmap) e sai
+  do mapa de chutes, dos agregados de xG e da "chance mais clara" da narrativa —
+  gols contra não são finalizações do time creditado. Contagem de gols da
+  partida segue incluindo-os (fato do placar). Requer rebuild do gold.
 
 ## v1.0.0 — 2026-07-11
 

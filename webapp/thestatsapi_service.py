@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from .jersey_overrides import JERSEY_NUMBER_OVERRIDES
 from .kit_colors import kits_for
 from .player_analytics import (
     build_reference_distribution,
@@ -68,6 +69,7 @@ class TheStatsApiBronzeService:
     ) -> None:
         self.data_root = Path(data_root)
         self.curation_repository = curation_repository
+        self._jersey_numbers_cache: dict[int, dict[str, int]] = {}
 
     def available(self, year: int) -> bool:
         return bool(self.fixtures(year))
@@ -1465,8 +1467,12 @@ class TheStatsApiBronzeService:
             officials=officials,
         )
         shot_map = self._shot_map(match, shots_raw)
+        # Own goals count in the score and the goal list, but they are not attempts by the
+        # credited team: they stay out of the shot map, the xG aggregates and player_shots.
+        attempts = [shot for shot in shot_map if not shot.get("is_own_goal")]
         player_rows = self._players(players_raw, lineups)
         event_rows = self._events(match, events_payload, player_rows)
+        self._retag_own_goal_events(event_rows, shot_map)
         raw_events = events_payload.get("events", []) if isinstance(events_payload, dict) else []
         player_rows = self._apply_position_inference(match_id, lineups, player_rows, raw_events)
         player_rows = self._curate_players(player_rows)
@@ -1481,7 +1487,7 @@ class TheStatsApiBronzeService:
             api_player_name = player.get("api_player_name") or player_name
             player["player_shots"] = [
                 shot
-                for shot in shot_map
+                for shot in attempts
                 if (player_id and shot.get("player_id") == player_id)
                 or (api_player_name and shot.get("player_name") == api_player_name)
             ]
@@ -1497,7 +1503,7 @@ class TheStatsApiBronzeService:
             ]
         match_detail = {
             **match,
-            **self._match_derived_from_parts(shot_map, stats_comparison),
+            **self._match_derived_from_parts(attempts, stats_comparison),
             "goals": self._match_goals(shot_map, event_rows),
         }
         return {
@@ -1506,9 +1512,10 @@ class TheStatsApiBronzeService:
             "available": bool(match.get("match_id")),
             "match": match_detail,
             "summary": {
-                "shots": len(shot_map),
+                "shots": len(attempts),
+                # Goals stay a match fact (own goals included), unlike shots/xG above.
                 "goals": sum(1 for shot in shot_map if shot.get("is_goal")),
-                "xg": round(sum(float(shot.get("statsbomb_xg") or 0) for shot in shot_map), 2),
+                "xg": round(sum(float(shot.get("statsbomb_xg") or 0) for shot in attempts), 2),
                 "events": len(event_rows),
                 "players": len(player_rows),
             },
@@ -1516,16 +1523,16 @@ class TheStatsApiBronzeService:
             "stats_comparison": stats_comparison,
             "comparison_bars": self._comparison_bars(match, stats_comparison),
             "match_story": self._match_story(match, stats_comparison, player_rows, shot_map),
-            "lineups": self._lineups(lineups),
+            "lineups": self._lineups(lineups, self._jersey_numbers(year)),
             "player_impacts": self._player_impacts(player_rows),
             "player_leaders": self.player_leaders(player_rows),
             "players": player_rows,
             "events": event_rows,
             "event_breakdown": self._event_breakdown(event_rows),
-            "shot_map": shot_map,
+            "shot_map": attempts,
             "penalties": self._penalties(shots_raw),
-            "team_summary": self._team_summary(shot_map),
-            "xg_flow": self._xg_flow(shot_map),
+            "team_summary": self._team_summary(attempts),
+            "xg_flow": self._xg_flow(attempts),
             "notice": None,
         }
 
@@ -1701,7 +1708,60 @@ class TheStatsApiBronzeService:
                 rows.append({"metric": metric, "section": section, home: home_value, away: away_value})
         return rows
 
-    def _lineups(self, lineups: dict[str, Any]) -> dict[str, Any]:
+    def _jersey_numbers(self, year: int) -> dict[str, int]:
+        """Edition-wide player_id → shirt number, used to backfill per-match lineup gaps
+        (42 of the 104 bronze lineups miss the number for some players, starters included).
+        World Cup squads wear 1–26, so club numbers leaking from the provider (39, 40, 52…)
+        lose to tournament-range ones; among those the mode wins, and ties break by the most
+        recent match — the newest lineup is the authoritative squad list."""
+        cached = self._jersey_numbers_cache.get(year)
+        if cached is not None:
+            return cached
+        match_dates = {
+            str(fixture.get("id")): str(fixture.get("utc_date") or "")
+            for fixture in self.fixtures(year)
+            if isinstance(fixture, dict) and fixture.get("id")
+        }
+        seen: dict[str, dict[int, list[Any]]] = {}
+        for root in sorted((self._root(year) / "matches").glob("match_id=*")):
+            match_id = root.name.split("=", 1)[-1]
+            match_date = match_dates.get(match_id, "")
+            data = self._payload(root / "lineups/response.json").get("data", {})
+            for side in ("home", "away"):
+                team = data.get(side) if isinstance(data.get(side), dict) else {}
+                for group in ("starting_xi", "substitutes"):
+                    for entry in team.get(group) or []:
+                        if not isinstance(entry, dict):
+                            continue
+                        player_id, jersey = entry.get("id"), entry.get("jersey_number")
+                        if not player_id or not isinstance(jersey, int):
+                            continue
+                        stats = seen.setdefault(player_id, {}).setdefault(jersey, [0, ""])
+                        stats[0] += 1
+                        stats[1] = max(stats[1], match_date)
+        resolved: dict[str, int] = {}
+        for player_id, numbers in seen.items():
+            candidates = {n: s for n, s in numbers.items() if 1 <= n <= 26} or numbers
+            resolved[player_id] = max(candidates, key=lambda n: (candidates[n][0], candidates[n][1]))
+        resolved.update(JERSEY_NUMBER_OVERRIDES)
+        self._jersey_numbers_cache[year] = resolved
+        return resolved
+
+    def _lineups(self, lineups: dict[str, Any], jersey_numbers: dict[str, int] | None = None) -> dict[str, Any]:
+        jersey_numbers = jersey_numbers or {}
+
+        def backfill(entries: Any) -> list[Any]:
+            rows = []
+            for entry in entries or []:
+                if (
+                    isinstance(entry, dict)
+                    and entry.get("jersey_number") is None
+                    and entry.get("id") in jersey_numbers
+                ):
+                    entry = {**entry, "jersey_number": jersey_numbers[entry["id"]]}
+                rows.append(entry)
+            return rows
+
         result = {}
         for side, data in (("home", lineups.get("home", {})), ("away", lineups.get("away", {}))):
             if not isinstance(data, dict):
@@ -1710,8 +1770,8 @@ class TheStatsApiBronzeService:
                 "team_id": data.get("id"),
                 "team_name": data.get("name"),
                 "formation": data.get("formation"),
-                "starting_xi": data.get("starting_xi") or [],
-                "substitutes": data.get("substitutes") or [],
+                "starting_xi": backfill(data.get("starting_xi")),
+                "substitutes": backfill(data.get("substitutes")),
             }
         return result
 
@@ -2101,6 +2161,8 @@ class TheStatsApiBronzeService:
             grouped_goals: list[dict[str, Any]] = []
             for goal in goals[:3]:
                 player_name = goal.get("player_name")
+                if goal.get("is_own_goal"):
+                    player_name = f"{player_name} (contra)"
                 minute = int(number(goal.get("minute")) or 0)
                 existing = next((entry for entry in grouped_goals if entry["player_name"] == player_name), None)
                 if existing:
@@ -2119,7 +2181,11 @@ class TheStatsApiBronzeService:
                 lines.append(f"O gol da partida foi marcado por {descriptions[0]}.")
             else:
                 lines.append(f"Os gols foram marcados por {' e '.join(descriptions)}.")
-        top_shot = max(shots, key=lambda shot: float(shot.get("xg") or 0), default=None)
+        top_shot = max(
+            (shot for shot in shots if not shot.get("is_own_goal")),
+            key=lambda shot: float(shot.get("xg") or 0),
+            default=None,
+        )
         if top_shot:
             lines.append(
                 f"A chance mais clara foi de {top_shot.get('player_name')}, "
@@ -2203,6 +2269,29 @@ class TheStatsApiBronzeService:
         return rows
 
     @staticmethod
+    def _retag_own_goal_events(
+        event_rows: list[dict[str, Any]],
+        shot_map: list[dict[str, Any]],
+    ) -> None:
+        """The events timeline has no own-goal flag and credits the goal to the scorer's own
+        team — only the shotmap knows (`goal_type: "own"`, attributed to the benefiting team).
+        Cross-reference by (minute, player) to retype the event and fix its side."""
+        own_goals = {
+            (shot.get("minute"), str(shot.get("player_name") or "").casefold()): shot.get("team_name")
+            for shot in shot_map
+            if shot.get("is_own_goal") and shot.get("is_goal")
+        }
+        if not own_goals:
+            return
+        for event in event_rows:
+            if str(event.get("type") or "") != "goal":
+                continue
+            key = (event.get("minute"), str(event.get("player_name") or "").casefold())
+            if key in own_goals:
+                event["type"] = "own_goal"
+                event["team_name"] = own_goals[key] or event.get("team_name")
+
+    @staticmethod
     def _resolve_substitution_outgoing(
         events: list[dict[str, Any]],
         player_rows: list[dict[str, Any]],
@@ -2264,6 +2353,7 @@ class TheStatsApiBronzeService:
                 "team_name": shot.get("team_name"),
                 "player_id": shot.get("player_id"),
                 "player_name": shot.get("player_name"),
+                "is_own_goal": bool(shot.get("is_own_goal")),
                 "xg": shot.get("xg"),
                 "sequence": goal_sequences.get(
                     (shot.get("minute"), str(shot.get("player_name") or "").casefold())
@@ -2369,6 +2459,7 @@ class TheStatsApiBronzeService:
                     "body_part": self._shot_term(shot.get("body_part")),
                     "shot_type": self._shot_term(shot.get("situation")),
                     "is_goal": shot.get("is_goal"),
+                    "is_own_goal": str(shot.get("goal_type") or "").casefold() == "own",
                     "is_on_target": shot.get("is_on_target"),
                     "is_penalty": shot.get("is_penalty"),
                 }
