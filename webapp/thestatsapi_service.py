@@ -58,6 +58,11 @@ def number(value: Any) -> float | int | None:
     return int(parsed) if parsed.is_integer() else round(parsed, 3)
 
 
+def valid_jersey_number(value: Any) -> int | None:
+    parsed = number(value)
+    return parsed if isinstance(parsed, int) and 1 <= parsed <= 26 else None
+
+
 class TheStatsApiBronzeService:
     """Processed web contracts derived from TheStatsAPI Bronze raw files."""
 
@@ -1709,69 +1714,100 @@ class TheStatsApiBronzeService:
         return rows
 
     def _jersey_numbers(self, year: int) -> dict[str, int]:
-        """Edition-wide player_id → shirt number, used to backfill per-match lineup gaps
-        (42 of the 104 bronze lineups miss the number for some players, starters included).
-        World Cup squads wear 1–26, so club numbers leaking from the provider (39, 40, 52…)
-        lose to tournament-range ones; among those the mode wins, and ties break by the most
-        recent match — the newest lineup is the authoritative squad list."""
+        """Manual player_id → shirt number map.
+
+        Raw TheStatsAPI lineups can mix club numbers with national-team numbers. We do
+        not infer missing shirts from the tournament sample anymore: only manual
+        curation can backfill or override a shirt number. Per-match lineups still keep
+        source numbers when they are valid and non-conflicting."""
         cached = self._jersey_numbers_cache.get(year)
         if cached is not None:
             return cached
-        match_dates = {
-            str(fixture.get("id")): str(fixture.get("utc_date") or "")
-            for fixture in self.fixtures(year)
-            if isinstance(fixture, dict) and fixture.get("id")
+        resolved = {
+            player_id: jersey
+            for player_id, jersey in JERSEY_NUMBER_OVERRIDES.items()
+            if valid_jersey_number(jersey) is not None
         }
-        seen: dict[str, dict[int, list[Any]]] = {}
-        for root in sorted((self._root(year) / "matches").glob("match_id=*")):
-            match_id = root.name.split("=", 1)[-1]
-            match_date = match_dates.get(match_id, "")
-            data = self._payload(root / "lineups/response.json").get("data", {})
-            for side in ("home", "away"):
-                team = data.get(side) if isinstance(data.get(side), dict) else {}
-                for group in ("starting_xi", "substitutes"):
-                    for entry in team.get(group) or []:
-                        if not isinstance(entry, dict):
-                            continue
-                        player_id, jersey = entry.get("id"), entry.get("jersey_number")
-                        if not player_id or not isinstance(jersey, int):
-                            continue
-                        stats = seen.setdefault(player_id, {}).setdefault(jersey, [0, ""])
-                        stats[0] += 1
-                        stats[1] = max(stats[1], match_date)
-        resolved: dict[str, int] = {}
-        for player_id, numbers in seen.items():
-            candidates = {n: s for n, s in numbers.items() if 1 <= n <= 26} or numbers
-            resolved[player_id] = max(candidates, key=lambda n: (candidates[n][0], candidates[n][1]))
-        resolved.update(JERSEY_NUMBER_OVERRIDES)
         self._jersey_numbers_cache[year] = resolved
         return resolved
 
     def _lineups(self, lineups: dict[str, Any], jersey_numbers: dict[str, int] | None = None) -> dict[str, Any]:
         jersey_numbers = jersey_numbers or {}
 
+        def clean_jersey(entry: dict[str, Any]) -> dict[str, Any]:
+            curated = valid_jersey_number(jersey_numbers.get(str(entry.get("id"))))
+            jersey = valid_jersey_number(entry.get("jersey_number"))
+            cleaned = {**entry, "jersey_number": curated if curated is not None else jersey}
+            if curated is not None:
+                cleaned["_jersey_curated"] = True
+            return cleaned
+
         def backfill(entries: Any) -> list[Any]:
             rows = []
             for entry in entries or []:
-                if (
-                    isinstance(entry, dict)
-                    and entry.get("jersey_number") is None
-                    and entry.get("id") in jersey_numbers
-                ):
-                    entry = {**entry, "jersey_number": jersey_numbers[entry["id"]]}
-                rows.append(entry)
+                rows.append(clean_jersey(entry) if isinstance(entry, dict) else entry)
             return rows
+
+        def clear_team_duplicates(groups: dict[str, list[Any]]) -> dict[str, list[Any]]:
+            counts = Counter(
+                entry.get("jersey_number")
+                for entries in groups.values()
+                for entry in entries
+                if isinstance(entry, dict) and entry.get("jersey_number") is not None
+            )
+            duplicate_numbers = {jersey for jersey, count in counts.items() if count > 1}
+            if not duplicate_numbers:
+                return {
+                    group: [
+                        {key: value for key, value in entry.items() if key != "_jersey_curated"}
+                        if isinstance(entry, dict) else entry
+                        for entry in entries
+                    ]
+                    for group, entries in groups.items()
+                }
+            curated_by_number = {
+                jersey: [
+                    entry
+                    for entries in groups.values()
+                    for entry in entries
+                    if (
+                        isinstance(entry, dict)
+                        and entry.get("jersey_number") == jersey
+                        and entry.get("_jersey_curated")
+                    )
+                ]
+                for jersey in duplicate_numbers
+            }
+            cleaned_groups = {}
+            for group, entries in groups.items():
+                cleaned_entries = []
+                for entry in entries:
+                    if not isinstance(entry, dict):
+                        cleaned_entries.append(entry)
+                        continue
+                    jersey = entry.get("jersey_number")
+                    curated = entry.get("_jersey_curated")
+                    unique_curated_owner = len(curated_by_number.get(jersey, [])) == 1 if jersey in duplicate_numbers else False
+                    if jersey in duplicate_numbers and not (curated and unique_curated_owner):
+                        entry = {**entry, "jersey_number": None}
+                    cleaned_entries.append({key: value for key, value in entry.items() if key != "_jersey_curated"})
+                cleaned_groups[group] = cleaned_entries
+            return cleaned_groups
 
         result = {}
         for side, data in (("home", lineups.get("home", {})), ("away", lineups.get("away", {}))):
             if not isinstance(data, dict):
                 continue
+            groups = clear_team_duplicates({
+                "starting_xi": backfill(data.get("starting_xi")),
+                "substitutes": backfill(data.get("substitutes")),
+            })
             result[side] = {
                 "team_id": data.get("id"),
                 "team_name": data.get("name"),
                 "formation": data.get("formation"),
-                "starting_xi": backfill(data.get("starting_xi")),
-                "substitutes": backfill(data.get("substitutes")),
+                "starting_xi": groups["starting_xi"],
+                "substitutes": groups["substitutes"],
             }
         return result
 

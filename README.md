@@ -285,6 +285,27 @@ make thestatsapi-serving
 make thestatsapi-gold
 ```
 
+For squad-number curation, the Wikipedia squad page is used as the primary
+review source for `webapp/jersey_overrides.py` without becoming a runtime
+dependency. The helper below downloads the public squad table, matches player
+names against local Bronze lineups and writes review artifacts:
+
+```bash
+make thestatsapi-wikipedia-jerseys
+```
+
+The output is written to
+`data/admin/jersey_curation/wikipedia_2026_candidates.json`, with an optional
+Python snippet in `data/admin/jersey_curation/wikipedia_2026_snippet.py`.
+Players that could not be matched automatically are listed for manual review in
+`data/admin/jersey_curation/wikipedia_2026_unmatched.csv`, including their
+Wikipedia shirt number and position. Fill `player_id_curado` when you know the
+local TheStatsAPI id. The next helper run preserves that manual cell and
+includes rows with `player_id_curado` in the generated snippet, using the
+Wikipedia shirt number from the same row.
+The public UI trusts `webapp/jersey_overrides.py`, not Wikipedia at request
+time; use the artifacts to audit or refresh that explicit dictionary.
+
 `make thestatsapi-gold` is kept as a compatibility alias for the same serving
 builder. Use `python -m thestatsapi.serving --dry-run` inside the app container
 when you only want to validate Bronze readability and row counts without

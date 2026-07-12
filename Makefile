@@ -104,6 +104,9 @@ thestatsapi-gold:
 thestatsapi-position-report:
 	docker compose run --rm --no-deps app python -m thestatsapi.position_report --year 2026
 
+thestatsapi-wikipedia-jerseys:
+	docker compose run --rm --no-deps app python -m thestatsapi.wikipedia_jerseys
+
 test:
 	docker compose run --rm --no-deps app python -m unittest discover -s tests -v
 

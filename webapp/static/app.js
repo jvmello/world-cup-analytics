@@ -44,7 +44,7 @@
     edition: null,
     controller: null,
     cache: new Map(),
-    pathname: location.pathname,
+    pathname: `${location.pathname}${location.search}`,
     matchPlayers: [],
     competitionData: null,
     quickView: null,
@@ -177,6 +177,55 @@
     if (replace) history.replaceState(null, "", path);
     else history.pushState(null, "", path);
     navigate();
+  }
+
+  function isPlainNavigationClick(event) {
+    return event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
+  }
+
+  function navigateToHref(href, { replace = false } = {}) {
+    if (!href) return;
+    if (replace) history.replaceState(null, "", href);
+    else history.pushState(null, "", href);
+    navigate();
+  }
+
+  function profileHref(kind, id = null) {
+    const params = new URLSearchParams({ type: kind });
+    if (id) params.set("id", id);
+    return `${routePath(state.year, "profile")}?${params}`;
+  }
+
+  function compareHref(kind, aId = null, bId = null) {
+    const params = new URLSearchParams({ type: "compare", kind });
+    if (aId) params.set("a", aId);
+    if (bId) params.set("b", bId);
+    return `${routePath(state.year, "profile")}?${params}`;
+  }
+
+  function routeLink(labelText, page, id = null, { className = "action-link", children = null, attrs = {} } = {}) {
+    const href = routePath(state.year, page, id);
+    const link = node("a", { href, class: className, text: children ? null : labelText, ...attrs }, children || []);
+    link.addEventListener("click", event => {
+      if (!isPlainNavigationClick(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      navigateToHref(href);
+    });
+    return link;
+  }
+
+  function profileLink(kind, id, { labelText = "Ver perfil", className = "action-link", children = null, attrs = {} } = {}) {
+    if (!id) return null;
+    const href = profileHref(kind, id);
+    const link = node("a", { href, class: className, text: children ? null : labelText, ...attrs }, children || []);
+    link.addEventListener("click", event => {
+      if (!isPlainNavigationClick(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      navigateToHref(href);
+    });
+    return link;
   }
 
   function setSkin(page, year) {
@@ -681,7 +730,7 @@
     const status = penalties ? "Pênaltis" : match?.went_to_extra_time ? "Prorrogação" : competitionMatchStatus(match);
     const hasScore = metricAvailable(match?.home_score) && metricAvailable(match?.away_score);
     const teamSurface = (name, id) => id
-      ? node("button", { type: "button", class: "score-team-link", onclick: () => goToProfile("team", id) }, teamLabel(name))
+      ? profileLink("team", id, { className: "score-team-link", children: teamLabel(name), attrs: { "aria-label": `Ver perfil de ${displayTeamName(name)}` } })
       : teamLabel(name);
     const detailRows = [
       !hero ? ["Data", formatMatchDate(date)] : null,
@@ -703,7 +752,7 @@
         node("strong", {}, teamSurface(away, match?.away_team_id)),
       ]),
       penalties ? node("p", { class: "score-penalties is-verdict", text: penaltyVerdict(match) }) : null,
-      hero && match?.stage && !match?.group_name ? node("button", { type: "button", class: "action-link score-bracket-cta", text: "Ver chaveamento →", onclick: () => goTo(state.year, "competition") }) : null,
+      hero && match?.stage && !match?.group_name ? routeLink("Ver chaveamento →", "competition", null, { className: "action-link score-bracket-cta" }) : null,
       goals.length ? node("ol", { class: "score-goals", "aria-label": "Gols da partida" }, goals.map(goal => node("li", {
         class: goal.team_name === away ? "away" : "home",
       }, [
@@ -722,31 +771,16 @@
   }
 
   function goToProfile(kind, id = null) {
-    const params = new URLSearchParams({ type: kind });
-    if (id) params.set("id", id);
-    history.pushState(null, "", `${routePath(state.year, "profile")}?${params}`);
-    navigate();
+    navigateToHref(profileHref(kind, id));
   }
 
   function goToCompare(kind, aId = null, bId = null) {
-    const params = new URLSearchParams({ type: "compare", kind });
-    if (aId) params.set("a", aId);
-    if (bId) params.set("b", bId);
-    history.pushState(null, "", `${routePath(state.year, "profile")}?${params}`);
-    navigate();
+    navigateToHref(compareHref(kind, aId, bId));
   }
 
   function detailAction(labelText, page, id) {
     if (!id) return null;
-    return node("button", {
-      type: "button",
-      class: "action-link",
-      text: labelText,
-      onclick: event => {
-        event.stopPropagation();
-        routeTo(page, id);
-      },
-    });
+    return routeLink(labelText, page, id, { className: "action-link" });
   }
 
   function clickableCard(card, page, id) {
@@ -891,6 +925,21 @@
 
   function scatterEntityMarker(item, { cx, cy, kind, selected = false, tooltip, onSelect = null, dense = false, plain = false }) {
     const isPlayer = kind === "player";
+    const entityId = isPlayer ? item?.player_id : item?.team_id;
+    const href = entityId ? profileHref(kind, entityId) : null;
+    const withEntityLink = element => {
+      if (!href) return element;
+      const link = svgNode("a", { href, "aria-label": tooltip });
+      link.addEventListener("click", event => {
+        if (!isPlainNavigationClick(event)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (onSelect) onSelect(item);
+        else navigateToHref(href);
+      });
+      link.append(element);
+      return link;
+    };
     // Modo plain: a massa vira ponto simples; bandeira/foto ficam para o
     // selecionado e para os destaques — o scatter continua legível com 300+.
     if (plain && !selected) {
@@ -900,13 +949,13 @@
         style: `--team-color:${teamColor(item?.team_name, 0)}`,
         tabindex: "0", role: onSelect ? "button" : "img", "aria-label": tooltip,
       });
-      if (onSelect) {
+      if (onSelect && !href) {
         dot.addEventListener("click", () => onSelect(item));
         dot.addEventListener("keydown", event => {
           if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(item); }
         });
       }
-      return attachChartTooltip(dot, tooltip);
+      return withEntityLink(attachChartTooltip(dot, tooltip));
     }
     const flagSource = flagAssetSource(item);
     const photoSource = isPlayer ? playerPhotoSource(item) : null;
@@ -942,13 +991,13 @@
       const fallback = isPlayer ? personName(item) : teamName(item);
       group.append(svgNode("text", { x: 0, y: 3, class: "scatter-marker-fallback", "text-anchor": "middle" }, fallback.slice(0, 2).toUpperCase()));
     }
-    if (onSelect) {
+    if (onSelect && !href) {
       group.addEventListener("click", () => onSelect(item));
       group.addEventListener("keydown", event => {
         if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(item); }
       });
     }
-    return attachChartTooltip(group, tooltip);
+    return withEntityLink(attachChartTooltip(group, tooltip));
   }
 
   const SHOT_OUTCOME_LABELS = {
@@ -1590,9 +1639,9 @@
         node("header", {}, [node("small", { text: round.name === summary.current_phase ? "Fase atual" : "Na sequência" }), node("h3", { text: round.name })]),
         node("div", { class: "home-bracket-matches" }, (round.matches || []).slice(0, 4).map(match => homeBracketMatch(match, round.id))),
       ]))),
-      node("button", { type: "button", class: "home-bracket-cta", onclick: () => goTo(state.year, "competition") }, [
+      routeLink("Ver chave completa", "competition", null, { className: "home-bracket-cta", children: [
         node("span", { text: "Ver chave completa" }), node("span", { "aria-hidden": "true", text: "→" }),
-      ]),
+      ] }),
     ]);
   }
 
@@ -1708,16 +1757,14 @@
   }
 
   function homeRankingRow(item, index, metric, entity) {
-    const open = entity === "player" && item.player_id
-      ? () => goToProfile("player", item.player_id)
-      : entity === "team" && item.team_id
-        ? () => goToProfile("team", item.team_id)
-        : () => openHomeEntityQuickView(item, entity);
-    return node("button", { type: "button", class: "home-ranking-row", onclick: open }, [
+    const children = [
       node("span", { class: "home-rank", text: String(index + 1) }),
       homeRankingEntity(item, entity),
       node("strong", { class: `home-ranking-value ${homeRankingValueClass(item, metric)}`.trim(), text: homeRankingValue(item, metric) }),
-    ]);
+    ];
+    if (entity === "player" && item.player_id) return profileLink("player", item.player_id, { className: "home-ranking-row", children });
+    if (entity === "team" && item.team_id) return profileLink("team", item.team_id, { className: "home-ranking-row", children });
+    return node("button", { type: "button", class: "home-ranking-row", onclick: () => openHomeEntityQuickView(item, entity) }, children);
   }
 
   function homeRankingPanel({ kicker, title, rows, metric, entity }) {
@@ -2059,11 +2106,12 @@
   }
 
   function analysisRankingRow(row, index, definition, entity) {
-    return node("button", { type: "button", class: "analysis-ranking-row", onclick: () => goToProfile(entity, entity === "player" ? row.player_id : row.team_id) }, [
+    const id = entity === "player" ? row.player_id : row.team_id;
+    return profileLink(entity, id, { className: "analysis-ranking-row", children: [
       node("span", { class: "home-rank", text: index + 1 }),
       homeRankingEntity(row, entity),
       node("strong", { class: definition.signed ? homeRankingValueClass({ xg_difference: row.analysis_value }, "xg_difference") : "", text: analysisMetricValue(row, definition) }),
-    ]);
+    ] });
   }
 
   function openAnalysisRanking(definition, rows, entity) {
@@ -2177,14 +2225,12 @@
       keeper ? { kicker: "Goleiro em destaque", player: keeper, value: `${formatValue(keeper.saves)} defesas`, detail: `${formatValue(keeper.minutes_played)} min · rating ${formatValue(keeper.rating)}` } : null,
     ].filter(Boolean);
     if (!highlights.length) return null;
-    return node("div", { class: "player-editorial-highlights" }, highlights.map(({ kicker, player, value, detail }) => node("button", {
-      type: "button", onclick: () => goToProfile("player", player.player_id),
-    }, [
+    return node("div", { class: "player-editorial-highlights" }, highlights.map(({ kicker, player, value, detail }) => profileLink("player", player.player_id, { className: "", children: [
       node("small", { text: kicker }),
       node("strong", {}, [flagNode(player), node("span", { text: personName(player) })]),
       node("b", { text: value }),
       node("span", { text: detail }),
-    ])));
+    ] })));
   }
 
   function playerComparisonMap(rows, onSelect) {
@@ -2311,9 +2357,11 @@
       "Defesa mais sólida": "Fórmula: xG cedido por jogo (menor é melhor).",
       "Mais eficiente": "Fórmula: gols − xG (conversão acima do esperado).",
     };
-    return node("div", { class: "team-editorial-highlights" }, highlights.map(({ kicker, team, value, detail }) => node("button", {
-      type: "button", title: formulas[kicker] || null, onclick: () => goToProfile("team", team.team_id),
-    }, [node("small", { text: kicker }), node("strong", {}, [flagNode(team), node("span", { text: teamName(team) })]), node("b", { text: value }), node("span", { text: detail })])));
+    return node("div", { class: "team-editorial-highlights" }, highlights.map(({ kicker, team, value, detail }) => profileLink("team", team.team_id, {
+      className: "",
+      attrs: { title: formulas[kicker] || null },
+      children: [node("small", { text: kicker }), node("strong", {}, [flagNode(team), node("span", { text: teamName(team) })]), node("b", { text: value }), node("span", { text: detail })],
+    })));
   }
 
   function teamComparisonInsights(teams, mode) {
@@ -2348,7 +2396,7 @@
     const rows = (modes[mode] || []).filter(([, team]) => team);
     return node("aside", { class: "team-map-insights" }, [node("h3", { text: "Destaques do mapa" }), ...rows.map(([labelText, team, metric, unit, signed]) => {
       const value = number(team[metric]);
-      return node("button", { type: "button", onclick: () => goToProfile("team", team.team_id) }, [node("small", { text: labelText }), node("strong", {}, [flagNode(team), node("span", { text: teamName(team) })]), node("b", { text: `${signed && value > 0 ? "+" : ""}${formatValue(value)} ${unit}` })]);
+      return profileLink("team", team.team_id, { className: "", children: [node("small", { text: labelText }), node("strong", {}, [flagNode(team), node("span", { text: teamName(team) })]), node("b", { text: `${signed && value > 0 ? "+" : ""}${formatValue(value)} ${unit}` })] });
     })]);
   }
 
@@ -2393,11 +2441,11 @@
       }).slice(0, 8);
       const max = Math.max(...rows.map(row => Math.abs(row.value)), 1);
       note.textContent = definition.ascending ? "Menor é melhor" : "Maior é melhor";
-      host.replaceChildren(...rows.map(({ team, value }, index) => node("button", { type: "button", onclick: () => goToProfile("team", team.team_id) }, [
+      host.replaceChildren(...rows.map(({ team, value }, index) => profileLink("team", team.team_id, { className: "", children: [
         node("span", { class: "home-rank", text: index + 1 }), homeRankingEntity(team, "team"),
         node("span", { class: "team-production-track" }, node("i", { style: `width:${Math.max(3, Math.abs(value) / max * 100)}%` })),
         node("b", { text: `${definition.signed && value > 0 ? "+" : ""}${formatValue(value)} ${definition.unit}` }),
-      ])));
+      ] })));
     };
     select.onchange = draw; draw();
     return node("div", { class: "team-production-overview" }, [node("div", { class: "team-production-controls" }, [node("label", {}, [node("span", { text: "Métrica" }), select]), note]), host]);
@@ -2728,7 +2776,7 @@
   function playerOverviewTable(rows, { selectedId = null, onSelect = null } = {}) {
     let sort = { key: "minutes_played", direction: "desc" };
     const columns = [
-      { key: "player_name", label: "Jogador", value: player => personName(player), render: player => node("span", { class: "players-table-player" }, [flagNode(player), node("strong", { text: personName(player) })]) },
+      { key: "player_name", label: "Jogador", value: player => personName(player), render: player => profileLink("player", player.player_id, { className: "players-table-player", children: [flagNode(player), node("strong", { text: personName(player) })] }) },
       { key: "team_name", label: "Seleção", value: player => displayTeamName(player.team_name) },
       { key: "position", label: "Pos.", value: player => resolvedPlayerPosition(player, true) },
       { key: "minutes_played", label: "Min.", value: player => number(player.minutes_played) },
@@ -2896,18 +2944,14 @@
       node("h3", { text: "Comparáveis" }),
       node("p", { class: "profile-comparables-note", text: "Perfis estatísticos mais próximos: menor distância entre as notas dos eixos do radar comparativo — semelhança de estilo, não de qualidade absoluta." }),
       node("div", { class: "profile-comparables-list" }, items.map(item => node("div", { class: "profile-comparable-item" }, [
-        node("button", { type: "button", class: "profile-comparable-open", onclick: () => goToProfile(kind, item.id) }, [
+        profileLink(kind, item.id, { className: "profile-comparable-open", children: [
           flagNode({ team_name: item.team_name }),
           node("span", {}, [
             node("strong", { text: kind === "player" ? item.name : displayTeamName(item.name) }),
             kind === "player" ? node("small", { text: displayTeamName(item.team_name) }) : null,
           ].filter(Boolean)),
-        ]),
-        currentId ? node("button", {
-          type: "button", class: "action-link profile-comparable-compare",
-          text: "Comparar",
-          onclick: () => goToCompare(kind, currentId, item.id),
-        }) : null,
+        ] }),
+        currentId ? node("a", { href: compareHref(kind, currentId, item.id), class: "action-link profile-comparable-compare", text: "Comparar" }) : null,
       ].filter(Boolean)))),
     ]);
   }
@@ -3273,7 +3317,11 @@
       ].filter(Boolean));
     }
     return node("article", { class: "player-profile-view" }, [
-      node("header", { class: "player-profile-identity" }, [playerPhotoNode(player), node("span", {}, [node("small", { class: "player-profile-team", text: `${displayTeamName(player.team_name)} · ${resolvedPlayerPosition(player)}` }), node("h3", { text: personName(player) })]), node("button", { type: "button", class: "profile-compare-shortcut", text: "Comparar com outro jogador", onclick: () => goToCompare("player", player.player_id) })]),
+      node("header", { class: "player-profile-identity" }, [
+        playerPhotoNode(player),
+        node("span", {}, [node("small", { class: "player-profile-team", text: `${displayTeamName(player.team_name)} · ${resolvedPlayerPosition(player)}` }), node("h3", { text: personName(player) })]),
+        node("a", { href: compareHref("player", player.player_id), class: "profile-compare-shortcut", text: "Comparar com outro jogador" }),
+      ]),
       profileSummaryLine(summaryDefinitions.map(([key, labelText, unit]) => metric(key, labelText, unit))),
       node("div", { class: "player-profile-content" }, content),
     ]);
@@ -3443,10 +3491,11 @@
   function matchTeamLink(teamNameValue, teamId, defined) {
     const display = translateTeamsInText(teamNameValue || "A definir");
     if (!defined || !teamId) return node("span", { class: "matches-calendar-team is-placeholder", title: display }, [node("span", { text: display })]);
-    return node("button", {
-      type: "button", class: "matches-calendar-team", title: display,
-      onclick: event => { event.stopPropagation(); goToProfile("team", teamId); },
-    }, [flagNode(teamNameValue), node("span", { text: display })]);
+    return profileLink("team", teamId, {
+      className: "matches-calendar-team",
+      attrs: { title: display },
+      children: [flagNode(teamNameValue), node("span", { text: display })],
+    });
   }
 
 
@@ -3845,7 +3894,7 @@
     return node("article", { class: "lineup-card" }, [
       node("div", { class: "chart-card-head" }, [
         node("p", { class: "eyebrow", text: side.formation ? `Formação ${side.formation}` : "Escalação" }),
-        node("h3", {}, side.team_name ? node("button", { type: "button", class: "lineup-team-link", onclick: () => side.team_id && goToProfile("team", side.team_id) }, teamLabel(side.team_name)) : "Equipe"),
+        node("h3", {}, side.team_name && side.team_id ? profileLink("team", side.team_id, { className: "lineup-team-link", children: teamLabel(side.team_name) }) : side.team_name ? teamLabel(side.team_name) : "Equipe"),
       ]),
       node("div", { class: "lineup-units" }, ["Goleiro", "Defesa", "Meio-campo", "Ataque"].filter(unit => grouped.has(unit)).map(unit => node("section", { class: "lineup-unit" }, [
         node("h4", { text: unit }),
@@ -4037,6 +4086,7 @@
     ];
     return node("nav", { class: "match-subnav", "aria-label": "Navegação da partida" }, links.map(([labelText, href], index) =>
       node("a", { class: `match-subnav-link${index === 0 ? " is-active" : ""}`, href, text: labelText, onclick: event => {
+        if (!isPlainNavigationClick(event)) return;
         event.preventDefault();
         document.querySelector(href)?.scrollIntoView({ behavior: "smooth", block: "start" });
       } })
@@ -5067,10 +5117,9 @@
     let showAllColumns = false;
     const CORE_COLUMNS = new Set(["player_name", "team_name", "position", "minutes_played", "impact_score", "goals", "xg", "rating"]);
     const allColumns = [
-      { key: "player_name", label: "Jogador", value: player => player.player_name, render: player => node("span", {
-        class: "player-name-button",
-        text: player.player_name,
-      }) },
+      { key: "player_name", label: "Jogador", value: player => player.player_name, render: player => player.player_id
+        ? profileLink("player", player.player_id, { className: "player-name-button", labelText: player.player_name })
+        : node("span", { class: "player-name-button", text: player.player_name }) },
       { key: "team_name", label: "Time", value: player => displayTeamName(player.team_name), render: player => teamLabel(player.team_name) },
       { key: "position", label: "Pos.", value: player => resolvedPlayerPosition(player, true) },
       { key: "minutes_played", label: "Min.", value: player => number(player.minutes_played) },
@@ -5159,7 +5208,7 @@
         node("p", { class: "player-summary", text: playerSummary(selected) }),
         node("div", { class: "player-detail-actions" }, [
           node("button", { type: "button", class: "action-link", text: "Ver estatísticas completas", onclick: () => openPlayerModal(selected) }),
-          selected.player_id ? node("button", { type: "button", class: "action-link", text: "Ver perfil completo", onclick: () => goToProfile("player", selected.player_id) }) : null,
+          selected.player_id ? profileLink("player", selected.player_id, { className: "action-link", labelText: "Ver perfil completo" }) : null,
         ]),
         node("dl", { class: "feature-stats compact" }, [
           ["Gols", selected.goals],
@@ -5622,14 +5671,7 @@
 
   function competitionTeamLink(teamNameValue, teamId, className = "competition-team-link") {
     if (!teamId) return node("span", { class: className }, teamLabel(teamNameValue));
-    return node("button", {
-      type: "button",
-      class: className,
-      onclick: event => {
-        event.stopPropagation();
-        goToProfile("team", teamId);
-      },
-    }, teamLabel(teamNameValue));
+    return profileLink("team", teamId, { className, children: teamLabel(teamNameValue) });
   }
 
   function signedStandingValue(value) {
@@ -6456,7 +6498,7 @@
             node("strong", { text: personName(player) }),
             node("small", { text: `${displayTeamName(player.team_name)} · ${resolvedPlayerPosition(player)}` }),
             node("small", { text: `${formatValue(player.minutes_played)} min · ${formatValue(player.games)} ${number(player.games) === 1 ? "jogo" : "jogos"}` }),
-            node("button", { type: "button", class: "action-link compare-profile-cta", text: "Ver perfil", onclick: () => goToProfile("player", player.player_id) }),
+            profileLink("player", player.player_id, { className: "action-link compare-profile-cta", labelText: "Ver perfil" }),
           ]),
         ]);
       }
@@ -6467,7 +6509,7 @@
           node("strong", { text: teamName(team) }),
           node("small", { text: [team.group_name ? `Grupo ${team.group_name}` : "Copa 2026", team.classification_status].filter(Boolean).join(" · ") }),
           node("small", { text: `${formatValue(team.played)} jogos · ${formatValue(team.wins)} vitórias · saldo de xG ${signedStandingValue(team.xg_difference)}` }),
-          node("button", { type: "button", class: "action-link compare-profile-cta", text: `Ver perfil de ${teamName(team)}`, onclick: () => goToProfile("team", team.team_id) }),
+          profileLink("team", team.team_id, { className: "action-link compare-profile-cta", labelText: `Ver perfil de ${teamName(team)}` }),
         ]),
       ]);
     };
@@ -6725,7 +6767,11 @@
       ].filter(Boolean));
     }
     return node("article", { class: "team-profile-view" }, [
-      node("header", { class: "player-profile-identity team-profile-identity" }, [flagNode(team, "flag-large"), node("span", {}, [node("small", { text: [team.group_name ? `Grupo ${team.group_name}` : "Copa 2026", team.classification_status].filter(Boolean).join(" · ") }), node("h3", { text: teamName(team) }), node("p", { text: `${formatValue(team.played)} jogos · ${formatValue(team.wins)} vitórias · ${formatValue(team.goals_for)} gols · saldo de xG ${signedStandingValue(team.xg_difference)}` })]), node("button", { type: "button", class: "profile-compare-shortcut", text: "Comparar com outra seleção", onclick: () => goToCompare("team", team.team_id) })]),
+      node("header", { class: "player-profile-identity team-profile-identity" }, [
+        flagNode(team, "flag-large"),
+        node("span", {}, [node("small", { text: [team.group_name ? `Grupo ${team.group_name}` : "Copa 2026", team.classification_status].filter(Boolean).join(" · ") }), node("h3", { text: teamName(team) }), node("p", { text: `${formatValue(team.played)} jogos · ${formatValue(team.wins)} vitórias · ${formatValue(team.goals_for)} gols · saldo de xG ${signedStandingValue(team.xg_difference)}` })]),
+        node("a", { href: compareHref("team", team.team_id), class: "profile-compare-shortcut", text: "Comparar com outra seleção" }),
+      ]),
       profileSummaryLine([metricWithComparison("Jogos", team.played), metric("wins", "Vitórias"), metric("goals_for", "Gols"), metric("xg", "xG"), metric("xga", "xG cedido"), metric("xg_difference", "Saldo de xG")]),
       node("div", { class: "player-profile-content team-profile-content" }, content),
     ]);
@@ -6808,7 +6854,7 @@
             node("span", { class: "year", text: year }),
             node("h3", { text: champion }),
             node("p", { text: editionCoverage(item) }),
-            node("button", { type: "button", text: "Abrir edição", onclick: () => goTo(year, DEFAULT_PAGE) }),
+            node("a", { href: routePath(year, DEFAULT_PAGE), text: "Abrir edição" }),
           ]);
         })),
       ]));
@@ -6890,7 +6936,7 @@
     }
     closeQuickView();
     closeStatPopover();
-    state.pathname = location.pathname;
+    state.pathname = `${location.pathname}${location.search}`;
     state.controller?.abort();
     state.controller = new AbortController();
     state.year = route.year;
@@ -6948,13 +6994,16 @@
   });
   document.addEventListener("click", event => {
     const link = event.target.closest("a[href^='/']");
-    if (!link || link.target || link.origin !== location.origin || link.pathname.startsWith("/api") || link.pathname.startsWith("/static")) return;
+    if (
+      !link || !isPlainNavigationClick(event) || link.target || link.origin !== location.origin
+      || link.pathname.startsWith("/api") || link.pathname.startsWith("/static")
+    ) return;
     event.preventDefault();
-    history.pushState(null, "", link.pathname);
+    history.pushState(null, "", `${link.pathname}${link.search}${link.hash}`);
     navigate();
   });
   window.addEventListener("popstate", () => {
-    if (state.pathname === location.pathname) scrollToInternalAnchor();
+    if (state.pathname === `${location.pathname}${location.search}`) scrollToInternalAnchor();
     else navigate();
   });
   window.addEventListener("hashchange", () => {

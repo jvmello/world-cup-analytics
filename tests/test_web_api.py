@@ -9,6 +9,7 @@ import pandas as pd
 from fastapi.testclient import TestClient
 
 from webapp.catalog import DEFAULT_EDITION
+from webapp.jersey_overrides import JERSEY_NUMBER_OVERRIDES
 from webapp.main import create_app
 from webapp.thestatsapi_service import TheStatsApiBronzeService
 
@@ -1115,7 +1116,7 @@ def test_competition_frontend_has_group_and_knockout_product_views() -> None:
         "Fora agora",
     ):
         assert f'"{label}"' in render
-    assert 'goToProfile("team", teamId)' in render
+    assert 'profileLink("team", teamId' in render
     assert 'routeTo("matches", match.match_id)' in render
     assert 'aria-selected' in render
     assert 'text: "Melhores terceiros"' in render
@@ -1160,7 +1161,7 @@ def test_competition_uses_full_width_group_games_tooltips_and_direct_navigation(
     assert '"Pts": "pontos conquistados."' in competition
     assert "function openTeamQuickView" in competition
     assert "function openMatchQuickView" in competition
-    assert 'goToProfile("team", teamId)' in competition
+    assert 'profileLink("team", teamId' in competition
     assert 'routeTo("matches", match.match_id)' in competition
     assert "function competitionKickoffLabel" in competition
     assert "homeMatchIsLive(match)" in competition
@@ -1247,7 +1248,7 @@ def test_matches_frontend_is_a_compact_public_calendar() -> None:
     assert "function matchStageDistribution" not in app_js
     assert 'routeTo("matches", match.match_id)' in matches_surface
     assert "row.addEventListener(\"click\"" in matches_surface, "the entire calendar row must be clickable, not just the arrow icon"
-    assert 'goToProfile("team", teamId)' in matches_surface
+    assert 'profileLink("team", teamId' in matches_surface
     assert 'body[data-page="matches"][data-skin="2026"] .matches-calendar-row' in styles
     assert 'body[data-page="matches"][data-skin="2026"] .matches-filter-bar' in styles
     assert 'body[data-page="matches"][data-skin="2026"] .matches-filter-pills button' in styles
@@ -1412,7 +1413,7 @@ def test_match_subnav_uses_internal_hashes_without_legacy_routing() -> None:
 
     assert 'location.hash.startsWith("#/")' in app_js
     assert "scrollToInternalAnchor" in app_js
-    assert "state.pathname === location.pathname" in app_js
+    assert "state.pathname === `${location.pathname}${location.search}`" in app_js
     assert ".match-subnav { position: sticky; z-index: 8; top: 0; display: flex; width: 100%;" in styles
     assert ".xg-point { fill: var(--team-color, var(--accent)); stroke: #fff;" in styles
     assert 'body[data-skin="2026"] .xg-point.is-goal' in styles
@@ -2356,11 +2357,13 @@ def test_home_time_and_xg_ranking_contracts_are_complete() -> None:
     assert ranking[-1]["xg_difference"] == -5
 
 
-def test_lineup_jersey_numbers_are_backfilled_from_the_edition(tmp_path: Path) -> None:
-    """Regression (Rodríguez/Freuler titulares sem número em ARG×SUI): 42 dos 104 lineups do
-    bronze vêm sem número para alguns jogadores que têm número em outros jogos. O mapa da
-    edição preenche as lacunas: números fora da faixa 1–26 da Copa (vazamento de clube)
-    perdem para os da faixa, e empates resolvem pelo jogo mais recente."""
+def test_lineup_jersey_numbers_are_manual_curated_not_inferred_from_the_edition(tmp_path: Path) -> None:
+    """Shirt-number gaps must be filled by manual curation only.
+
+    We used to infer from other lineups in the same edition, but the provider mixes club
+    numbers and national-team numbers. A valid-looking number from another raw lineup can
+    still be wrong, so the service should backfill or override only from a curated map.
+    """
     root = _data_root(tmp_path)
     _write_json(
         root,
@@ -2412,19 +2415,101 @@ def test_lineup_jersey_numbers_are_backfilled_from_the_edition(tmp_path: Path) -
     service = TheStatsApiBronzeService(data_root=root)
 
     numbers = service._jersey_numbers(2026)
-    assert numbers["pl_club_leak"] == 1  # 39 está fora da faixa 1–26 da Copa
-    assert numbers["pl_changed"] == 19  # empate 1×1 resolvido pelo jogo mais recente
-    assert numbers["pl_gap"] == 8
-    assert "pl_unknown" not in numbers  # nunca teve número: segue vazio na UI
+    assert "pl_club_leak" not in numbers
+    assert "pl_changed" not in numbers
+    assert "pl_gap" not in numbers
+    assert "pl_unknown" not in numbers
 
     late_lineups = json.loads(
         (root / "bronze/thestatsapi/world_cup/2026/matches/match_id=mt_late/lineups/response.json").read_text()
     )["data"]
-    filled = service._lineups(late_lineups, numbers)
+    filled = service._lineups(
+        late_lineups,
+        {
+            "pl_club_leak": 1,
+            "pl_changed": 20,
+            "pl_gap": 8,
+            "pl_unknown": 25,
+        },
+    )
     by_id = {entry["id"]: entry for entry in filled["home"]["starting_xi"]}
     assert by_id["pl_gap"]["jersey_number"] == 8
-    assert by_id["pl_unknown"]["jersey_number"] is None
-    assert by_id["pl_club_leak"]["jersey_number"] == 1  # valor do próprio jogo não é sobrescrito
+    assert by_id["pl_unknown"]["jersey_number"] == 25
+    assert by_id["pl_club_leak"]["jersey_number"] == 1
+    assert by_id["pl_changed"]["jersey_number"] == 20  # curadoria vence valor raw presente
+
+
+def test_manual_jersey_overrides_are_in_world_cup_range() -> None:
+    assert JERSEY_NUMBER_OVERRIDES
+    assert all(isinstance(value, int) and 1 <= value <= 26 for value in JERSEY_NUMBER_OVERRIDES.values())
+    assert JERSEY_NUMBER_OVERRIDES["pl_61928103"] == 9  # Erling Haaland
+    assert JERSEY_NUMBER_OVERRIDES["pl_13495135"] == 10  # Martin Ødegaard
+    assert JERSEY_NUMBER_OVERRIDES["pl_57489118"] == 1  # Yehvann Diouf
+    assert JERSEY_NUMBER_OVERRIDES["pl_61804629"] == 23  # Mory Diaw
+
+
+def test_lineup_jersey_numbers_hide_invalid_and_team_duplicates(tmp_path: Path) -> None:
+    """Regression (Noruega x Senegal, mt_153637911): lineups from the provider may carry
+    club numbers (80, 99, 52...) and duplicate tournament numbers inside the same team
+    (two Norway 8s, two Norway 9s). World Cup shirt numbers are 1-26 and unique per squad,
+    so the public UI should omit untrusted numbers instead of showing impossible badges."""
+    root = _data_root(tmp_path)
+    _write_json(
+        root,
+        "bronze/thestatsapi/world_cup/2026/fixtures/page=1/response.json",
+        {"data": [{"id": "mt_153637911", "utc_date": "2026-07-01T17:00:00.000Z"}]},
+    )
+    lineups = {
+        "home": {
+            "id": "tm_nor",
+            "name": "Norway",
+            "starting_xi": [
+                {"id": "pl_aursnes", "name": "Fredrik Aursnes", "jersey_number": 8},
+                {"id": "pl_odegaard", "name": "Martin Ødegaard", "jersey_number": 8},
+                {"id": "pl_haaland", "name": "Erling Haaland", "jersey_number": 9},
+                {"id": "pl_sorloth", "name": "Alexander Sørloth", "jersey_number": 9},
+                {"id": "pl_valid", "name": "Ørjan Nyland", "jersey_number": 13},
+            ],
+            "substitutes": [
+                {"id": "pl_bobb", "name": "Oscar Bobb", "jersey_number": 52},
+                {"id": "pl_null", "name": "Backfilled Player", "jersey_number": None},
+            ],
+        },
+        "away": {
+            "id": "tm_sen",
+            "name": "Senegal",
+            "starting_xi": [
+                {"id": "pl_mendy", "name": "Edouard Mendy", "jersey_number": 16},
+                {"id": "pl_diatta", "name": "Krépin Diatta", "jersey_number": 27},
+            ],
+            "substitutes": [
+                {"id": "pl_yehvann", "name": "Yehvann Diouf", "jersey_number": 80},
+                {"id": "pl_diaw", "name": "Mory Diaw", "jersey_number": 99},
+            ],
+        },
+    }
+    _write_json(
+        root,
+        "bronze/thestatsapi/world_cup/2026/matches/match_id=mt_153637911/lineups/response.json",
+        {"data": lineups},
+    )
+    service = TheStatsApiBronzeService(data_root=root)
+
+    filled = service._lineups(lineups, {"pl_null": 22, "pl_bobb": 14, "pl_haaland": 9})
+    home = {entry["id"]: entry["jersey_number"] for entry in filled["home"]["starting_xi"] + filled["home"]["substitutes"]}
+    away = {entry["id"]: entry["jersey_number"] for entry in filled["away"]["starting_xi"] + filled["away"]["substitutes"]}
+
+    assert home["pl_aursnes"] is None
+    assert home["pl_odegaard"] is None
+    assert home["pl_haaland"] == 9
+    assert home["pl_sorloth"] is None
+    assert home["pl_valid"] == 13
+    assert home["pl_bobb"] == 14
+    assert home["pl_null"] == 22
+    assert away["pl_mendy"] == 16
+    assert away["pl_diatta"] is None
+    assert away["pl_yehvann"] is None
+    assert away["pl_diaw"] is None
 
 
 def test_own_goals_are_flagged_sided_and_kept_out_of_attempt_analytics() -> None:
