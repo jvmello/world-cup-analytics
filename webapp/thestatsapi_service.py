@@ -256,9 +256,10 @@ class TheStatsApiBronzeService:
                 else:
                     winner_score = home_score if home_won else away_score
                     eliminated_score = away_score if home_won else home_score
+                    in_extra_time = str(match.get("decided_by") or "") == "extra_time"
                     narrative = (
-                        f"{winner_name} avançou após vencer {eliminated_name} "
-                        f"por {int(winner_score)}–{int(eliminated_score)}."
+                        f"{winner_name} avançou {'na prorrogação ' if in_extra_time else ''}após vencer "
+                        f"{eliminated_name} por {int(winner_score)}–{int(eliminated_score)}."
                     )
                 classified.append(
                     {
@@ -1573,7 +1574,16 @@ class TheStatsApiBronzeService:
         home = source.get("home_team") or lineups.get("home") or {}
         away = source.get("away_team") or lineups.get("away") or {}
         score = source.get("score") if isinstance(source.get("score"), dict) else {}
-        final_score = score.get("final_score") if isinstance(score.get("final_score"), dict) else {}
+        # O objeto score da fonte separa regulation / after_extra_time /
+        # penalty_shootout. O placar público da partida é o do fim de jogo
+        # (prorrogação incluída, disputa de pênaltis NUNCA) — tratar final_score
+        # como pênaltis marcava vitórias na prorrogação como decididas na marca.
+        regulation = score.get("regulation") if isinstance(score.get("regulation"), dict) else {}
+        extra_time_score = score.get("after_extra_time") if isinstance(score.get("after_extra_time"), dict) else {}
+        shootout_score = score.get("penalty_shootout") if isinstance(score.get("penalty_shootout"), dict) else {}
+        went_to_extra_time = bool(score.get("went_to_extra_time"))
+        went_to_penalties = bool(score.get("went_to_penalties"))
+        played_score = extra_time_score if went_to_extra_time and extra_time_score else regulation
         venue_name, venue_city = self._venue_parts(
             source.get("venue") or source.get("stadium")
         )
@@ -1588,10 +1598,11 @@ class TheStatsApiBronzeService:
             "away_team_id": away.get("id") if isinstance(away, dict) else None,
             "home_team": self._team_name(home),
             "away_team": self._team_name(away),
-            "home_score": score.get("home"),
-            "away_score": score.get("away"),
-            "penalty_home_score": final_score.get("home"),
-            "penalty_away_score": final_score.get("away"),
+            "home_score": played_score.get("home", score.get("home")),
+            "away_score": played_score.get("away", score.get("away")),
+            "went_to_extra_time": went_to_extra_time,
+            "penalty_home_score": shootout_score.get("home") if went_to_penalties else None,
+            "penalty_away_score": shootout_score.get("away") if went_to_penalties else None,
             "status": source.get("status"),
             "matchday": source.get("matchday"),
             "xg_available": source.get("xg_available"),
@@ -2560,8 +2571,9 @@ class TheStatsApiBronzeService:
                 home_won = home_score > away_score
                 winner_name = (home if home_won else away).get("team_name")
                 winner_score, loser_score = (home_score, away_score) if home_won else (away_score, home_score)
-                score_label = f"{int(winner_score)}–{int(loser_score)}"
-                decided_by = "regular"
+                extra_time = bool(fixture.get("went_to_extra_time"))
+                score_label = f"{int(winner_score)}–{int(loser_score)}" + (" (prorrogação)" if extra_time else "")
+                decided_by = "extra_time" if extra_time else "regular"
             elif penalty_home is not None and penalty_away is not None and penalty_home != penalty_away:
                 home_won = penalty_home > penalty_away
                 winner_name = (home if home_won else away).get("team_name")

@@ -677,7 +677,7 @@
     const stadiumLabel = stadium && venueCity ? `${stadium} · ${venueCity}` : stadium;
     const referee = first(match, ["referee", "main_referee"], null);
     const penalties = metricAvailable(match?.penalty_home_score) && metricAvailable(match?.penalty_away_score);
-    const status = penalties ? "Pênaltis" : competitionMatchStatus(match);
+    const status = penalties ? "Pênaltis" : match?.went_to_extra_time ? "Prorrogação" : competitionMatchStatus(match);
     const hasScore = metricAvailable(match?.home_score) && metricAvailable(match?.away_score);
     const teamSurface = (name, id) => id
       ? node("button", { type: "button", class: "score-team-link", onclick: () => goToProfile("team", id) }, teamLabel(name))
@@ -1497,6 +1497,7 @@
       const regulation = score.split(" (")[0];
       return `${winner} avançou nos pênaltis após empate por ${regulation} contra ${eliminated}.`;
     }
+    if (item.decided_by === "extra_time") return `${winner} avançou na prorrogação após vencer ${eliminated} por ${score.replace(" (prorrogação)", "")}.`;
     return `${winner} avançou após vencer ${eliminated} por ${score}.`;
   }
 

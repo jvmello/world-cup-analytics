@@ -2289,17 +2289,50 @@ def test_2026_home_rankings_use_central_modal_and_semantic_xg_balance() -> None:
 
 def test_home_time_and_xg_ranking_contracts_are_complete() -> None:
     service = TheStatsApiBronzeService()
+    # Shape real do provedor: regulation / after_extra_time / penalty_shootout +
+    # flags went_to_*. Disputa de pênaltis NUNCA entra no placar público; gols de
+    # prorrogação SEMPRE entram (bug real: Argentina 3–1 na prorrogação aparecia
+    # como "1–1, venceu nos pênaltis por 3–1").
     penalty_summary = service._match_summary(
         {
             "id": "penalties",
             "home_team": {"id": "ger", "name": "Germany"},
             "away_team": {"id": "par", "name": "Paraguay"},
-            "score": {"home": 1, "away": 1, "final_score": {"home": 4, "away": 5}},
+            "score": {
+                "home": 1, "away": 1,
+                "regulation": {"home": 1, "away": 1},
+                "after_extra_time": {"home": 1, "away": 1},
+                "penalty_shootout": {"home": 4, "away": 5},
+                "final_score": {"home": 4, "away": 5},
+                "went_to_extra_time": True, "went_to_penalties": True,
+            },
         },
         {},
     )
+    assert penalty_summary["home_score"] == 1 and penalty_summary["away_score"] == 1
     assert penalty_summary["penalty_home_score"] == 4
     assert penalty_summary["penalty_away_score"] == 5
+    assert penalty_summary["went_to_extra_time"] is True
+
+    extra_time_summary = service._match_summary(
+        {
+            "id": "extra-time",
+            "home_team": {"id": "arg", "name": "Argentina"},
+            "away_team": {"id": "sui", "name": "Switzerland"},
+            "score": {
+                "home": 1, "away": 1,
+                "regulation": {"home": 1, "away": 1},
+                "after_extra_time": {"home": 3, "away": 1},
+                "penalty_shootout": None,
+                "final_score": {"home": 3, "away": 1},
+                "went_to_extra_time": True, "went_to_penalties": False,
+            },
+        },
+        {},
+    )
+    assert extra_time_summary["home_score"] == 3 and extra_time_summary["away_score"] == 1
+    assert extra_time_summary["penalty_home_score"] is None
+    assert extra_time_summary["went_to_extra_time"] is True
 
     stale_live = {
         "status": "in_progress",
