@@ -335,6 +335,8 @@
     blocked_shots: "Chutes bloqueados", hit_woodwork: "Bolas na trave",
     shots_inside_box: "Chutes dentro da área", shots_off_target: "Chutes para fora",
     shots_outside_box: "Chutes fora da área",
+    goals_per_game: "Gols por jogo", xg_per_game: "xG por jogo",
+    shots_per_game: "Finalizações por jogo", yellow_cards_per_game: "Cartões por jogo",
   };
   const metricName = key => metricNames[key] || label(key);
   const METRIC_FORMULAS = {
@@ -4117,7 +4119,7 @@
     );
   }
 
-  const LOWER_IS_BETTER_METRICS = ["fouls", "yellow_cards", "red_cards", "big_chances_missed", "offsides", "dispossessed"];
+  const LOWER_IS_BETTER_METRICS = ["fouls", "yellow_cards", "yellow_cards_per_game", "red_cards", "big_chances_missed", "offsides", "dispossessed"];
 
   function comparisonBars(rows, className = "", kits = null) {
     if (!rows?.length) return emptyState("Visão geral indisponível", "As métricas comparativas ainda não estão disponíveis para esta partida.");
@@ -5350,10 +5352,25 @@
     return node("div", { class: "interactive-shot-map" }, [controls, output]);
   }
 
+  function matchPrognosisPanel(prognosis, match) {
+    const kits = matchKits(match);
+    return node("div", { class: "match-prognosis" }, [
+      node("p", { class: "match-prognosis-note", text: "Estatísticas da campanha de cada seleção na Copa até aqui — não é uma previsão de resultado." }),
+      comparisonBars(prognosis?.bars, "", kits),
+    ]);
+  }
+
   function renderTheStatsApiMatch(data) {
     const match = data.match || {};
-    state.matchPlayers = data.players || [];
     document.body.classList.add("is-match-center");
+    if (data.prognosis) {
+      const fragment = document.createDocumentFragment();
+      fragment.append(matchCenterHero(match));
+      fragment.append(section("Prognóstico", null, matchPrognosisPanel(data.prognosis, match), "", "match-prognosis"));
+      els.view.replaceChildren(fragment);
+      return;
+    }
+    state.matchPlayers = data.players || [];
     const fragment = document.createDocumentFragment();
     const subnav = matchSubnav();
     fragment.append(matchCenterHero(match));

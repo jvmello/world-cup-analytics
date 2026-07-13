@@ -815,6 +815,8 @@ button.knockout-team:focus-visible { color: var(--accent); outline: none; }
 .lineup-subs .lineup-list { padding: 0 18px 18px; }
 .match-moments { width: min(100%, 860px); margin-inline: auto; }
 .moments-summary { margin: 0 0 14px; color: var(--muted); font-size: 12px; font-weight: 800; line-height: 1.5; }
+.match-prognosis { width: min(100%, 860px); margin-inline: auto; }
+.match-prognosis-note { margin: 0 0 14px; color: var(--muted); font-size: 12px; font-weight: 800; line-height: 1.5; }
 .event-timeline { position: relative; display: grid; gap: 0; margin: 0; padding: 0; list-style: none; border: 1px solid var(--line); background: var(--surface); }
 .event-timeline li { display: grid; grid-template-columns: 58px 30px minmax(0, 1fr); gap: 12px; align-items: center; min-height: 62px; border-bottom: 1px solid var(--line); padding: 11px 16px; }
 .event-timeline li:last-child { border-bottom: 0; }

@@ -733,13 +733,52 @@ class TheStatsApiBronzeService:
 
     def match_detail(self, year: int, match_id: str) -> dict[str, Any]:
         detail = self._match_detail(year, match_id)
-        if not detail:
-            return {
-                "year": year,
-                "available": False,
-                "notice": "Partida não encontrada no recorte atual.",
-            }
-        return json_safe(detail)
+        if detail:
+            return json_safe(detail)
+        prognosis = self._fixture_prognosis(year, match_id)
+        if prognosis:
+            return json_safe(prognosis)
+        return {
+            "year": year,
+            "available": False,
+            "notice": "Partida não encontrada no recorte atual.",
+        }
+
+    def _fixture_prognosis(self, year: int, match_id: str) -> dict[str, Any] | None:
+        """Live (bronze-only) fallback used when gold has no match_detail row yet — the same
+        shape `serving.py` materializes ahead of time for every scheduled fixture."""
+        fixture = self._fixture(year, match_id)
+        if not fixture:
+            return None
+        match = self._match_summary(fixture, {})
+        teams = {row.get("team_id"): row for row in self.teams(year).get("items", [])}
+        return self._build_fixture_prognosis(
+            year, match, teams.get(match.get("home_team_id")), teams.get(match.get("away_team_id"))
+        )
+
+    @classmethod
+    def _build_fixture_prognosis(
+        cls,
+        year: int,
+        match: dict[str, Any],
+        home_team: dict[str, Any] | None,
+        away_team: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        if match.get("home_score") is not None or match.get("away_score") is not None:
+            return None  # already decided or in progress — not a pre-match case
+        if not match.get("home_team_id") or not match.get("away_team_id"):
+            return None  # opponent(s) not resolved yet (e.g. still "W101")
+        prognosis = cls._match_prognosis(match, home_team, away_team)
+        if not prognosis:
+            return None
+        return {
+            "year": year,
+            "source": SOURCE,
+            "available": True,
+            "match": match,
+            "prognosis": prognosis,
+            "notice": "Partida ainda não realizada — estatísticas da campanha na Copa até aqui, sem previsão de resultado.",
+        }
 
     def players(self, year: int) -> dict[str, Any]:
         details = self._all_match_details(year)
@@ -2074,6 +2113,50 @@ class TheStatsApiBronzeService:
             "reasons": reasons[:3],
         }
 
+    PROGNOSIS_METRICS = (
+        ("goals_per_game", "Gols por jogo"),
+        ("xg_per_game", "xG por jogo"),
+        ("shots_per_game", "Finalizações por jogo"),
+        ("yellow_cards_per_game", "Cartões por jogo"),
+    )
+
+    @classmethod
+    def _match_prognosis(
+        cls,
+        match: dict[str, Any],
+        home_team: dict[str, Any] | None,
+        away_team: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        """Pre-match comparison for a fixture with no bundle yet: each side's campaign-so-far
+        rate stats, reusing the same row shape as `_comparison_bars` so the frontend renders it
+        with the identical bar component — not a prediction, just the numbers side by side."""
+        if not home_team or not away_team:
+            return None
+        home = match.get("home_team") or "Mandante"
+        away = match.get("away_team") or "Visitante"
+        rows = []
+        for metric, label in cls.PROGNOSIS_METRICS:
+            home_value = number(home_team.get(metric))
+            away_value = number(away_team.get(metric))
+            if home_value is None and away_value is None:
+                continue
+            maximum = max(float(home_value or 0), float(away_value or 0), 1)
+            rows.append(
+                {
+                    "metric": metric,
+                    "label": label,
+                    "home_team": home,
+                    "away_team": away,
+                    "home_value": home_value,
+                    "away_value": away_value,
+                    "home_pct": round(float(home_value or 0) / maximum * 100, 1),
+                    "away_pct": round(float(away_value or 0) / maximum * 100, 1),
+                }
+            )
+        if not rows:
+            return None
+        return {"bars": rows}
+
     @staticmethod
     def _comparison_bars(match: dict[str, Any], stats: list[dict[str, Any]]) -> list[dict[str, Any]]:
         home = match.get("home_team") or "Home"
@@ -2560,6 +2643,7 @@ class TheStatsApiBronzeService:
         }
         winner_matchups: dict[str, dict[str, Any]] = {}
         matches_by_round: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        number_to_match: dict[str, dict[int, dict[str, Any]]] = defaultdict(dict)
         for round_key, _ in round_specs:
             ordered = sorted(
                 fixtures_by_round.get(round_key, []),
@@ -2567,34 +2651,52 @@ class TheStatsApiBronzeService:
             )
             for index, fixture in enumerate(ordered):
                 match = cls._knockout_match(fixture, winner_matchups=winner_matchups)
+                # Kept only to trace bracket lineage below; stripped before the response goes out.
+                match["_raw_home"] = fixture.get("home_team")
+                match["_raw_away"] = fixture.get("away_team")
                 matches_by_round[round_key].append(match)
                 match_number = match_number_starts[round_key] + index
+                number_to_match[round_key][match_number] = match
                 home_label = cls._knockout_side_label(match["home"])
                 away_label = cls._knockout_side_label(match["away"])
                 if home_label and away_label:
                     winner_side = None
+                    loser_side = None
                     if match.get("winner_name"):
+                        sides = (match["home"], match["away"])
                         winner_side = next(
-                            (
-                                side
-                                for side in (match["home"], match["away"])
-                                if side.get("team_name") == match["winner_name"]
-                            ),
+                            (side for side in sides if side.get("team_name") == match["winner_name"]),
+                            None,
+                        )
+                        loser_side = next(
+                            (side for side in sides if side.get("team_name") != match["winner_name"]),
                             None,
                         )
                     winner_matchups[str(match_number)] = {
                         "matchup": f"{home_label} x {away_label}",
                         "winner": winner_side,
+                        "loser": loser_side,
                     }
 
+        bracket_order = cls._bracket_order(
+            ("round_of_32", "round_of_16", "quarter_finals", "semi_finals", "final"),
+            matches_by_round,
+            number_to_match,
+        )
         rounds = [
             {
                 "id": round_key,
                 "name": label,
-                "matches": sorted(
-                    matches_by_round.get(round_key, []),
-                    key=lambda item: str(item.get("kickoff_at") or ""),
-                ),
+                "matches": [
+                    {key: value for key, value in match.items() if not key.startswith("_")}
+                    for match in (
+                        bracket_order.get(round_key)
+                        or sorted(
+                            matches_by_round.get(round_key, []),
+                            key=lambda item: str(item.get("kickoff_at") or ""),
+                        )
+                    )
+                ],
             }
             for round_key, label in round_specs
         ]
@@ -2645,6 +2747,46 @@ class TheStatsApiBronzeService:
         }
 
     @staticmethod
+    def _bracket_order(
+        sequence: tuple[str, ...],
+        matches_by_round: dict[str, list[dict[str, Any]]],
+        number_to_match: dict[str, dict[int, dict[str, Any]]],
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Lay out each round so adjacent matches feed the same next-round slot, instead of
+        plain kickoff order (which scatters a pair like Switzerland x Algeria and its sibling
+        match away from each other whenever they were played on different days). Walks the
+        bracket backwards from the final: each round's order is derived from the next round's
+        already-known order, tracing every match's two sides back to their feeder match — via
+        the raw `W<N>`/`L<N>` placeholder while the tie is still undecided, or by matching the
+        real team name once the provider has replaced the placeholder with it."""
+        order: dict[str, list[dict[str, Any]]] = {sequence[-1]: list(matches_by_round.get(sequence[-1], []))}
+        for index in range(len(sequence) - 1, 0, -1):
+            round_key, next_key = sequence[index - 1], sequence[index]
+            here = matches_by_round.get(round_key, [])
+            by_number = number_to_match.get(round_key, {})
+            remaining = {id(match): match for match in here}
+            placed: list[dict[str, Any]] = []
+            for next_match in order.get(next_key, []):
+                for raw in (next_match.get("_raw_home"), next_match.get("_raw_away")):
+                    code = re.fullmatch(r"[WL](\d+)", str(raw or ""), re.IGNORECASE)
+                    if code:
+                        feeder = by_number.get(int(code.group(1)))
+                    else:
+                        name = str(raw or "").strip()
+                        feeder = next(
+                            (m for m in here if name and name in (m.get("_raw_home"), m.get("_raw_away"))),
+                            None,
+                        ) if name else None
+                    if feeder is not None and id(feeder) in remaining:
+                        placed.append(feeder)
+                        del remaining[id(feeder)]
+            # Anything whose feeder link couldn't be traced (data gap, or the next round
+            # itself isn't published yet) keeps chronological order instead of disappearing.
+            placed.extend(match for match in here if id(match) in remaining)
+            order[round_key] = placed
+        return order
+
+    @staticmethod
     def _knockout_round(fixture: dict[str, Any]) -> str | None:
         if fixture.get("group_name"):
             return None
@@ -2671,6 +2813,16 @@ class TheStatsApiBronzeService:
             return aliases[stage]
         if number(fixture.get("matchday")) == 6:
             return "round_of_32"
+        # The third-place fixture never gets a stage_name from the provider (unlike every
+        # other knockout round, which is set correctly even before the match is decided).
+        # Its raw team placeholders (L<N>, loser of match N) give it away before the semis
+        # are decided; matchday 50 is the stable fallback once those are replaced by names.
+        if number(fixture.get("matchday")) == 50:
+            return "third_place"
+        if re.fullmatch(r"L\d+", str(fixture.get("home_team") or ""), re.IGNORECASE) or re.fullmatch(
+            r"L\d+", str(fixture.get("away_team") or ""), re.IGNORECASE
+        ):
+            return "third_place"
         return None
 
     @classmethod
@@ -2736,6 +2888,7 @@ class TheStatsApiBronzeService:
         group_position = re.fullmatch(r"([12])([A-L])", name, re.IGNORECASE)
         reversed_position = re.fullmatch(r"([A-L])([12])", name, re.IGNORECASE)
         winner = re.fullmatch(r"W(\d+)", name, re.IGNORECASE)
+        loser = re.fullmatch(r"L(\d+)", name, re.IGNORECASE)
         if re.fullmatch(r"3[A-L](?:/3[A-L])+", name, re.IGNORECASE):
             placeholder = "Melhor terceiro"
         elif group_position:
@@ -2754,6 +2907,18 @@ class TheStatsApiBronzeService:
                 }
             matchup = source.get("matchup")
             placeholder = f"Vencedor de {matchup}" if matchup else "A definir"
+        elif loser:
+            source = (winner_matchups or {}).get(loser.group(1)) or {}
+            resolved_loser = source.get("loser")
+            if resolved_loser and resolved_loser.get("team_name"):
+                return {
+                    "team_name": resolved_loser["team_name"],
+                    "team_id": resolved_loser.get("team_id"),
+                    "placeholder": None,
+                    "defined": True,
+                }
+            matchup = source.get("matchup")
+            placeholder = f"Perdedor de {matchup}" if matchup else "A definir"
         defined = bool(name and not placeholder)
         return {
             "team_name": name if defined else None,

@@ -2512,6 +2512,183 @@ def test_lineup_jersey_numbers_hide_invalid_and_team_duplicates(tmp_path: Path) 
     assert away["pl_diaw"] is None
 
 
+def test_scheduled_match_gets_a_prognosis_instead_of_available_false() -> None:
+    """A fixture with no bronze bundle (not played yet) used to return bare
+    `{"available": False}` from match_detail — no comparison at all pre-match. When both teams
+    are known and have campaign stats, it should return a pre-match comparison instead, built
+    from the same per-game rates used elsewhere in the product (never a score prediction)."""
+    match = {
+        "match_id": "mt_future", "home_team": "France", "away_team": "Spain",
+        "home_team_id": "fra", "away_team_id": "esp",
+        "home_score": None, "away_score": None,
+    }
+    home_team = {"team_id": "fra", "goals_per_game": 2.4, "xg_per_game": 2.1, "shots_per_game": 14.0, "yellow_cards_per_game": 1.2}
+    away_team = {"team_id": "esp", "goals_per_game": 1.8, "xg_per_game": 1.9, "shots_per_game": 11.5, "yellow_cards_per_game": 1.6}
+
+    result = TheStatsApiBronzeService._build_fixture_prognosis(2026, match, home_team, away_team)
+
+    assert result["available"] is True
+    assert result["match"] == match
+    bars = {row["metric"]: row for row in result["prognosis"]["bars"]}
+    assert bars["goals_per_game"]["home_value"] == 2.4
+    assert bars["goals_per_game"]["away_value"] == 1.8
+    assert bars["xg_per_game"]["home_pct"] == 100.0  # 2.1 is the max of (2.1, 1.9)
+    assert set(bars) == {"goals_per_game", "xg_per_game", "shots_per_game", "yellow_cards_per_game"}
+
+    # A decided match (has a score) is not a pre-match case, even if passed by mistake.
+    decided = {**match, "home_score": 2, "away_score": 1}
+    assert TheStatsApiBronzeService._build_fixture_prognosis(2026, decided, home_team, away_team) is None
+
+    # An undecided knockout tie ("W101" not yet resolved) has no team_id to look up.
+    undecided = {**match, "home_team": "W101", "home_team_id": None}
+    assert TheStatsApiBronzeService._build_fixture_prognosis(2026, undecided, None, away_team) is None
+
+    # A team with no games played yet (matchday 1) has no rate stats — nothing to compare.
+    assert TheStatsApiBronzeService._build_fixture_prognosis(2026, match, None, away_team) is None
+
+
+def test_knockout_bracket_orders_matches_by_bracket_lineage_not_kickoff_date() -> None:
+    """Regression: the bracket columns on Competição were sorted by kickoff date within each
+    round, so a match's actual bracket neighbours (the pair that shares its next-round slot)
+    ended up scattered across the column whenever they were played on different days — e.g.
+    Switzerland x Algeria (round of 32) appeared far from Colombia x Ghana even though both
+    feed the same round-of-16 tie, and Brazil x Norway / Mexico x England (both feeding the
+    Norway x England quarter-final) were split apart by three other round-of-16 matches.
+
+    Real 2026 data (already decided) is used end to end: 16 round-of-32 matches feed 8
+    round-of-16 matches feed 4 quarter-finals. `knockout_state` should trace each match's two
+    sides back to their feeder match (by real team name, since the provider replaces the
+    W<N>/L<N> placeholder once the tie is decided) and lay out every round so adjacent
+    matches share a next-round slot."""
+    def fx(match_id, stage, date, home, away, home_score, away_score, *, pens=None, et=False):
+        row = {
+            "match_id": match_id, "stage": stage, "status": "finished", "match_date": date,
+            "home_team": home, "away_team": away,
+            "home_score": home_score, "away_score": away_score,
+            "went_to_extra_time": et,
+        }
+        if pens:
+            row["penalty_home_score"], row["penalty_away_score"] = pens
+        return row
+
+    round_of_32 = [
+        fx("r32-1", "round_of_32", "2026-06-28T19:00:00Z", "South Africa", "Canada", 0, 1),
+        fx("r32-2", "round_of_32", "2026-06-29T17:00:00Z", "Brazil", "Japan", 2, 1),
+        fx("r32-3", "round_of_32", "2026-06-29T20:30:00Z", "Germany", "Paraguay", 1, 1, pens=(3, 4), et=True),
+        fx("r32-4", "round_of_32", "2026-06-30T01:00:00Z", "Netherlands", "Morocco", 1, 1, pens=(2, 3), et=True),
+        fx("r32-5", "round_of_32", "2026-06-30T17:00:00Z", "Côte d'Ivoire", "Norway", 1, 2),
+        fx("r32-6", "round_of_32", "2026-06-30T21:00:00Z", "France", "Sweden", 3, 0),
+        fx("r32-7", "round_of_32", "2026-07-01T02:00:00Z", "Mexico", "Ecuador", 2, 0),
+        fx("r32-8", "round_of_32", "2026-07-01T16:00:00Z", "England", "DR Congo", 2, 1),
+        fx("r32-9", "round_of_32", "2026-07-01T20:00:00Z", "Belgium", "Senegal", 3, 2, et=True),
+        fx("r32-10", "round_of_32", "2026-07-02T00:00:00Z", "USA", "Bosnia & Herzegovina", 2, 0),
+        fx("r32-11", "round_of_32", "2026-07-02T19:00:00Z", "Spain", "Austria", 3, 0),
+        fx("r32-12", "round_of_32", "2026-07-02T23:00:00Z", "Portugal", "Croatia", 2, 1),
+        fx("r32-13", "round_of_32", "2026-07-03T03:00:00Z", "Switzerland", "Algeria", 2, 0),
+        fx("r32-14", "round_of_32", "2026-07-03T18:00:00Z", "Australia", "Egypt", 1, 1, pens=(2, 4), et=True),
+        fx("r32-15", "round_of_32", "2026-07-03T22:00:00Z", "Argentina", "Cape Verde", 3, 2, et=True),
+        fx("r32-16", "round_of_32", "2026-07-04T01:30:00Z", "Colombia", "Ghana", 1, 0),
+    ]
+    round_of_16 = [
+        fx("r16-1", "round_of_16", "2026-07-04T17:00:00Z", "Canada", "Morocco", 0, 3),
+        fx("r16-2", "round_of_16", "2026-07-04T21:00:00Z", "Paraguay", "France", 0, 1),
+        fx("r16-3", "round_of_16", "2026-07-05T20:00:00Z", "Brazil", "Norway", 1, 2),
+        fx("r16-4", "round_of_16", "2026-07-06T01:00:00Z", "Mexico", "England", 2, 3),
+        fx("r16-5", "round_of_16", "2026-07-06T19:00:00Z", "Portugal", "Spain", 0, 1),
+        fx("r16-6", "round_of_16", "2026-07-07T00:00:00Z", "USA", "Belgium", 1, 4),
+        fx("r16-7", "round_of_16", "2026-07-07T16:00:00Z", "Argentina", "Egypt", 3, 2),
+        fx("r16-8", "round_of_16", "2026-07-07T20:00:00Z", "Switzerland", "Colombia", 0, 0, pens=(4, 3), et=True),
+    ]
+    quarter_finals = [
+        fx("qf-1", "quarter_final", "2026-07-09T20:00:00Z", "France", "Morocco", 2, 0),
+        fx("qf-2", "quarter_final", "2026-07-10T19:00:00Z", "Spain", "Belgium", 2, 1),
+        fx("qf-3", "quarter_final", "2026-07-11T21:00:00Z", "Norway", "England", 1, 2, et=True),
+        fx("qf-4", "quarter_final", "2026-07-12T01:00:00Z", "Argentina", "Switzerland", 3, 1, et=True),
+    ]
+    service = TheStatsApiBronzeService()
+    result = service.knockout_state(round_of_32 + round_of_16 + quarter_finals)
+    by_id = {round_["id"]: round_ for round_ in result["rounds"]}
+
+    def pair_names(matches):
+        return [(match["home"]["team_name"], match["away"]["team_name"]) for match in matches]
+
+    assert pair_names(by_id["round_of_16"]["matches"]) == [
+        ("Paraguay", "France"), ("Canada", "Morocco"),
+        ("Portugal", "Spain"), ("USA", "Belgium"),
+        ("Brazil", "Norway"), ("Mexico", "England"),
+        ("Argentina", "Egypt"), ("Switzerland", "Colombia"),
+    ]
+    assert pair_names(by_id["round_of_32"]["matches"]) == [
+        ("Germany", "Paraguay"), ("France", "Sweden"),
+        ("South Africa", "Canada"), ("Netherlands", "Morocco"),
+        ("Portugal", "Croatia"), ("Spain", "Austria"),
+        ("USA", "Bosnia & Herzegovina"), ("Belgium", "Senegal"),
+        ("Brazil", "Japan"), ("Côte d'Ivoire", "Norway"),
+        ("Mexico", "Ecuador"), ("England", "DR Congo"),
+        ("Argentina", "Cape Verde"), ("Australia", "Egypt"),
+        ("Switzerland", "Algeria"), ("Colombia", "Ghana"),
+    ]
+    # No internal bookkeeping field leaks into the public payload.
+    assert not any(key.startswith("_") for round_ in result["rounds"] for match in round_["matches"] for key in match)
+
+
+def test_third_place_match_is_classified_despite_missing_stage_name() -> None:
+    """Regression: the provider never sets stage_name for the third-place fixture (unlike
+    every other knockout round), so it silently vanished from the bracket. It should be
+    recognized via its L<N> (loser of match N) placeholders before the semis are decided."""
+    fixture = {
+        "match_id": "third-place", "stage": None, "status": "scheduled",
+        "match_date": "2026-07-18T21:00:00Z", "matchday": 50,
+        "home_team": "L101", "away_team": "L102",
+        "home_score": None, "away_score": None,
+    }
+    assert TheStatsApiBronzeService._knockout_round(fixture) == "third_place"
+
+
+def test_third_place_sides_resolve_losers_instead_of_leaking_raw_placeholders() -> None:
+    """Regression: once the third-place round became visible (previous test), it showed the
+    literal codes "L101"/"L102" as if they were team names — `_knockout_side` only resolved
+    the W<N> (winner) placeholder, not L<N> (loser). Before the semis are decided this must
+    read as a matchup placeholder, never the raw code; once they are decided, it must resolve
+    to the real team that lost."""
+    third_place = {
+        "match_id": "third-place", "stage": None, "status": "scheduled",
+        "match_date": "2026-07-18T21:00:00Z", "matchday": 50,
+        "home_team": "L101", "away_team": "L102",
+        "home_score": None, "away_score": None,
+    }
+    semis_undecided = [
+        {
+            "match_id": "sf1", "stage": "semi_finals", "status": "scheduled",
+            "match_date": "2026-07-14T19:00:00Z",
+            "home_team": "France", "away_team": "Spain",
+            "home_score": None, "away_score": None,
+        },
+        {
+            "match_id": "sf2", "stage": "semi_finals", "status": "scheduled",
+            "match_date": "2026-07-15T18:00:00Z",
+            "home_team": "England", "away_team": "Argentina",
+            "home_score": None, "away_score": None,
+        },
+    ]
+    service = TheStatsApiBronzeService()
+    pending = service.knockout_state(semis_undecided + [third_place])
+    third = next(round_ for round_ in pending["rounds"] if round_["id"] == "third_place")["matches"][0]
+    assert third["home"]["placeholder"] == "Perdedor de France x Spain"
+    assert third["away"]["placeholder"] == "Perdedor de England x Argentina"
+    assert third["home"]["team_name"] is None and third["away"]["team_name"] is None
+
+    semis_decided = [
+        {**semis_undecided[0], "status": "finished", "home_score": 2, "away_score": 1},
+        {**semis_undecided[1], "status": "finished", "home_score": 1, "away_score": 2},
+    ]
+    resolved = service.knockout_state(semis_decided + [third_place])
+    third = next(round_ for round_ in resolved["rounds"] if round_["id"] == "third_place")["matches"][0]
+    assert third["home"]["team_name"] == "Spain" and third["home"]["defined"] is True
+    assert third["away"]["team_name"] == "England" and third["away"]["defined"] is True
+    assert "L101" not in str(resolved) and "L102" not in str(resolved)
+
+
 def test_own_goals_are_flagged_sided_and_kept_out_of_attempt_analytics() -> None:
     """Regression (Argentina 3-2 Cabo Verde, 111' Diney Borges): a fonte só marca gol contra
     no shotmap (goal_type: "own", atribuído ao time beneficiado); a timeline de eventos não tem

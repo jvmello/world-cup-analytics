@@ -816,10 +816,26 @@ def _iter_api_payload_rows(
         yield add("official_metrics", data_service.official_metrics(year))
         yield add("availability", data_service.availability(year))
 
+    bundled_match_ids = set()
     for detail in details:
         match_id = detail.get("match", {}).get("match_id")
         if match_id:
+            bundled_match_ids.add(match_id)
             yield add("match_detail", detail, entity_id=match_id)
+
+    # Scheduled fixtures with no bundle yet still get a match_detail row — a lightweight
+    # pre-match comparison instead of the endpoint being silently missing from gold.
+    teams_by_id = {str(team.get("team_id")): team for team in teams if team.get("team_id")}
+    for fixture in service.fixtures(year):
+        match = service._match_summary(fixture, {})
+        match_id = match.get("match_id")
+        if not match_id or match_id in bundled_match_ids:
+            continue
+        prognosis = service._build_fixture_prognosis(
+            year, match, teams_by_id.get(match.get("home_team_id")), teams_by_id.get(match.get("away_team_id"))
+        )
+        if prognosis:
+            yield add("match_detail", prognosis, entity_id=match_id)
 
     team_ids = sorted({str(team.get("team_id")) for team in teams if team.get("team_id")})
     for team_id in team_ids:
