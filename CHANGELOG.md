@@ -7,13 +7,16 @@ A partir da v1.0.0, mudanças de DDL são versionadas em
 ## Não lançado
 
 ### Corrigido
-- Números de camisa nas escalações: 42 das 104 partidas vinham do provedor com
-  lacunas (titulares inclusive, ex.: Rodríguez e Freuler em Argentina × Suíça).
-  Um mapa da edição (lineups de todos os jogos) preenche os buracos — números
-  fora da faixa 1–26 da Copa perdem para os da faixa, moda entre jogos, empate
-  resolvido pelo jogo mais recente. Os 11 jogadores sem número em jogo algum
-  ficam para curadoria manual em `webapp/jersey_overrides.py` (vence a
-  inferência). Requer rebuild do gold.
+- Números de camisa nas escalações: o provedor publica majoritariamente números
+  de clube (976 dos 1.248 jogadores da edição vestem outro número na Copa), além
+  de lacunas e duplicatas. A fonte primária passou a ser curadoria das listas de
+  convocados da Wikipédia (CC BY-SA): extração em
+  `src/thestatsapi/wikipedia_jerseys.py`, 1.143 casados por nome + 105 revisados
+  à mão (`data/admin/jersey_curation/`), mapa versionado em
+  `webapp/jersey_overrides.py` cobrindo as 48 seleções × 26 números únicos na
+  faixa 1–26. O mapa vence o número por partida do provedor; valores do provedor
+  só sobrevivem para quem estiver fora do mapa, com deduplicação por time como
+  salvaguarda. Requer rebuild do gold.
 - Placar de partidas decididas na prorrogação: o placar público agora inclui os
   gols do tempo extra (fonte: `after_extra_time`), e "venceu nos pênaltis" só
   aparece quando houve disputa de verdade (`penalty_shootout` + flag da fonte).
