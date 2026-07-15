@@ -1,0 +1,150 @@
+id,name,type,country,country_code,confederation,has_team_stats,has_player_stats,xg_available,odds_available,live_odds_available
+comp_29906,Algerian Ligue 1,league,Algeria,DZ,,True,False,False,True,False
+comp_08235,Copa Argentina,cup,Argentina,AR,,True,True,True,True,False
+comp_4540,Liga Profesional de Fútbol,league,Argentina,AR,,True,True,True,True,False
+comp_9389,ASEAN Championship,cup,Asia,,,False,False,False,False,False
+comp_9346,Gulf Cup,cup,Asia,,,False,False,False,False,False
+comp_6151,A-League Men,league,Australia,AU,,True,True,True,True,False
+comp_4519,2. Liga,league,Austria,AT,,True,True,True,True,False
+comp_4893,Austrian Bundesliga,league,Austria,AT,,True,True,True,True,False
+comp_7218,Challenger Pro League,league,Belgium,BE,,True,True,True,True,False
+comp_8531,Pro League,league,Belgium,BE,,True,True,True,True,False
+comp_623699,División Profesional,league,Bolivia,BO,,True,True,True,True,False
+comp_4795,Brasileirão Série A,league,Brazil,BR,,True,True,True,True,False
+comp_1085,Brasileirão Série B,league,Brazil,BR,,True,True,True,True,True
+comp_5242,Copa do Brasil,cup,Brazil,BR,,True,True,True,True,False
+comp_3758,Parva Liga,league,Bulgaria,BG,,True,True,True,True,False
+comp_194097,Canadian Premier League,league,Canada,CA,,True,True,True,True,False
+comp_573599,Chilean Primera División,league,Chile,CL,,True,True,True,True,False
+comp_7712,CFA Super League,league,China,CN,,True,True,True,True,False
+comp_720692,"Primera A, Apertura",league,Colombia,CO,,True,True,True,True,False
+comp_1941,HNL,league,Croatia,HR,,True,True,True,True,False
+comp_2593,Cypriot First Division,league,Cyprus,CY,,True,True,True,True,False
+comp_9766,Czech First League,league,Czech Republic,CZ,,True,True,True,True,False
+comp_7938,Danish Superliga,league,Denmark,DK,,True,True,True,True,False
+comp_1917,LigaPro Serie A,league,Ecuador,EC,,True,True,True,True,True
+comp_84287,Egyptian Premier League,league,Egypt,EG,,True,True,True,True,False
+comp_8321,Championship,league,England,GB,,True,True,True,True,False
+comp_6323,Community Shield,tournament,England,GB,,True,True,False,True,False
+comp_2504,EFL Cup,cup,England,GB,,True,True,True,True,False
+comp_7428,FA Cup,cup,England,GB,,True,True,True,True,False
+comp_62263,"FA Cup, Qualification",tournament,England,GB,,True,True,False,True,False
+comp_0488,Football League Trophy,cup,England,GB,,True,True,False,True,False
+comp_0196,League One,league,England,GB,,True,True,True,True,False
+comp_4023,League Two,league,England,GB,,True,True,True,True,False
+comp_5878,National League,league,England,GB,,True,True,True,True,False
+comp_3039,Premier League,league,England,GB,,True,True,True,True,False
+comp_08207,Women's Super League,league,England,GB,,True,True,True,True,False
+comp_8767,FA Trophy,cup,England Amateur,GB,,False,False,False,False,False
+comp_25875,"FA Trophy, Qualification",tournament,England Amateur,GB,,False,False,False,False,False
+comp_2674,Veikkausliiga,league,Finland,FI,,True,True,True,True,False
+comp_4153,Ykkösliiga,league,Finland,FI,,True,True,True,True,False
+comp_4750,Coupe de France,cup,France,FR,,True,True,False,True,False
+comp_0256,Ligue 1,league,France,FR,,True,True,True,True,False
+comp_9777,Ligue 2,league,France,FR,,True,True,False,True,False
+comp_0406,2. Bundesliga,league,Germany,DE,,True,True,True,True,False
+comp_2837,3. Liga,league,Germany,DE,,True,True,True,True,False
+comp_4643,Bundesliga,league,Germany,DE,,True,True,True,True,False
+comp_3620,DFB Pokal,cup,Germany,DE,,True,True,False,True,False
+comp_4781,Greek Cup Betsson,cup,Greece,GR,,True,True,False,True,False
+comp_4008,Stoiximan Super League,league,Greece,GR,,True,True,True,True,False
+comp_3664,NB I,league,Hungary,HU,,True,True,True,True,False
+comp_19603,Indian Super League,league,India,IN,,True,True,True,True,False
+comp_45672,Indonesia Liga 1,league,Indonesia,ID,,True,True,True,True,False
+comp_45001,Persian Gulf Pro League,league,Iran,IR,,True,True,False,True,False
+comp_5812,Ireland 1st Division,league,Ireland,IE,,True,True,True,True,False
+comp_6429,Israeli Premier League,league,Israel,IL,,True,True,False,True,False
+comp_8525,Coppa Italia,cup,Italy,IT,,True,True,False,True,False
+comp_5840,Serie A,league,Italy,IT,,True,True,True,True,False
+comp_5450,Serie B,league,Italy,IT,,True,True,True,True,False
+comp_2692,Supercoppa Italiana,tournament,Italy,IT,,True,True,True,True,False
+comp_6240,J1 League,league,Japan,JP,,True,True,True,True,False
+comp_9194,J2 League,league,Japan,JP,,True,True,True,True,False
+comp_13553,Malaysia Super League,league,Malaysia,MY,,True,True,True,True,False
+comp_298265,"Liga MX, Apertura",league,Mexico,MX,,True,True,True,True,False
+comp_137103,"Liga MX, Clausura",league,Mexico,MX,,True,True,True,True,False
+comp_30610,Botola Pro,league,Morocco,MA,,True,True,True,True,False
+comp_3809,Eredivisie,league,Netherlands,NL,,True,True,True,True,False
+comp_1047,KNVB Beker,cup,Netherlands,NL,,True,True,True,True,False
+comp_586572,Leagues Cup,cup,North & Central America,,,True,True,True,True,False
+comp_1992,Eliteserien,league,Norway,NO,,True,True,True,True,False
+comp_9715,Norwegian 1st Division,league,Norway,NO,,True,True,True,True,False
+comp_137809,"Primera División, Apertura",league,Paraguay,PY,,True,True,True,True,False
+comp_6981,Liga 1,league,Peru,PE,,True,True,True,True,False
+comp_9711,Ekstraklasa,league,Poland,PL,,True,True,True,True,False
+comp_7475,Liga Portugal 2,league,Portugal,PT,,True,True,False,True,False
+comp_8385,Liga Portugal Betclic,league,Portugal,PT,,True,True,True,True,False
+comp_45551,Stars League,league,Qatar,QA,,True,True,False,True,False
+comp_9639,Romanian Super Liga,league,Romania,RO,,True,True,True,True,False
+comp_2999,Russian Cup,cup,Russia,RU,,True,True,True,True,False
+comp_5824,Russian Premier League,league,Russia,RU,,True,True,True,True,False
+comp_83796,King's Cup,cup,Saudi Arabia,SA,,True,True,False,True,False
+comp_45025,Saudi Pro League,league,Saudi Arabia,SA,,True,True,True,True,False
+comp_6236,Scottish Championship,league,Scotland,GB,,True,True,True,True,False
+comp_3861,Scottish Cup,cup,Scotland,GB,,True,True,False,True,False
+comp_6387,Scottish Premiership,league,Scotland,GB,,True,True,True,True,False
+comp_1965,Mozzart Bet Superliga,league,Serbia,RS,,True,True,True,True,False
+comp_2576,Niké Liga,league,Slovakia,SK,,True,True,True,True,False
+comp_9722,PrvaLiga,league,Slovenia,SI,,True,True,True,True,False
+comp_8597,South African Premier Division,league,South Africa,ZA,,True,True,True,True,False
+comp_1646,K League 1,league,South Korea,KR,,True,True,True,True,False
+comp_30517,K League 2,league,South Korea,KR,,True,True,True,True,False
+comp_7915,Copa del Rey,cup,Spain,ES,,True,True,True,True,False
+comp_8814,LaLiga,league,Spain,ES,,True,True,True,True,False
+comp_0976,LaLiga 2,league,Spain,ES,,True,True,True,True,False
+comp_5843,Supercopa de España,tournament,Spain,ES,,True,True,False,True,False
+comp_1002,Allsvenskan,league,Sweden,SE,,True,True,True,True,False
+comp_6917,Superettan,league,Sweden,SE,,True,True,True,True,False
+comp_1112,Svenska Cupen,cup,Sweden,SE,,True,True,True,True,False
+comp_6258,Challenge League,league,Switzerland,CH,,True,True,True,True,False
+comp_4084,Swiss Super League,league,Switzerland,CH,,True,True,True,True,False
+comp_96844,Thai League 1,league,Thailand,TH,,True,True,False,True,False
+comp_08282,Tunisian Ligue Professionnelle 1,league,Tunisia,TN,,True,True,False,True,False
+comp_9235,Trendyol Süper Lig,league,Turkey,TR,,True,True,True,True,False
+comp_9799,MLS,league,USA,US,,True,True,True,True,False
+comp_19988,NWSL,league,USA,US,,True,True,True,True,False
+comp_4159,US Open Cup,cup,USA,US,,True,True,True,True,False
+comp_586859,USL Championship,league,USA,US,,True,True,True,True,False
+comp_970794,USL League One,league,USA,US,,True,True,True,True,False
+comp_8363,Ukrainian Premier League,league,Ukraine,UA,,True,True,True,True,False
+comp_10949,Presidents Cup,cup,United Arab Emirates,AE,,False,False,False,False,False
+comp_72672,UAE League Cup,cup,United Arab Emirates,AE,,True,True,False,True,False
+comp_29522,UAE Pro League,league,United Arab Emirates,AE,,True,True,False,True,False
+comp_8998,Uruguayan Primera División,league,Uruguay,UY,,True,True,True,True,False
+comp_6059,V-League 1,league,Vietnam,VN,,True,True,True,True,False
+comp_013219,Arab Cup,cup,World,,,False,False,False,False,False
+comp_29967,International Friendly Games,league,World,,,True,True,True,True,False
+comp_1554,Africa Cup of Nations,tournament,,,CAF,True,True,False,True,False
+comp_83579,Africa Cup of Nations Qual.,tournament,,,CAF,True,True,True,True,False
+comp_3444,African Nations Championship,tournament,,,CAF,True,True,False,True,False
+comp_45714,CAF Confederations Cup,cup,,,CAF,True,True,True,True,False
+comp_8649,CONCACAF Champions Cup,cup,,,CAF,True,True,True,True,False
+comp_1376,CONCACAF Gold Cup,tournament,,,CAF,True,True,False,True,False
+comp_0499,CONMEBOL Libertadores,league,,,CONMEBOL,True,True,True,True,False
+comp_1615,CONMEBOL Sudamericana,league,,,CONMEBOL,True,True,True,True,False
+comp_5749,Copa América,tournament,,,CONMEBOL,True,True,True,True,False
+comp_4682,World Championship Qual. CONMEBOL,tournament,,,CONMEBOL,True,True,False,True,False
+comp_3872,Club World Championship,tournament,,,FIFA,True,True,True,True,False
+comp_023414,FIFA Intercontinental Cup,tournament,,,FIFA,False,False,False,False,False
+comp_920080,FIFA Series,tournament,,,FIFA,False,False,False,False,False
+comp_6107,FIFA World Cup,tournament,,,FIFA,True,True,True,True,False
+comp_8973,World Championship Qual. AFC,tournament,,,FIFA,True,True,False,True,False
+comp_5720,World Championship Qual. CAF,tournament,,,FIFA,True,True,False,True,False
+comp_0836,World Championship Qual. CONCACAF,tournament,,,FIFA,True,True,False,True,False
+comp_7363,World Championship Qual. OFC,tournament,,,FIFA,True,True,False,True,False
+comp_5432,AFC Champions League Elite,tournament,,,UEFA,True,True,True,True,False
+comp_8833,AFC Champions League Two,tournament,,,UEFA,True,True,False,True,False
+comp_08478,CAF Champions League,tournament,,,UEFA,True,True,True,True,False
+comp_193547,CONCACAF Nations League,tournament,,,UEFA,True,True,True,True,False
+comp_2949,EURO,tournament,,,UEFA,True,True,True,True,False
+comp_3759,"EURO, Qualification",tournament,,,UEFA,True,True,False,True,False
+comp_3498,UEFA Champions League,tournament,,,UEFA,True,True,True,True,False
+comp_408698,UEFA Conference League,tournament,,,UEFA,True,True,True,True,False
+comp_7739,UEFA Europa League,tournament,,,UEFA,True,True,True,True,False
+comp_574977,UEFA Nations League,tournament,,,UEFA,True,True,True,True,False
+comp_4811,UEFA Super Cup,tournament,,,UEFA,True,True,False,True,False
+comp_6694,UEFA Women's Champions League,tournament,,,UEFA,True,True,False,True,False
+comp_892803,UEFA Women's Nations League,tournament,,,UEFA,True,True,True,True,False
+comp_3135,Women's Euro,tournament,,,UEFA,True,True,True,True,False
+comp_84470,"Women's Euro, Qualification",tournament,,,UEFA,True,True,False,True,False
+comp_2954,World Championship Qual. UEFA,tournament,,,UEFA,True,True,True,True,False

@@ -1,0 +1,81 @@
+competition_id,season_id,competition_name,country_name,competition_gender,competition_international,competition_youth,season_name,match_available_360
+37,4,FA Women's Super League,England,female,False,False,2018/2019,False
+37,42,FA Women's Super League,England,female,False,False,2019/2020,False
+37,90,FA Women's Super League,England,female,False,False,2020/2021,False
+37,281,FA Women's Super League,England,female,False,False,2023/2024,False
+53,106,UEFA Women's Euro,Europe,female,True,False,2022,True
+53,315,UEFA Women's Euro,Europe,female,True,False,2025,True
+135,281,Frauen Bundesliga,Germany,female,False,False,2023/2024,False
+72,30,Women's World Cup,International,female,True,False,2019,False
+72,107,Women's World Cup,International,female,True,False,2023,True
+131,281,Serie A Women,Italy,female,False,False,2023/2024,False
+182,281,Liga F,Spain,female,False,False,2023/2024,False
+49,3,NWSL,United States of America,female,False,False,2018,False
+49,107,NWSL,United States of America,female,False,False,2023,False
+1267,107,African Cup of Nations,Africa,male,True,False,2023,True
+81,275,Liga Profesional,Argentina,male,False,False,1981,False
+81,48,Liga Profesional,Argentina,male,False,False,1997/1998,False
+2,44,Premier League,England,male,False,False,2003/2004,False
+2,27,Premier League,England,male,False,False,2015/2016,False
+16,276,Champions League,Europe,male,False,False,1970/1971,False
+16,71,Champions League,Europe,male,False,False,1971/1972,False
+16,277,Champions League,Europe,male,False,False,1972/1973,False
+16,76,Champions League,Europe,male,False,False,1999/2000,False
+16,44,Champions League,Europe,male,False,False,2003/2004,False
+16,37,Champions League,Europe,male,False,False,2004/2005,False
+16,39,Champions League,Europe,male,False,False,2006/2007,False
+16,41,Champions League,Europe,male,False,False,2008/2009,False
+16,21,Champions League,Europe,male,False,False,2009/2010,False
+16,22,Champions League,Europe,male,False,False,2010/2011,False
+16,23,Champions League,Europe,male,False,False,2011/2012,False
+16,24,Champions League,Europe,male,False,False,2012/2013,False
+16,25,Champions League,Europe,male,False,False,2013/2014,False
+16,26,Champions League,Europe,male,False,False,2014/2015,False
+16,27,Champions League,Europe,male,False,False,2015/2016,False
+16,2,Champions League,Europe,male,False,False,2016/2017,False
+16,1,Champions League,Europe,male,False,False,2017/2018,False
+16,4,Champions League,Europe,male,False,False,2018/2019,False
+55,43,UEFA Euro,Europe,male,True,False,2020,True
+55,282,UEFA Euro,Europe,male,True,False,2024,True
+35,75,UEFA Europa League,Europe,male,False,False,1988/1989,False
+7,27,Ligue 1,France,male,False,False,2015/2016,False
+7,108,Ligue 1,France,male,False,False,2021/2022,True
+7,235,Ligue 1,France,male,False,False,2022/2023,True
+9,27,1. Bundesliga,Germany,male,False,False,2015/2016,False
+9,281,1. Bundesliga,Germany,male,False,False,2023/2024,True
+1238,108,Indian Super league,India,male,False,False,2021/2022,False
+1470,274,FIFA U20 World Cup,International,male,True,True,1979,False
+43,269,FIFA World Cup,International,male,True,False,1958,False
+43,270,FIFA World Cup,International,male,True,False,1962,False
+43,272,FIFA World Cup,International,male,True,False,1970,False
+43,51,FIFA World Cup,International,male,True,False,1974,False
+43,54,FIFA World Cup,International,male,True,False,1986,False
+43,55,FIFA World Cup,International,male,True,False,1990,False
+43,3,FIFA World Cup,International,male,True,False,2018,False
+43,106,FIFA World Cup,International,male,True,False,2022,True
+12,86,Serie A,Italy,male,False,False,1986/1987,False
+12,27,Serie A,Italy,male,False,False,2015/2016,False
+116,68,North American League,North and Central America,male,False,False,1977,False
+223,282,Copa America,South America,male,True,False,2024,False
+87,279,Copa del Rey,Spain,male,False,False,1977/1978,False
+87,268,Copa del Rey,Spain,male,False,False,1982/1983,False
+87,84,Copa del Rey,Spain,male,False,False,1983/1984,False
+11,278,La Liga,Spain,male,False,False,1973/1974,False
+11,37,La Liga,Spain,male,False,False,2004/2005,False
+11,38,La Liga,Spain,male,False,False,2005/2006,False
+11,39,La Liga,Spain,male,False,False,2006/2007,False
+11,40,La Liga,Spain,male,False,False,2007/2008,False
+11,41,La Liga,Spain,male,False,False,2008/2009,False
+11,21,La Liga,Spain,male,False,False,2009/2010,False
+11,22,La Liga,Spain,male,False,False,2010/2011,False
+11,23,La Liga,Spain,male,False,False,2011/2012,False
+11,24,La Liga,Spain,male,False,False,2012/2013,False
+11,25,La Liga,Spain,male,False,False,2013/2014,False
+11,26,La Liga,Spain,male,False,False,2014/2015,False
+11,27,La Liga,Spain,male,False,False,2015/2016,False
+11,2,La Liga,Spain,male,False,False,2016/2017,False
+11,1,La Liga,Spain,male,False,False,2017/2018,False
+11,4,La Liga,Spain,male,False,False,2018/2019,False
+11,42,La Liga,Spain,male,False,False,2019/2020,False
+11,90,La Liga,Spain,male,False,False,2020/2021,True
+44,107,Major League Soccer,United States of America,male,False,False,2023,True

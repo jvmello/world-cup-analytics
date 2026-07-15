@@ -53,6 +53,9 @@ class GoldPayloadRepository:
                 1,
                 max(1, maxconn),
                 self.database_url,
+                # An unreachable database must fail fast so every request falls back to
+                # the bronze/file path instead of hanging on the OS default connect timeout.
+                connect_timeout=2,
             )
         except Exception:
             self._unavailable = True

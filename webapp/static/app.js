@@ -6954,6 +6954,9 @@
     closeQuickView();
     closeStatPopover();
     state.pathname = `${location.pathname}${location.search}`;
+    // Umami's script only auto-tracks the initial full page load; every route change
+    // after that is client-side (pushState), so it needs an explicit pageview call.
+    window.umami?.track?.((props) => ({ ...props, url: state.pathname }));
     state.controller?.abort();
     state.controller = new AbortController();
     state.year = route.year;

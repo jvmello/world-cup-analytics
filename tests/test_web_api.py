@@ -2512,6 +2512,41 @@ def test_lineup_jersey_numbers_hide_invalid_and_team_duplicates(tmp_path: Path) 
     assert away["pl_diaw"] is None
 
 
+def test_metrics_dashboard_is_disabled_without_credentials_configured(monkeypatch, tmp_path: Path) -> None:
+    """Same posture as the disabled /api/admin/* routes: without both env vars set, the
+    internal API-usage dashboard must 404, not prompt for a password — it should not even
+    announce that the surface exists."""
+    monkeypatch.delenv("METRICS_DASHBOARD_USER", raising=False)
+    monkeypatch.delenv("METRICS_DASHBOARD_PASSWORD", raising=False)
+    client = _client(tmp_path)
+
+    response = client.get("/ops/metrics")
+
+    assert response.status_code == 404
+
+
+def test_metrics_dashboard_requires_valid_basic_auth_when_configured(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("METRICS_DASHBOARD_USER", "owner")
+    monkeypatch.setenv("METRICS_DASHBOARD_PASSWORD", "s3cret")
+    # An IP + closed port fails instantly (connection refused). The container's real
+    # POSTGRES_HOST ("postgres") has no --no-deps DNS entry in this suite and a failed
+    # hostname lookup takes ~8s to time out — this keeps the test fast either way.
+    monkeypatch.setenv("SERVING_DATABASE_URL", "postgresql://x:x@127.0.0.1:1/x")
+    client = _client(tmp_path)
+
+    no_auth = client.get("/ops/metrics")
+    assert no_auth.status_code == 401
+    assert no_auth.headers["www-authenticate"] == "Basic"
+
+    wrong_auth = client.get("/ops/metrics", auth=("owner", "wrong"))
+    assert wrong_auth.status_code == 401
+
+    # No live Postgres in tests — the repository degrades to an empty table, not a crash.
+    ok = client.get("/ops/metrics", auth=("owner", "s3cret"))
+    assert ok.status_code == 200
+    assert "Chamadas de API" in ok.text
+
+
 def test_scheduled_match_gets_a_prognosis_instead_of_available_false() -> None:
     """A fixture with no bronze bundle (not played yet) used to return bare
     `{"available": False}` from match_detail — no comparison at all pre-match. When both teams

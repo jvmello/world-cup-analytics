@@ -7,6 +7,16 @@ A partir da v1.0.0, mudanças de DDL são versionadas em
 ## Não lançado
 
 ### Adicionado
+- Tracking de uso: dashboard interno `/ops/metrics` (Basic Auth, 404 sem
+  credenciais configuradas — mesma postura do admin desativado) mostra
+  chamadas de API por endpoint, latência média/p95 e taxa de erro, lidos de
+  `analytics.api_requests` (schema já existia na baseline, sem uso até
+  agora). Middleware fire-and-forget grava cada chamada `/api/*` sem
+  adicionar latência à resposta. Complementado por Umami self-hosted
+  (`analytics.jvmello.dev`, infra em `jvmello-infra`) para "quais seções são
+  mais usadas" nos dois sites (worldcup.jvmello.dev via `window.umami.track()`
+  a cada troca de rota da SPA; jvmello.dev, que já tinha o script e a CSP
+  prontos, só falta o `website-id`). Migração `001_api_request_metrics.sql`.
 - Prognóstico pré-jogo: partidas ainda não realizadas (qualquer fase, desde
   que os dois times já estejam definidos e com estatísticas na Copa) passam a
   mostrar gols/jogo, xG/jogo, finalizações/jogo e cartões/jogo lado a lado,

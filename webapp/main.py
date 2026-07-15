@@ -1,18 +1,23 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import re
-# import secrets  # ADMIN DISABLED: only used by the admin-key comparison
+import secrets
+import time
 from pathlib import Path
 from typing import Any, Callable
 
 # ADMIN DISABLED: Body, Depends and Header were only used by the /api/admin/* routes.
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 
 from .catalog import DEFAULT_EDITION
+from .request_metrics import RequestMetricsRepository
 
 # ADMIN DISABLED FOR NOW (2026-07-09): the admin area must not ship to production in
 # this phase. All the code stays in the repository (admin_service.py,
@@ -71,6 +76,33 @@ def create_app(
         allow_headers=["Content-Type"],
     )
     service = DataService(data_root, admin_db_path=admin_db_path)
+    metrics_repo = RequestMetricsRepository()
+
+    def _record_metrics(method: str, path_template: str, status_code: int, duration_ms: float) -> None:
+        # Runs in a thread pool from fire-and-forget middleware below; record() already
+        # swallows its own errors, this is just an extra safety net.
+        try:
+            metrics_repo.record(method, path_template, status_code, duration_ms)
+        except Exception:
+            pass
+
+    @app.middleware("http")
+    async def track_api_requests(request: Request, call_next: Callable) -> Response:
+        start = time.perf_counter()
+        response = await call_next(request)
+        route = request.scope.get("route")
+        path_template = getattr(route, "path", None)
+        # Only /api/* calls are "endpoints" for this dashboard — static assets and the
+        # SPA catch-all are frontend page serving, tracked separately via Umami.
+        # /ops/metrics is excluded so the dashboard doesn't inflate its own numbers.
+        if path_template and path_template.startswith("/api/") and path_template != "/api/health":
+            duration_ms = (time.perf_counter() - start) * 1000
+            asyncio.create_task(
+                run_in_threadpool(
+                    _record_metrics, request.method, path_template, response.status_code, duration_ms
+                )
+            )
+        return response
     # ADMIN DISABLED FOR NOW: regardless of ENABLE_ADMIN_TOOLS/admin_enabled, no admin
     # route is registered. The signature parameters are kept so existing callers don't
     # break.
@@ -213,6 +245,58 @@ def create_app(
         edition_route(service.availability, gold_endpoint="availability")
     )
     app.get("/api/history")(service.history)
+
+    # Internal-only dashboard for API call volume/latency (analytics.api_requests).
+    # Off by default: without both METRICS_DASHBOARD_USER and METRICS_DASHBOARD_PASSWORD
+    # set, the route 404s instead of prompting for auth — same "don't announce the
+    # surface exists" posture as the disabled /api/admin/* routes above.
+    metrics_user = os.getenv("METRICS_DASHBOARD_USER", "").strip()
+    metrics_password = os.getenv("METRICS_DASHBOARD_PASSWORD", "").strip()
+    metrics_basic_auth = HTTPBasic(auto_error=False)
+
+    def require_metrics_auth(
+        credentials: HTTPBasicCredentials | None = Depends(metrics_basic_auth),
+    ) -> None:
+        if not metrics_user or not metrics_password:
+            raise HTTPException(status_code=404, detail="Not Found")
+        valid = bool(credentials) and secrets.compare_digest(
+            credentials.username, metrics_user
+        ) and secrets.compare_digest(credentials.password, metrics_password)
+        if not valid:
+            raise HTTPException(
+                status_code=401,
+                detail="Credenciais inválidas.",
+                headers={"WWW-Authenticate": "Basic"},
+            )
+
+    @app.get("/ops/metrics", include_in_schema=False, dependencies=[Depends(require_metrics_auth)])
+    def metrics_dashboard(days: int = 7) -> HTMLResponse:
+        days = max(1, min(days, 90))
+        rows = metrics_repo.top_endpoints(days=days)
+        table_rows = "".join(
+            f"<tr><td>{row['method']}</td><td><code>{row['path_template']}</code></td>"
+            f"<td>{row['calls']}</td><td>{row['avg_ms']} ms</td><td>{row['p95_ms']} ms</td>"
+            f"<td>{row['error_rate_pct']}%</td><td>{row['last_seen']}</td></tr>"
+            for row in rows
+        ) or "<tr><td colspan=\"7\">Sem chamadas registradas neste período.</td></tr>"
+        html = f"""<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<title>Métricas de API · World Cup Analytics</title>
+<style>
+body {{ background:#0a0a0a; color:#f4f2e9; font-family:system-ui,sans-serif; padding:32px; }}
+table {{ border-collapse:collapse; width:100%; margin-top:16px; }}
+th, td {{ text-align:left; padding:8px 12px; border-bottom:1px solid #2a2a2a; font-size:14px; }}
+th {{ color:#9b5cf6; text-transform:uppercase; font-size:11px; letter-spacing:.04em; }}
+code {{ color:#10ce8e; }}
+</style></head><body>
+<h1>Chamadas de API — últimos {days} dias</h1>
+<p><a href="?days=1" style="color:#338ef7">1d</a> · <a href="?days=7" style="color:#338ef7">7d</a> ·
+<a href="?days=30" style="color:#338ef7">30d</a> · <a href="?days=90" style="color:#338ef7">90d</a></p>
+<table><thead><tr><th>Método</th><th>Endpoint</th><th>Chamadas</th><th>Latência média</th>
+<th>p95</th><th>Erros</th><th>Última chamada</th></tr></thead>
+<tbody>{table_rows}</tbody></table>
+</body></html>"""
+        return HTMLResponse(html)
 
     # ADMIN DISABLED FOR NOW — /api/admin/* routes are not registered.
     #
