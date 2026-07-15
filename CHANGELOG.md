@@ -6,6 +6,8 @@ A partir da v1.0.0, mudanças de DDL são versionadas em
 
 ## Não lançado
 
+## v1.0.1 — 2026-07-15
+
 ### Adicionado
 - Tracking de uso: dashboard interno `/ops/metrics` (Basic Auth, 404 sem
   credenciais configuradas — mesma postura do admin desativado) mostra
@@ -40,6 +42,12 @@ A partir da v1.0.0, mudanças de DDL são versionadas em
   e esse mesmo placeholder — que vazava como texto bruto ("L101") assim que a
   partida veio à tona — agora resolve para "Perdedor de X x Y". Requer
   rebuild do gold.
+- Ranking de artilharia sem desempate real: jogadores empatados em gols
+  ficavam na ordem que sobrava de uma ordenação anterior por xG (efeito
+  colateral, não critério de verdade) — ex.: Mbappé (8 gols, 3 assistências)
+  na frente de Messi (8 gols, 4 assistências) só por ter xG levemente maior.
+  `player_leaders` agora desempata gols por mais assistências e, se ainda
+  empatado, por menos minutos jogados. Requer rebuild do gold.
 
 ## v1.0.0 — 2026-07-13
 

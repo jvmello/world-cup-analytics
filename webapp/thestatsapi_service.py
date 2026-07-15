@@ -3403,7 +3403,19 @@ class TheStatsApiBronzeService:
         # signed/average metrics keep every measured player.
         metrics = ("goals", "xg", "shots", "shots_on_target", "xg_per_shot", "goals_minus_xg", "assists", "rating")
         keep_zero = {"goals_minus_xg", "rating"}
+        # Top scorers is the one ranking where ties are common enough to need a tiebreak:
+        # most assists first, then fewest minutes played (both read as "reverse=True", so
+        # minutes is negated to turn "fewer wins" into "higher sorts first" like the rest).
+        tiebreaks = {
+            "goals": lambda row: (row.get("assists") or 0, -(row.get("minutes_played") or 0)),
+        }
         played = [row for row in players if float(row.get("minutes_played") or 0) > 0]
+
+        def sort_key(metric: str, row: dict[str, Any]) -> tuple[Any, ...]:
+            primary = row.get(metric) or 0
+            tiebreak = tiebreaks.get(metric)
+            return (primary, *tiebreak(row)) if tiebreak else (primary,)
+
         return {
             metric: sorted(
                 [
@@ -3412,7 +3424,7 @@ class TheStatsApiBronzeService:
                     if row.get(metric) is not None
                     and (metric in keep_zero or float(row.get(metric) or 0) > 0)
                 ],
-                key=lambda row: row.get(metric) or 0,
+                key=lambda row, metric=metric: sort_key(metric, row),
                 reverse=True,
             )
             for metric in metrics

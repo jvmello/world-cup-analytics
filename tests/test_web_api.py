@@ -2525,6 +2525,28 @@ def test_metrics_dashboard_is_disabled_without_credentials_configured(monkeypatc
     assert response.status_code == 404
 
 
+def test_top_scorer_ranking_breaks_goal_ties_by_assists_then_minutes() -> None:
+    """Regression: players tied on goals were ordered by whatever the previous sort step
+    happened to leave in place (an xG artifact from _aggregate_players), not a real
+    tiebreak — Mbappé (8 goals, 3 assists) outranked Messi (8 goals, 4 assists) only
+    because his xG was slightly higher. The real tiebreak chain for top scorers is most
+    assists first, then fewest minutes played among players still tied after that."""
+    players = [
+        {"player_name": "Messi", "goals": 8, "assists": 4, "xg": 5.07, "minutes_played": 530},
+        {"player_name": "Mbappé", "goals": 8, "assists": 3, "xg": 5.26, "minutes_played": 518},
+        # Tied on goals AND assists with Ferreira — only minutes played tells them apart.
+        {"player_name": "Ferreira", "goals": 8, "assists": 3, "xg": 4.90, "minutes_played": 610},
+        {"player_name": "Haaland", "goals": 7, "assists": 0, "xg": 4.27, "minutes_played": 465},
+    ]
+
+    leaders = TheStatsApiBronzeService.player_leaders(players)
+
+    assert [row["player_name"] for row in leaders["goals"]] == ["Messi", "Mbappé", "Ferreira", "Haaland"]
+    # Other rankings are untouched by this tiebreak — Haaland has 0 assists, so the
+    # assists leaderboard drops him like it already did before this change.
+    assert [row["player_name"] for row in leaders["assists"]] == ["Messi", "Mbappé", "Ferreira"]
+
+
 def test_metrics_dashboard_requires_valid_basic_auth_when_configured(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("METRICS_DASHBOARD_USER", "owner")
     monkeypatch.setenv("METRICS_DASHBOARD_PASSWORD", "s3cret")
