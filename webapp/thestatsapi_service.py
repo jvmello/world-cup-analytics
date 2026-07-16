@@ -751,6 +751,9 @@ class TheStatsApiBronzeService:
         if not fixture:
             return None
         match = self._match_summary(fixture, {})
+        resolved = self._knockout_resolved_matches(self.fixtures(year)).get(match_id)
+        if resolved:
+            match = {**match, **resolved}
         teams = {row.get("team_id"): row for row in self.teams(year).get("items", [])}
         return self._build_fixture_prognosis(
             year, match, teams.get(match.get("home_team_id")), teams.get(match.get("away_team_id"))
@@ -2745,6 +2748,30 @@ class TheStatsApiBronzeService:
             "started": knockout_started,
             "notice": notice,
         }
+
+    @classmethod
+    def _knockout_resolved_matches(cls, fixtures: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+        """match_id -> resolved {home/away_team_id, home/away_team} for every knockout tie
+        whose two sides are already known. The provider's own fixture feed sometimes lags
+        behind a previous round's result (still showing "W101" after the semifinal that
+        decides it is over) — knockout_state() already resolves this correctly for the
+        bracket screen via winner_matchups, so reuse it here instead of trusting the raw
+        fixture directly."""
+        resolved: dict[str, dict[str, Any]] = {}
+        for round_ in cls.knockout_state(fixtures).get("rounds", []):
+            for match in round_.get("matches", []):
+                match_id = match.get("match_id")
+                home = match.get("home") or {}
+                away = match.get("away") or {}
+                if not match_id or not home.get("defined") or not away.get("defined"):
+                    continue
+                resolved[match_id] = {
+                    "home_team_id": home.get("team_id"),
+                    "home_team": home.get("team_name"),
+                    "away_team_id": away.get("team_id"),
+                    "away_team": away.get("team_name"),
+                }
+        return resolved
 
     @staticmethod
     def _bracket_order(

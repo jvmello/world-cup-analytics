@@ -16,6 +16,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
+from . import __version__
 from .catalog import DEFAULT_EDITION
 from .request_metrics import RequestMetricsRepository
 
@@ -55,7 +56,7 @@ def create_app(
     expose_docs = os.getenv("EXPOSE_API_DOCS", "false").strip().lower() in {"1", "true", "yes", "on"}
     app = FastAPI(
         title="World Cup Analytics API",
-        version="1.0.0",
+        version=__version__,
         docs_url="/docs" if expose_docs else None,
         redoc_url="/redoc" if expose_docs else None,
         openapi_url="/openapi.json" if expose_docs else None,
@@ -186,7 +187,7 @@ def create_app(
 
         return endpoint
 
-    app.get("/api/health")(lambda: {"status": "ok", "default_year": DEFAULT_EDITION})
+    app.get("/api/health")(lambda: {"status": "ok", "default_year": DEFAULT_EDITION, "version": __version__})
     app.get("/api/editions")(service.catalog)
     app.get("/api/editions/{year}/overview")(edition_route(service.overview, gold_endpoint="overview"))
     app.get("/api/editions/{year}/competition")(edition_route(service.competition, gold_endpoint="competition"))

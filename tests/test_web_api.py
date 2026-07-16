@@ -252,10 +252,12 @@ def test_public_navigation_separates_home_from_competition() -> None:
 def test_health_and_edition_overviews(tmp_path: Path) -> None:
     client = _client(tmp_path)
 
-    assert client.get("/api/health").json() == {
-        "status": "ok",
-        "default_year": 2026,
-    }
+    health = client.get("/api/health").json()
+    assert health["status"] == "ok"
+    assert health["default_year"] == 2026
+    # Footer version tag reads this field — must always be a non-empty string, not just
+    # present, since the frontend renders it verbatim with no fallback text.
+    assert isinstance(health["version"], str) and health["version"]
 
     overview_2022 = client.get("/api/editions/2022/overview")
     assert overview_2022.status_code == 200
@@ -2602,6 +2604,49 @@ def test_scheduled_match_gets_a_prognosis_instead_of_available_false() -> None:
 
     # A team with no games played yet (matchday 1) has no rate stats — nothing to compare.
     assert TheStatsApiBronzeService._build_fixture_prognosis(2026, match, None, away_team) is None
+
+
+def test_knockout_resolved_matches_fixes_a_lagging_placeholder() -> None:
+    """Regression: the provider's own fixture feed sometimes lags behind a decided
+    semifinal — one final side had already flipped from "W101" to the real winner
+    ("Spain"), but the other still showed the raw "W102" placeholder despite England x
+    Argentina (match 102) already being finished. The match-detail/prognosis route read
+    the raw fixture directly and never resolved it, so the Final silently fell back to
+    "not found" instead of a placeholder-aware hero or a prognosis. knockout_state()
+    already resolves this correctly for the bracket screen via winner_matchups —
+    _knockout_resolved_matches reuses that instead of trusting the raw fixture."""
+    fixtures = [
+        {
+            "match_id": "sf1", "stage": "semi_final", "status": "finished",
+            "match_date": "2026-07-14T19:00:00Z",
+            "home_team": "France", "home_team_id": "fra",
+            "away_team": "Spain", "away_team_id": "esp",
+            "home_score": 1, "away_score": 2,
+        },
+        {
+            "match_id": "sf2", "stage": "semi_final", "status": "finished",
+            "match_date": "2026-07-15T19:00:00Z",
+            "home_team": "England", "home_team_id": "eng",
+            "away_team": "Argentina", "away_team_id": "arg",
+            "home_score": 1, "away_score": 2,
+        },
+        {
+            # Mirrors the real bug exactly: home already resolved by the provider,
+            # away still a raw, unresolved placeholder.
+            "match_id": "final", "stage": "final", "status": "scheduled",
+            "match_date": "2026-07-19T19:00:00Z",
+            "home_team": "Spain", "home_team_id": "esp",
+            "away_team": "W102", "away_team_id": "placeholder-102",
+            "home_score": None, "away_score": None,
+        },
+    ]
+
+    resolved = TheStatsApiBronzeService._knockout_resolved_matches(fixtures)
+
+    assert resolved["final"] == {
+        "home_team_id": "esp", "home_team": "Spain",
+        "away_team_id": "arg", "away_team": "Argentina",
+    }
 
 
 def test_knockout_bracket_orders_matches_by_bracket_lineage_not_kickoff_date() -> None:

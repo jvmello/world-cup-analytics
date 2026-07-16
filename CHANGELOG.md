@@ -6,6 +6,14 @@ A partir da v1.0.0, mudanças de DDL são versionadas em
 
 ## Não lançado
 
+### Adicionado
+- Versão exibida no rodapé do site (`v1.0.1`), lida de `/api/health`. Fonte
+  única em `webapp/__version__` — o container de produção roda sem `.git`
+  montado, então não dá pra derivar isso do git em runtime; precisa ser
+  bumpado manualmente junto com este changelog e a tag correspondente.
+  Corrigido de quebra: `FastAPI(version=...)` estava hardcoded em "1.0.0" e
+  nunca tinha sido atualizado.
+
 ## v1.0.1 — 2026-07-15
 
 ### Adicionado

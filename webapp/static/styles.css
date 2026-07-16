@@ -865,6 +865,8 @@ footer { border-top: 1px solid var(--line); color: var(--muted); font-size: 11px
 .footer-inner { min-height: 100px; display: flex; justify-content: space-between; gap: 30px; align-items: center; }
 .footer-inner p { margin: 0; }
 .footer-inner strong { color: var(--ink); }
+#footer-version { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+#footer-version:empty { display: none; }
 
 body[data-skin="2026"] {
   --wc26-bg: #000000;

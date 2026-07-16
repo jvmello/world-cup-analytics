@@ -57,6 +57,7 @@
     nav: document.querySelector("#primary-nav"),
     coverage: document.querySelector("#coverage-text"),
     footerSource: document.querySelector("#footer-source"),
+    footerVersion: document.querySelector("#footer-version"),
     menuButton: document.querySelector("#menu-toggle"),
     loading: document.querySelector("#loading-template"),
   };
@@ -7038,5 +7039,19 @@
       goTo(route.year, route.page, route.detailId, { replace: true });
     } else if (location.pathname === "/") goTo(DEFAULT_YEAR, DEFAULT_PAGE, null, { replace: true });
     else navigate();
+    loadVersion();
   });
+
+  // Static for the whole session, so this runs once on load, outside getJSON's
+  // per-navigation AbortController (which would cancel it on the first route change).
+  async function loadVersion() {
+    if (!els.footerVersion) return;
+    try {
+      const response = await fetch(`${API}/health`, { cache: "no-store" });
+      const data = await response.json();
+      if (data?.version) els.footerVersion.textContent = `v${data.version}`;
+    } catch (_) {
+      /* footer stays blank if the health check fails — not worth surfacing to the user */
+    }
+  }
 })();
