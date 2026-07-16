@@ -751,7 +751,13 @@ class TheStatsApiBronzeService:
         if not fixture:
             return None
         match = self._match_summary(fixture, {})
-        resolved = self._knockout_resolved_matches(self.fixtures(year)).get(match_id)
+        # knockout_state()/_knockout_resolved_matches() need the flattened fixture shape
+        # (home_team as a plain string) — self.fixtures(year) is the raw provider shape
+        # (home_team as a nested {id, name} dict), which silently fails to classify or
+        # resolve anything. Flattening here (just _match_summary, no bundle reads) is far
+        # cheaper than match_items()'s full _all_match_details() pass.
+        flattened_fixtures = [self._match_summary(fx, {}) for fx in self.fixtures(year)]
+        resolved = self._knockout_resolved_matches(flattened_fixtures).get(match_id)
         if resolved:
             match = {**match, **resolved}
         teams = {row.get("team_id"): row for row in self.teams(year).get("items", [])}

@@ -826,10 +826,12 @@ def _iter_api_payload_rows(
     # Scheduled fixtures with no bundle yet still get a match_detail row — a lightweight
     # pre-match comparison instead of the endpoint being silently missing from gold.
     teams_by_id = {str(team.get("team_id")): team for team in teams if team.get("team_id")}
-    all_fixtures = service.fixtures(year)
-    knockout_resolved = service._knockout_resolved_matches(all_fixtures)
-    for fixture in all_fixtures:
-        match = service._match_summary(fixture, {})
+    # knockout_state()/_knockout_resolved_matches() need the flattened fixture shape
+    # (home_team as a plain string), not the raw provider shape service.fixtures(year)
+    # returns (home_team as a nested {id, name} dict) — flatten once, reuse both below.
+    flattened_fixtures = [service._match_summary(fixture, {}) for fixture in service.fixtures(year)]
+    knockout_resolved = service._knockout_resolved_matches(flattened_fixtures)
+    for match in flattened_fixtures:
         match_id = match.get("match_id")
         if not match_id or match_id in bundled_match_ids:
             continue

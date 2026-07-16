@@ -2606,6 +2606,69 @@ def test_scheduled_match_gets_a_prognosis_instead_of_available_false() -> None:
     assert TheStatsApiBronzeService._build_fixture_prognosis(2026, match, None, away_team) is None
 
 
+def test_fixture_prognosis_flattens_raw_fixtures_before_resolving_knockout(monkeypatch, tmp_path: Path) -> None:
+    """Regression: _fixture_prognosis and serving.py's prognosis loop originally passed
+    service.fixtures(year) (the raw provider shape — home_team as a nested {id, name}
+    dict) straight into _knockout_resolved_matches(), which needs the flattened shape
+    (home_team as a plain string) that _match_summary produces. With the raw shape,
+    _knockout_round() silently failed to classify any semi_final/final fixture (it reads
+    fixture["stage"], which only exists after flattening) and _knockout_side() stored the
+    dict's Python repr as the team name instead of resolving anything — so the Final and
+    the third-place match always fell back to "not found", even once the semifinals
+    deciding them were finished. This drives the fix through the real raw-fixture entry
+    point, not a pre-flattened fixture list like the unit test above."""
+    root = _data_root(tmp_path)
+    _write_json(
+        root,
+        "bronze/thestatsapi/world_cup/2026/fixtures/page=1/response.json",
+        {
+            "data": [
+                {
+                    "id": "sf1", "utc_date": "2026-07-14T19:00:00.000Z",
+                    "stage_name": "semi_final", "status": "finished",
+                    "home_team": {"id": "fra", "name": "France"},
+                    "away_team": {"id": "esp", "name": "Spain"},
+                    "score": {"home": 1, "away": 2, "regulation": {"home": 1, "away": 2}},
+                },
+                {
+                    "id": "sf2", "utc_date": "2026-07-15T19:00:00.000Z",
+                    "stage_name": "semi_final", "status": "finished",
+                    "home_team": {"id": "eng", "name": "England"},
+                    "away_team": {"id": "arg", "name": "Argentina"},
+                    "score": {"home": 1, "away": 2, "regulation": {"home": 1, "away": 2}},
+                },
+                {
+                    # Exactly the real bug: the provider already resolved the home side
+                    # but left the away side as a raw, unresolved placeholder.
+                    "id": "final", "utc_date": "2026-07-19T19:00:00.000Z",
+                    "stage_name": "final", "status": "scheduled",
+                    "home_team": {"id": "esp", "name": "Spain"},
+                    "away_team": {"id": "placeholder-102", "name": "W102"},
+                    "score": {},
+                },
+            ]
+        },
+    )
+    service = TheStatsApiBronzeService(data_root=root)
+    # _build_fixture_prognosis needs campaign stats for both sides, which normally come
+    # from real match bundles — irrelevant to what this test is actually checking (that
+    # the Final's teams resolve at all), so fake minimal team rows instead of fabricating
+    # full bundles for every match feeding two semifinals.
+    fake_teams = {
+        "esp": {"team_id": "esp", "goals_per_game": 2.0, "xg_per_game": 1.8},
+        "arg": {"team_id": "arg", "goals_per_game": 2.2, "xg_per_game": 2.0},
+    }
+    monkeypatch.setattr(
+        service, "teams", lambda year: {"items": list(fake_teams.values())}
+    )
+
+    prognosis = service._fixture_prognosis(2026, "final")
+
+    assert prognosis is not None
+    assert prognosis["match"]["home_team"] == "Spain"
+    assert prognosis["match"]["away_team"] == "Argentina"
+
+
 def test_knockout_resolved_matches_fixes_a_lagging_placeholder() -> None:
     """Regression: the provider's own fixture feed sometimes lags behind a decided
     semifinal — one final side had already flipped from "W101" to the real winner

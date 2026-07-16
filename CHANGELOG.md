@@ -14,6 +14,22 @@ A partir da v1.0.0, mudanças de DDL são versionadas em
   Corrigido de quebra: `FastAPI(version=...)` estava hardcoded em "1.0.0" e
   nunca tinha sido atualizado.
 
+### Corrigido
+- Prognóstico ausente na Final e na disputa de 3º lugar: a fonte às vezes
+  demora a propagar o vencedor de uma rodada pro placeholder da rodada
+  seguinte (`W101`/`W102`, `L101`/`L102`), mesmo com o resultado já
+  disponível nos nossos dados — a Final chegou a ficar com um lado resolvido
+  ("Spain") e o outro ainda cru ("W102"). A tela de chaveamento já resolve
+  isso via `winner_matchups`; a rota de prognóstico nunca usava esse
+  mecanismo, então caía sempre em "partida não encontrada". Novo
+  `_knockout_resolved_matches` reaproveita a resolução do chaveamento nos
+  dois pontos de entrada (`_fixture_prognosis` e o build do gold). No
+  caminho, um bug de forma: os dois pontos passavam `service.fixtures(year)`
+  (formato bruto, `home_team` como dict aninhado) pro resolvedor, que espera
+  o formato achatado de `_match_summary`/`match_items` — com o formato
+  errado, a fase nem era reconhecida e o nome do time virava o repr de um
+  dict. Requer rebuild do gold.
+
 ## v1.0.1 — 2026-07-15
 
 ### Adicionado
