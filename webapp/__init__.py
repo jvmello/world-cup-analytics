@@ -2,7 +2,7 @@
 
 # Bump alongside CHANGELOG.md and the matching git tag — the production container
 # runs without .git mounted, so this can't be derived from git at runtime.
-__version__ = "1.0.1"
+__version__ = "1.1.0"
 
 from .main import app, create_app
 

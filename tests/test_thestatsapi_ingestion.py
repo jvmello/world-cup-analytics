@@ -24,9 +24,10 @@ class FakeClient:
         endpoint_name: str,
         *,
         match_id: str | None = None,
+        team_id: str | None = None,
         params: dict[str, object] | None = None,
     ) -> ApiResponse:
-        self.calls.append((endpoint_name, match_id, params or {}))
+        self.calls.append((endpoint_name, match_id or team_id, params or {}))
         failure = self.failures.get(endpoint_name)
         if isinstance(failure, Exception):
             raise failure
@@ -35,6 +36,8 @@ class FakeClient:
         data = {"endpoint": endpoint_name, "match_id": match_id}
         if endpoint_name == "match_referee":
             data["referee"] = {"id": "ref_1", "name": "Test Referee"}
+        if endpoint_name == "club_team_detail":
+            data = {"id": team_id, "name": f"Club {team_id}"}
         return ApiResponse(
             endpoint_name=endpoint_name,
             request_url=f"https://example.test/{endpoint_name}",
@@ -128,6 +131,42 @@ def test_registry_uses_documented_match_referee_detail_and_standings_paths() -> 
         "/football/competitions/comp_6107/seasons/sn_118868/standings",
     )
     assert standings.required is True
+
+
+def test_registry_club_team_detail_resolves_team_id_placeholder() -> None:
+    club_team_detail = ENDPOINTS["club_team_detail"]
+
+    assert club_team_detail.resolve_paths(team_id="tm_8531") == (
+        "/football/teams/tm_8531",
+    )
+    assert club_team_detail.required is False
+
+
+def test_fetch_club_teams_resolves_distinct_clubs_from_player_stats(
+    tmp_path: Path,
+) -> None:
+    """fetch_club_teams backfills club names from whatever club_team_id values are already
+    sitting in ingested player_stats — one call per distinct club, not per player/match."""
+    ingestion, client = _ingestion(tmp_path)
+    matches_root = tmp_path / "bronze/thestatsapi/world_cup/2026/matches"
+    for match_id_, club_ids in (("mt_1", ["tm_8531", "tm_73673"]), ("mt_2", ["tm_8531"])):
+        player_stats_path = matches_root / f"match_id={match_id_}/player_stats/response.json"
+        player_stats_path.parent.mkdir(parents=True, exist_ok=True)
+        player_stats_path.write_text(
+            json.dumps({"data": [{"player_id": f"p_{club_id}", "club_team_id": club_id} for club_id in club_ids]}),
+            encoding="utf-8",
+        )
+
+    result = ingestion.fetch_club_teams()
+
+    assert result["success"] == 2  # tm_8531 and tm_73673, deduplicated across both matches
+    fetched_team_ids = {call[1] for call in client.calls if call[0] == "club_team_detail"}
+    assert fetched_team_ids == {"tm_8531", "tm_73673"}
+    club_path = tmp_path / "bronze/thestatsapi/world_cup/2026/club_teams/team_id=tm_8531/response.json"
+    assert json.loads(club_path.read_text())["data"]["name"] == "Club tm_8531"
+
+    second = ingestion.fetch_club_teams()
+    assert second["skipped"] == 2
 
 
 def test_standings_are_saved_with_core_metadata_and_are_idempotent(

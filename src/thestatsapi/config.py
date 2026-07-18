@@ -22,16 +22,26 @@ class EndpointSpec:
     paginated: bool = False
     required: bool = False
 
-    def resolve_paths(self, *, match_id: str | None = None) -> tuple[str, ...]:
+    def resolve_paths(
+        self, *, match_id: str | None = None, team_id: str | None = None
+    ) -> tuple[str, ...]:
         paths = (self.path, *self.fallback_paths)
-        return tuple(self._resolve_path(path, match_id=match_id) for path in paths)
+        return tuple(
+            self._resolve_path(path, match_id=match_id, team_id=team_id) for path in paths
+        )
 
-    def _resolve_path(self, path: str, *, match_id: str | None = None) -> str:
-        if "{match_id}" not in path:
-            return path
-        if not match_id:
-            raise ValueError(f"Endpoint {self.name} requires match_id.")
-        return path.format(match_id=match_id)
+    def _resolve_path(
+        self, path: str, *, match_id: str | None = None, team_id: str | None = None
+    ) -> str:
+        if "{match_id}" in path:
+            if not match_id:
+                raise ValueError(f"Endpoint {self.name} requires match_id.")
+            path = path.format(match_id=match_id)
+        if "{team_id}" in path:
+            if not team_id:
+                raise ValueError(f"Endpoint {self.name} requires team_id.")
+            path = path.format(team_id=team_id)
+        return path
 
 
 ENDPOINTS: dict[str, EndpointSpec] = {
@@ -92,6 +102,12 @@ ENDPOINTS: dict[str, EndpointSpec] = {
         name="match_referee",
         path="/football/matches/{match_id}/referee",
         fetch_stage="match_bundle",
+        required=False,
+    ),
+    "club_team_detail": EndpointSpec(
+        name="club_team_detail",
+        path="/football/teams/{team_id}",
+        fetch_stage="club_teams",
         required=False,
     ),
 }

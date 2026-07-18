@@ -73,6 +73,20 @@ class BronzeStore:
             / "response.json"
         )
 
+    def matches_root(self) -> Path:
+        return self.root / SOURCE_NAME / "world_cup" / str(self.edition_year) / "matches"
+
+    def club_team_path(self, team_id: str) -> Path:
+        return (
+            self.root
+            / SOURCE_NAME
+            / "world_cup"
+            / str(self.edition_year)
+            / "club_teams"
+            / f"team_id={self._safe_part(team_id)}"
+            / "response.json"
+        )
+
     def exists(self, raw_path: Path) -> bool:
         metadata_path = raw_path.with_name("metadata.json")
         return raw_path.exists() and metadata_path.exists()

@@ -2326,6 +2326,7 @@
       rankingHost.replaceChildren(rankings || emptyState("Sem rankings neste recorte", "Ajuste os filtros para encontrar jogadores elegíveis."));
     }
     const shotBreakdown = playerShotBreakdown(data.shot_breakdowns || {});
+    const clubPanel = playersByClubPanel(data.players_by_club || []);
     const highlights = playerEditionHighlights(players);
     const root = node("div", { class: "player-overview-experience" }, [
       compactAnalysisSummary([["Jogadores", data.summary?.players], ["Gols", data.summary?.goals], ["Finalizações", data.summary?.shots], ["xG total", data.summary?.xg]]),
@@ -2334,6 +2335,7 @@
       section("Mapa de comparação", count, comparisonHost),
       section("Produção por posição", "Distribuição ofensiva e defensiva entre as funções", positionHost),
       shotBreakdown ? section("Perfil das finalizações", "Recorte fixo: toda a Copa — os filtros acima não se aplicam a este bloco", shotBreakdown) : null,
+      clubPanel ? section("Jogadores por clube", "Clube de origem na convocação — recorte fixo: toda a Copa", clubPanel) : null,
       section("Perfil de criação", "Passes para finalização e cruzamentos na competição", creationHost),
       section("Rankings de jogadores", "Top 5 · escolha uma categoria", rankingHost),
       section("Lista de jogadores", "Clique em uma linha para abrir o Perfil", analysisTableDisclosure("Tabela completa de jogadores", tableHost)),
@@ -2770,6 +2772,45 @@
       ]);
     }).filter(Boolean);
     return panels.length ? node("div", { class: "analysis-chart-grid" }, panels) : null;
+  }
+
+  function clubRankingRow(item, index) {
+    return node("div", { class: "ranking-detail-row" }, [
+      node("span", { class: "home-rank", text: String(index + 1) }),
+      node("span", { class: "ranking-detail-column", text: item.club_name }),
+      node("strong", { text: pluralCount(item.players, "jogador", "jogadores") }),
+    ]);
+  }
+
+  function openClubRankingQuickView(rows) {
+    const extra = node("section", { class: "ranking-detail" }, [
+      node("div", { class: "ranking-detail-head" }, [
+        node("span", { text: "Pos." }),
+        node("span", { class: "ranking-detail-column", text: "Clube" }),
+        node("span", { text: "Jogadores" }),
+      ]),
+      node("div", { class: "ranking-detail-list" }, rows.map(clubRankingRow)),
+    ]);
+    openQuickView({
+      kicker: "Ranking · Jogadores por clube",
+      titleContent: "Jogadores por clube na Copa",
+      rows: [],
+      extra,
+      layout: "modal",
+      actionLabel: null,
+      onAction: null,
+    });
+  }
+
+  function playersByClubPanel(rows) {
+    if (!rows?.length) return null;
+    const limit = 15;
+    const top = rows.slice(0, limit);
+    const chart = breakdownBars(top, "players", { name: item => item.club_name });
+    const openFull = rows.length > top.length
+      ? node("button", { type: "button", class: "discovery-ranking-open", onclick: () => openClubRankingQuickView(rows), text: "Ver lista completa" })
+      : null;
+    return node("div", {}, [chart, openFull].filter(Boolean));
   }
 
   function analysisTableDisclosure(labelText, tableHost) {

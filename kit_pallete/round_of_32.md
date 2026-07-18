@@ -1,63 +1,54 @@
-# Cores principais das camisas - Copa do Mundo de 2026 - 16 avos de final
+# Cores específicas das camisas - Copa do Mundo de 2026 - 16 avos de final
 
-Fonte: Match Colour Designation, FIFA World Cup 2026, fase de 16 avos de final, documento de 28/06/2026.
+Fonte: *Match Colour Designation*, FIFA World Cup 2026, versão 1.1 de 28/06/2026.
 
-> Critério: somente a cor dominante da camisa dos jogadores de linha. Quando a FIFA indica mais de uma cor, apenas a primeira foi considerada. Os códigos HEX são representativos e normalizados para uso em interface; não são códigos oficiais de fabricante.
+> Critério: somente a cor dominante da camisa dos jogadores de linha. O código HEX foi estimado diretamente a partir da camisa exibida no documento, por amostragem de áreas do tecido. Não foi usada uma paleta global: uniformes de seleções diferentes recebem códigos próprios mesmo quando possuem o mesmo nome de cor. Quando o mesmo modelo de camisa reaparece, o código é reutilizado. Os valores não são códigos oficiais dos fabricantes.
 
 ## 28/06/2026
 
-**Jogo 73:** África do Sul - amarelo (#F6D10A) **vs** Canadá - preto (#111111).
+**Jogo 73:** África do Sul - amarelo (`#FED007`) **vs** Canadá - preto (`#252A2D`).
+
 
 ## 29/06/2026
 
-**Jogo 74:** Alemanha - branco (#FFFFFF) **vs** Paraguai - azul-marinho (#102A4C).
+**Jogo 74:** Alemanha - branco (`#F2F1F0`) **vs** Paraguai - azul-marinho (`#252D3C`).
 
-**Jogo 75:** Países Baixos - laranja (#F15A29) **vs** Marrocos - branco (#FFFFFF).
+**Jogo 75:** Países Baixos - laranja (`#E6452E`) **vs** Marrocos - branco (`#EEE5DA`).
 
-**Jogo 76:** Brasil - amarelo (#F6D10A) **vs** Japão - branco (#FFFFFF).
+**Jogo 76:** Brasil - amarelo (`#F2CD58`) **vs** Japão - branco (`#E7E7E4`).
+
 
 ## 30/06/2026
 
-**Jogo 77:** França - azul-marinho (#102A4C) **vs** Suécia - amarelo (#F6D10A).
+**Jogo 77:** França - azul-marinho (`#0C2C59`) **vs** Suécia - amarelo (`#FAD900`).
 
-**Jogo 78:** Costa do Marfim - laranja (#F15A29) **vs** Noruega - branco (#FFFFFF).
+**Jogo 78:** Costa do Marfim - laranja (`#F35228`) **vs** Noruega - branco (`#E5E2E4`).
 
-**Jogo 79:** México - verde (#008C68) **vs** Equador - amarelo (#F6D10A).
+**Jogo 79:** México - verde (`#05745D`) **vs** Equador - amarelo (`#FDDA3C`).
+
 
 ## 01/07/2026
 
-**Jogo 80:** Inglaterra - branco (#FFFFFF) **vs** RD Congo - azul (#1557B7).
+**Jogo 80:** Inglaterra - branco (`#E0E0E1`) **vs** RD Congo - azul (`#3FA5E1`).
 
-**Jogo 81:** Estados Unidos - branco (#FFFFFF) **vs** Bósnia e Herzegovina - azul (#1557B7).
+**Jogo 81:** Estados Unidos - branco (`#F1E8E7`) **vs** Bósnia e Herzegovina - azul (`#14295A`).
 
-**Jogo 82:** Bélgica - turquesa (#A4BEC2) **vs** Senegal - verde-escuro (#005B46).
+**Jogo 82:** Bélgica - turquesa (`#99BDC2`) **vs** Senegal - verde-escuro (`#046460`).
+
 
 ## 02/07/2026
 
-**Jogo 83:** Portugal - branco (#FFFFFF) **vs** Croácia - azul (#1557B7).
+**Jogo 83:** Portugal - branco (`#DEE7E3`) **vs** Croácia - azul (`#033591`).
 
-**Jogo 84:** Espanha - vermelho (#E31B35) **vs** Áustria - branco (#FFFFFF).
+**Jogo 84:** Espanha - vermelho (`#E8021F`) **vs** Áustria - branco (`#E0E0DD`).
 
-**Jogo 85:** Suíça - vermelho (#E31B35) **vs** Argélia - branco (#FFFFFF).
+**Jogo 85:** Suíça - vermelho (`#E90122`) **vs** Argélia - branco (`#EDECEC`).
+
 
 ## 03/07/2026
 
-**Jogo 86:** Argentina - branco (#FFFFFF) **vs** Cabo Verde - azul-marinho (#102A4C).
+**Jogo 86:** Argentina - branco (`#EAE8E5`) **vs** Cabo Verde - azul-marinho (`#033066`).
 
-**Jogo 87:** Colômbia - amarelo (#F6D10A) **vs** Gana - branco (#FFFFFF).
+**Jogo 87:** Colômbia - amarelo (`#F8D206`) **vs** Gana - branco (`#F1E8E6`).
 
-**Jogo 88:** Austrália - dourado (#D9A629) **vs** Egito - vermelho (#E31B35).
-
-## Paleta normalizada
-
-- amarelo: `#F6D10A`
-- preto: `#111111`
-- branco: `#FFFFFF`
-- azul-marinho: `#102A4C`
-- laranja: `#F15A29`
-- verde: `#008C68`
-- azul: `#1557B7`
-- turquesa: `#A4BEC2`
-- verde-escuro: `#005B46`
-- vermelho: `#E31B35`
-- dourado: `#D9A629`
+**Jogo 88:** Austrália - dourado (`#FBB52D`) **vs** Egito - vermelho (`#F4012C`).

@@ -126,6 +126,9 @@ def run_sync(
             if index < len(pending) and interval_seconds > 0:
                 time.sleep(interval_seconds)
 
+        club_teams = ingestion.fetch_club_teams()
+        _log(f"clubes de origem resolvidos: {club_teams}")
+
         if skip_serving:
             _log("bundles buscados; rebuild do gold pulado (--skip-serving).")
         else:

@@ -60,15 +60,17 @@ class TheStatsApiClient:
         endpoint_name: str,
         *,
         match_id: str | None = None,
+        team_id: str | None = None,
         params: dict[str, object] | None = None,
     ) -> ApiResponse:
         spec = ENDPOINTS[endpoint_name]
         query = {**spec.default_params, **(params or {})}
+        paths = spec.resolve_paths(match_id=match_id, team_id=team_id)
         last_response: ApiResponse | None = None
-        for index, path in enumerate(spec.resolve_paths(match_id=match_id)):
+        for index, path in enumerate(paths):
             response = self._request(endpoint_name=endpoint_name, path=path, params=query)
             last_response = response
-            if index < len(spec.resolve_paths(match_id=match_id)) - 1 and self._fallbackable(response):
+            if index < len(paths) - 1 and self._fallbackable(response):
                 continue
             return response
         if last_response is None:

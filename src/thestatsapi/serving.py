@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .config import WORLD_CUP_2026_EDITION, database_url_from_env
+from webapp.kit_colors import kits_for
 from webapp.thestatsapi_service import TheStatsApiBronzeService, json_safe, number
 
 
@@ -591,7 +592,7 @@ def _player_scope_rows(
         if not scoped_details:
             continue
         players = service._aggregate_player_analytics(
-            service._aggregate_players(scoped_details)
+            service._aggregate_players(scoped_details, year)
         )
         rows.extend(_player_rows(year, scope, players))
     return rows
@@ -838,6 +839,12 @@ def _iter_api_payload_rows(
         resolved = knockout_resolved.get(match_id)
         if resolved:
             match = {**match, **resolved}
+            # Kits were computed against the still-unresolved fixture (placeholder team
+            # names, or third_place's missing stage) — recompute now that home_team/
+            # away_team/stage reflect the real matchup.
+            kits = kits_for(match.get("stage"), match.get("group_name"), match.get("home_team"), match.get("away_team"))
+            match["home_kit"] = (kits or {}).get(match.get("home_team"))
+            match["away_kit"] = (kits or {}).get(match.get("away_team"))
         prognosis = service._build_fixture_prognosis(
             year, match, teams_by_id.get(match.get("home_team_id")), teams_by_id.get(match.get("away_team_id"))
         )
@@ -859,7 +866,7 @@ def _iter_api_payload_rows(
     }
     scoped_players_cache: dict[str, list[dict[str, Any]]] = {
         scope: service._aggregate_player_analytics(
-            service._aggregate_players(scoped_details)
+            service._aggregate_players(scoped_details, year)
         )
         for scope, scoped_details in scope_details.items()
         if scoped_details
@@ -902,7 +909,7 @@ def _iter_api_payload_rows(
         if match_id not in match_scope_cache:
             match_detail = detail_by_match_id.get(match_id)
             match_scope_cache[match_id] = service._aggregate_player_analytics(
-                service._aggregate_players([match_detail] if match_detail else [])
+                service._aggregate_players([match_detail] if match_detail else [], year)
             )
         yield add(
             "player_detail",

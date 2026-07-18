@@ -7,6 +7,20 @@ A partir da v1.0.0, mudanças de DDL são versionadas em
 ## Não lançado
 
 ### Adicionado
+- Jogadores por clube: novo bloco na tela de Jogadores mostra o clube de origem de
+  cada convocado (não o clube atual — quem se transferiu no meio da Copa, como
+  Marc Cucurella, Chelsea → Real Madrid em julho, continua contando pelo clube de
+  onde foi convocado). A fonte (`player_stats`) já trazia `club_team_id` por
+  partida, mas ele refletia a afiliação do jogador no momento em que cada bundle
+  foi buscado, não uma origem estável — dava pra ver isso na prática: as partidas
+  de junho do Cucurella vinham com um `club_team_id` e as de julho com outro,
+  batendo exatamente com a janela de transferências (que só abre em julho, sempre
+  depois do início da fase de grupos). Por isso o clube de origem é resolvido pela
+  partida cronologicamente mais antiga do jogador, não pela primeira da lista.
+  Nomes de clube vêm de uma ingestão nova e idempotente
+  (`/football/teams/{team_id}`, um bronze por clube distinto, ~470 chamadas
+  no backfill inicial) plugada no sync para resolver clubes novos automaticamente.
+  Requer rebuild do gold.
 - Versão exibida no rodapé do site (`v1.0.1`), lida de `/api/health`. Fonte
   única em `webapp/__version__` — o container de produção roda sem `.git`
   montado, então não dá pra derivar isso do git em runtime; precisa ser
@@ -29,8 +43,23 @@ A partir da v1.0.0, mudanças de DDL são versionadas em
   o formato achatado de `_match_summary`/`match_items` — com o formato
   errado, a fase nem era reconhecida e o nome do time virava o repr de um
   dict. Requer rebuild do gold.
+- Cores de uniforme ausentes no prognóstico da Final e da disputa de 3º lugar:
+  `kits_for()` era chamado dentro de `_match_summary()`, antes de
+  `_knockout_resolved_matches()` trocar os placeholders (`W102`/`L102`) pelos
+  nomes reais — a busca por (fase, {times}) nunca batia. A disputa de 3º lugar
+  tinha uma segunda causa: a fonte nunca envia `stage_name` pra essa partida,
+  então `kits_for()` (que usa `stage` pra achar o arquivo da fase) não
+  resolvia mesmo com os nomes já certos; `_knockout_resolved_matches` agora
+  também define `stage: "third_place"` nesse caso. Kits recalculados depois
+  da resolução, em `_fixture_prognosis` e no build do gold. De quebra, a
+  curadoria de `kit_pallete/*.md` mudou de paleta normalizada (nomes de cor
+  genéricos, ex. "vermelho", reaproveitados entre seleções) pra amostragem
+  direta da camisa de cada partida (hex e nome variam mesmo pro mesmo time
+  entre partidas diferentes) — o parser (`kit_colors.py`) só aceitava nomes
+  de cor simples/hifenizados e quebrava com descrições mais longas; passou a
+  aceitar qualquer texto até o hex. Requer rebuild do gold.
 
-## v1.0.1 — 2026-07-15
+## v1.1.0 — 2026-07-18
 
 ### Adicionado
 - Tracking de uso: dashboard interno `/ops/metrics` (Basic Auth, 404 sem

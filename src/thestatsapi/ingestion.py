@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import time
 from collections import Counter
 from typing import Any
 
@@ -226,6 +228,101 @@ class TheStatsApiIngestion:
             )
             counters[status] += 1
         return dict(counters)
+
+    def fetch_club_teams(self, *, force: bool = False, pause_seconds: float = 5.0) -> dict[str, int]:
+        """Resolve club names for every club_team_id seen in ingested player-stats.
+
+        The provider tags each player_stats row with the club they were affiliated
+        with at fetch time (club_team_id), independent of team_id (the World Cup
+        squad). This backfills /football/teams/{team_id} once per distinct club,
+        idempotent and cacheable (a club shows up for many players/matches).
+        pause_seconds paces actual requests against the account's ~12 req/min limit;
+        skipped (already-cached) clubs don't count against it.
+        """
+        endpoint_name = "club_team_detail"
+        fetch_stage = ENDPOINTS[endpoint_name].fetch_stage
+        counters: Counter[str] = Counter()
+        for index, team_id in enumerate(sorted(self._distinct_club_team_ids())):
+            raw_path = self.store.club_team_path(team_id)
+            request_fingerprint = f"team_id={team_id}"
+            if (
+                not force
+                and self._job_success(
+                    endpoint_name=endpoint_name,
+                    fetch_stage=fetch_stage,
+                    match_id=team_id,
+                    request_fingerprint=request_fingerprint,
+                )
+                and self.store.exists(raw_path)
+            ):
+                counters["skipped"] += 1
+                continue
+            if not force and self._raw_blocks_fetch(endpoint_name, raw_path):
+                counters["skipped"] += 1
+                continue
+            if index and pause_seconds > 0:
+                time.sleep(pause_seconds)
+
+            try:
+                response = self.client.fetch_endpoint(endpoint_name, team_id=team_id)
+                status = "unavailable" if self._unavailable(response) else "success"
+                error = None
+            except TransientApiError as exc:
+                response = ApiResponse(
+                    endpoint_name=endpoint_name,
+                    request_url=exc.request_url,
+                    http_status=exc.http_status or 0,
+                    payload={"error": str(exc), "http_status": exc.http_status},
+                )
+                status = "failed"
+                error = str(exc)
+
+            written = self.store.write(
+                raw_path=raw_path,
+                response=response,
+                fetch_stage=fetch_stage,
+                fetch_status=status,
+                extra_metadata={"team_id": team_id},
+            )
+            self.repository.record_job(
+                endpoint_name=endpoint_name,
+                fetch_stage=fetch_stage,
+                status=status,
+                match_id=team_id,
+                request_fingerprint=request_fingerprint,
+                request_url=response.request_url,
+                http_status=response.http_status,
+                response_hash=written.response_hash,
+                raw_path=str(written.raw_path),
+                metadata_path=str(written.metadata_path),
+                last_error=error,
+            )
+            self.repository.log_api_usage(
+                endpoint_name=endpoint_name,
+                fetch_stage=fetch_stage,
+                status=status,
+                match_id=team_id,
+                request_url=response.request_url,
+                http_status=response.http_status,
+                response_hash=written.response_hash,
+            )
+            counters[status] += 1
+        return dict(counters)
+
+    def _distinct_club_team_ids(self) -> set[str]:
+        ids: set[str] = set()
+        for player_stats_path in self.store.matches_root().glob("match_id=*/player_stats/response.json"):
+            try:
+                payload = json.loads(player_stats_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            records = payload.get("data") if isinstance(payload, dict) else payload
+            if not isinstance(records, list):
+                continue
+            for record in records:
+                if isinstance(record, dict) and record.get("club_team_id"):
+                    ids.add(str(record["club_team_id"]))
+        return ids
 
     def _job_success(
         self,

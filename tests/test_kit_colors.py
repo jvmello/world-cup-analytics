@@ -22,8 +22,8 @@ class KitColorsTest(unittest.TestCase):
 
     def test_lookup_matches_quarter_final_and_group_stage(self) -> None:
         qf = kits_for("quarter_final", None, "France", "Morocco", root=ROOT)
-        self.assertEqual(qf["France"]["hex"], "#A7D98B")
-        self.assertEqual(qf["Morocco"]["hex"], "#E31B35")
+        self.assertEqual(qf["France"]["hex"], "#ACBFB8")
+        self.assertEqual(qf["Morocco"]["hex"], "#DD0034")
         group = kits_for("Group Stage", "A", "Mexico", "South Africa", root=ROOT)
         self.assertEqual(group["Mexico"]["name"], "verde")
 

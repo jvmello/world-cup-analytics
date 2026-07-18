@@ -77,7 +77,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     service = TheStatsApiBronzeService(args.data_root)
     details = service._all_match_details(args.year)
-    players = service._aggregate_player_analytics(service._aggregate_players(details))
+    players = service._aggregate_player_analytics(service._aggregate_players(details, args.year))
     report = build_position_report(args.year, details, players)
     output = args.output or Path("artifacts/diagnostics") / f"player_position_inference_{args.year}.json"
     output.parent.mkdir(parents=True, exist_ok=True)

@@ -2669,6 +2669,77 @@ def test_fixture_prognosis_flattens_raw_fixtures_before_resolving_knockout(monke
     assert prognosis["match"]["away_team"] == "Argentina"
 
 
+def test_fixture_prognosis_recomputes_kits_after_resolving_knockout_placeholders(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Regression: home_kit/away_kit were computed inside _match_summary() BEFORE
+    _knockout_resolved_matches() replaces placeholder team names ("W102"/"L102") with
+    the real ones — so the Final and third-place prognosis cards always rendered with
+    no kit colors, even once kit_pallete/final.md and third_place.md were published.
+    Third place has a second, independent cause: the provider never sends a stage_name
+    for it, so kits_for() (which keys off `stage`) couldn't find the right phase file
+    even with the team names resolved — _knockout_resolved_matches must also patch
+    `stage` to "third_place" for that one round."""
+    root = _data_root(tmp_path)
+    _write_json(
+        root,
+        "bronze/thestatsapi/world_cup/2026/fixtures/page=1/response.json",
+        {
+            "data": [
+                {
+                    "id": "sf1", "utc_date": "2026-07-14T19:00:00.000Z",
+                    "stage_name": "semi_final", "status": "finished",
+                    "home_team": {"id": "fra", "name": "France"},
+                    "away_team": {"id": "esp", "name": "Spain"},
+                    "score": {"home": 1, "away": 2, "regulation": {"home": 1, "away": 2}},
+                },
+                {
+                    "id": "sf2", "utc_date": "2026-07-15T19:00:00.000Z",
+                    "stage_name": "semi_final", "status": "finished",
+                    "home_team": {"id": "eng", "name": "England"},
+                    "away_team": {"id": "arg", "name": "Argentina"},
+                    "score": {"home": 1, "away": 2, "regulation": {"home": 1, "away": 2}},
+                },
+                {
+                    "id": "final", "utc_date": "2026-07-19T19:00:00.000Z",
+                    "stage_name": "final", "status": "scheduled",
+                    "home_team": {"id": "esp", "name": "Spain"},
+                    "away_team": {"id": "placeholder-102", "name": "W102"},
+                    "score": {},
+                },
+                {
+                    # Third place never gets a stage_name from the provider at all.
+                    "id": "third", "utc_date": "2026-07-18T19:00:00.000Z",
+                    "status": "scheduled", "matchday": 50,
+                    "home_team": {"id": "fra", "name": "France"},
+                    "away_team": {"id": "placeholder-102", "name": "L102"},
+                    "score": {},
+                },
+            ]
+        },
+    )
+    service = TheStatsApiBronzeService(data_root=root)
+    fake_teams = {
+        "esp": {"team_id": "esp", "goals_per_game": 2.0, "xg_per_game": 1.8},
+        "arg": {"team_id": "arg", "goals_per_game": 2.2, "xg_per_game": 2.0},
+        "fra": {"team_id": "fra", "goals_per_game": 1.8, "xg_per_game": 1.6},
+        "eng": {"team_id": "eng", "goals_per_game": 1.5, "xg_per_game": 1.4},
+    }
+    monkeypatch.setattr(service, "teams", lambda year: {"items": list(fake_teams.values())})
+
+    final_prognosis = service._fixture_prognosis(2026, "final")
+    third_place_prognosis = service._fixture_prognosis(2026, "third")
+
+    assert final_prognosis["match"]["away_team"] == "Argentina"
+    assert final_prognosis["match"]["home_kit"]["hex"]  # Spain, vermelho
+    assert final_prognosis["match"]["away_kit"]["hex"]  # Argentina
+
+    assert third_place_prognosis["match"]["stage"] == "third_place"
+    assert third_place_prognosis["match"]["away_team"] == "England"
+    assert third_place_prognosis["match"]["home_kit"]["hex"]  # France
+    assert third_place_prognosis["match"]["away_kit"]["hex"]  # England
+
+
 def test_knockout_resolved_matches_fixes_a_lagging_placeholder() -> None:
     """Regression: the provider's own fixture feed sometimes lags behind a decided
     semifinal — one final side had already flipped from "W101" to the real winner
@@ -2710,6 +2781,69 @@ def test_knockout_resolved_matches_fixes_a_lagging_placeholder() -> None:
         "home_team_id": "esp", "home_team": "Spain",
         "away_team_id": "arg", "away_team": "Argentina",
     }
+
+
+def test_merge_player_rows_resolves_club_of_origin_from_earliest_match() -> None:
+    """The provider tags each player_stats row with club_team_id, its live club affiliation
+    at fetch time — not a stable "called up from" club. A real mid-tournament transfer (e.g.
+    Marc Cucurella, Chelsea -> Real Madrid in July 2026) shows up as a clean split across his
+    match rows. Since the summer transfer window only opens in July and the World Cup group
+    stage always starts in June, the player's chronologically EARLIEST match is guaranteed to
+    predate any transfer — so club_team_id must be resolved from that row, regardless of input
+    order or which rows count as "active" for stat purposes."""
+    rows = [
+        {"player_id": "cucurella", "player_name": "Marc Cucurella", "team_id": "esp", "club_team_id": "tm_73673", "minutes_played": 90, "played": True, "_match_date": "2026-07-10"},
+        {"player_id": "cucurella", "player_name": "Marc Cucurella", "team_id": "esp", "club_team_id": "tm_8531", "minutes_played": 90, "played": True, "_match_date": "2026-06-15"},
+        {"player_id": "cucurella", "player_name": "Marc Cucurella", "team_id": "esp", "club_team_id": "tm_73673", "minutes_played": 90, "played": True, "_match_date": "2026-07-14"},
+    ]
+
+    merged = TheStatsApiBronzeService._merge_player_rows(rows)
+
+    assert merged["club_team_id"] == "tm_8531"
+    assert "_match_date" not in merged
+
+
+def test_aggregate_players_resolves_club_name_and_players_by_club(tmp_path: Path) -> None:
+    """End-to-end: _aggregate_players resolves club_team_id (earliest match) to a human
+    club_name via the new /football/teams/{team_id} bronze ingestion, and players_by_club
+    groups the resolved names — never raw club_team_id — into a ranked count."""
+    root = tmp_path / "data"
+    _write_json(
+        root, "bronze/thestatsapi/world_cup/2026/club_teams/team_id=tm_8531/response.json",
+        {"data": {"id": "tm_8531", "name": "Chelsea"}},
+    )
+    _write_json(
+        root, "bronze/thestatsapi/world_cup/2026/club_teams/team_id=tm_73673/response.json",
+        {"data": {"id": "tm_73673", "name": "Real Madrid"}},
+    )
+    service = TheStatsApiBronzeService(data_root=root)
+    details = [
+        {
+            "match": {"match_id": "m1", "match_date": "2026-06-15"},
+            "players": [{"player_id": "cucurella", "player_name": "Marc Cucurella", "team_id": "esp", "club_team_id": "tm_8531", "minutes_played": 90, "played": True}],
+            "shot_map": [],
+        },
+        {
+            "match": {"match_id": "m2", "match_date": "2026-07-10"},
+            "players": [{"player_id": "cucurella", "player_name": "Marc Cucurella", "team_id": "esp", "club_team_id": "tm_73673", "minutes_played": 90, "played": True}],
+            "shot_map": [],
+        },
+        {
+            "match": {"match_id": "m3", "match_date": "2026-06-16"},
+            "players": [{"player_id": "pedri", "player_name": "Pedri", "team_id": "esp", "club_team_id": "tm_8531", "minutes_played": 90, "played": True}],
+            "shot_map": [],
+        },
+    ]
+
+    players = service._aggregate_players(details, 2026)
+
+    cucurella = next(row for row in players if row["player_id"] == "cucurella")
+    assert cucurella["club_team_id"] == "tm_8531"
+    assert cucurella["club_name"] == "Chelsea"  # not Real Madrid, despite the July transfer
+
+    by_club = service.players_by_club(players)
+    assert {"club_name": "Chelsea", "players": 2} in by_club
+    assert {"club_name": "Real Madrid", "players": 0} not in by_club
 
 
 def test_knockout_bracket_orders_matches_by_bracket_lineage_not_kickoff_date() -> None:

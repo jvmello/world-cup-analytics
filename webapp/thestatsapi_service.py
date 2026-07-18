@@ -126,7 +126,7 @@ class TheStatsApiBronzeService:
         fixtures = self.match_items(year)
         standings = self.standings_by_group(year)
         match_details = self._all_match_details(year)
-        player_rows = self._aggregate_players(match_details)
+        player_rows = self._aggregate_players(match_details, year)
         team_rows = self.team_rows(year, standings, match_details)
         player_leaders = self.player_leaders(player_rows)
         team_leaders = self.team_leaders(team_rows)
@@ -760,6 +760,12 @@ class TheStatsApiBronzeService:
         resolved = self._knockout_resolved_matches(flattened_fixtures).get(match_id)
         if resolved:
             match = {**match, **resolved}
+            # Kits were computed above against the still-unresolved fixture (placeholder
+            # team names like "W102", or third_place's missing stage) — recompute now
+            # that home_team/away_team/stage reflect the real matchup.
+            kits = kits_for(match.get("stage"), match.get("group_name"), match.get("home_team"), match.get("away_team"))
+            match["home_kit"] = (kits or {}).get(match.get("home_team"))
+            match["away_kit"] = (kits or {}).get(match.get("away_team"))
         teams = {row.get("team_id"): row for row in self.teams(year).get("items", [])}
         return self._build_fixture_prognosis(
             year, match, teams.get(match.get("home_team_id")), teams.get(match.get("away_team_id"))
@@ -791,7 +797,7 @@ class TheStatsApiBronzeService:
 
     def players(self, year: int) -> dict[str, Any]:
         details = self._all_match_details(year)
-        rows = self._aggregate_player_analytics(self._aggregate_players(details))
+        rows = self._aggregate_player_analytics(self._aggregate_players(details, year))
         shots = [shot for detail in details for shot in detail.get("shot_map", [])]
         return json_safe(
             {
@@ -807,6 +813,7 @@ class TheStatsApiBronzeService:
                     "xa": self._total(rows, "xa"),
                 },
                 "leaders": self.player_leaders(rows),
+                "players_by_club": self.players_by_club(rows),
                 "filters": {
                     "teams": sorted({row["team_name"] for row in rows if row.get("team_name")}),
                     "positions": sorted({row["position"] for row in rows if row.get("position")}),
@@ -916,7 +923,7 @@ class TheStatsApiBronzeService:
             }
         if scoped_players is None:
             scoped_players = self._aggregate_player_analytics(
-                self._aggregate_players(scoped_details)
+                self._aggregate_players(scoped_details, year)
             )
         summary = next((row for row in scoped_players if row.get("player_id") == player_id), None)
         if summary is None:
@@ -984,7 +991,7 @@ class TheStatsApiBronzeService:
 
     def profiles(self, year: int) -> dict[str, Any]:
         details = self._all_match_details(year)
-        players = self._aggregate_player_analytics(self._aggregate_players(details))
+        players = self._aggregate_player_analytics(self._aggregate_players(details, year))
         teams = self._curate_teams(
             self.team_rows(year, self.standings_by_group(year), details)
         )
@@ -1604,6 +1611,19 @@ class TheStatsApiBronzeService:
             return {}
         return payload if isinstance(payload, dict) else {"data": payload}
 
+    def _club_team_names(self, year: int) -> dict[str, str]:
+        names: dict[str, str] = {}
+        club_teams_root = self._root(year) / "club_teams"
+        if not club_teams_root.exists():
+            return names
+        for root in club_teams_root.glob("team_id=*"):
+            team_id = root.name.split("=", 1)[-1]
+            data = self._payload(root / "response.json").get("data")
+            name = data.get("name") if isinstance(data, dict) else None
+            if name:
+                names[team_id] = name
+        return names
+
     def _fixture(self, year: int, match_id: str) -> dict[str, Any]:
         for row in self.fixtures(year):
             if str(row.get("id") or row.get("match_id")) == match_id:
@@ -1896,6 +1916,7 @@ class TheStatsApiBronzeService:
                     "player_name": player.get("player_name"),
                     "team_id": player.get("team_id"),
                     "team_name": team_names.get(player.get("team_id")),
+                    "club_team_id": player.get("club_team_id"),
                     "position": player.get("position"),
                     "started": player.get("started"),
                     "played": player.get("played"),
@@ -2771,12 +2792,19 @@ class TheStatsApiBronzeService:
                 away = match.get("away") or {}
                 if not match_id or not home.get("defined") or not away.get("defined"):
                     continue
-                resolved[match_id] = {
+                entry = {
                     "home_team_id": home.get("team_id"),
                     "home_team": home.get("team_name"),
                     "away_team_id": away.get("team_id"),
                     "away_team": away.get("team_name"),
                 }
+                # Every other round's stage comes straight from the provider's own
+                # stage_name and is already correct; only third_place never gets one
+                # (see _knockout_round) — patch it here so kit-color lookup, which
+                # keys off `stage`, resolves once the round is known.
+                if round_.get("id") == "third_place":
+                    entry["stage"] = "third_place"
+                resolved[match_id] = entry
         return resolved
 
     @staticmethod
@@ -3020,6 +3048,11 @@ class TheStatsApiBronzeService:
 
     @staticmethod
     def _merge_player_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
+        chronological_rows = sorted(rows, key=lambda row: str(row.get("_match_date") or "9999"))
+        origin_club_team_id = next(
+            (row.get("club_team_id") for row in chronological_rows if row.get("club_team_id")),
+            None,
+        )
         active_rows = [
             row for row in rows
             if float(row.get("minutes_played") or 0) > 0
@@ -3027,6 +3060,8 @@ class TheStatsApiBronzeService:
         ]
         aggregate_rows = active_rows or rows
         first = aggregate_rows[0].copy()
+        first.pop("_match_date", None)
+        first["club_team_id"] = origin_club_team_id
         sum_metrics = (
             "minutes_played", "goals", "assists", "shots", "shots_on_target",
             "shots_off_target", "blocked_shots", "xg", "np_xg", "xa",
@@ -3086,13 +3121,18 @@ class TheStatsApiBronzeService:
         first.update(summarize_tournament_positions(active_rows))
         return first
 
-    def _aggregate_players(self, details: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _aggregate_players(self, details: list[dict[str, Any]], year: int) -> list[dict[str, Any]]:
+        club_names = self._club_team_names(year)
         grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for detail in details:
+            match_date = detail.get("match", {}).get("match_date")
             for player in detail["players"]:
                 if player.get("player_id"):
-                    grouped[player["player_id"]].append(player)
-        return sorted([self._merge_player_rows(rows) for rows in grouped.values()], key=lambda row: (row.get("goals") or 0, row.get("xg") or 0), reverse=True)
+                    grouped[player["player_id"]].append({**player, "_match_date": match_date})
+        merged = [self._merge_player_rows(rows) for rows in grouped.values()]
+        for row in merged:
+            row["club_name"] = club_names.get(str(row["club_team_id"])) if row.get("club_team_id") else None
+        return sorted(merged, key=lambda row: (row.get("goals") or 0, row.get("xg") or 0), reverse=True)
 
     def _curate_players(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not self.curation_repository:
@@ -3462,6 +3502,21 @@ class TheStatsApiBronzeService:
             )
             for metric in metrics
         }
+
+    @staticmethod
+    def players_by_club(players: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        # club_name is the club the player was called up from for the World Cup
+        # (club_team_id of their earliest tournament match — see _merge_player_rows),
+        # not any club they may have since transferred to.
+        counts: dict[str, int] = defaultdict(int)
+        for row in players:
+            club_name = row.get("club_name")
+            if club_name:
+                counts[club_name] += 1
+        return sorted(
+            ({"club_name": name, "players": count} for name, count in counts.items()),
+            key=lambda row: (-row["players"], row["club_name"]),
+        )
 
     @staticmethod
     def team_leaders(teams: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
