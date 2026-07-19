@@ -6,6 +6,37 @@ A partir da v1.0.0, mudanças de DDL são versionadas em
 
 ## Não lançado
 
+### Adicionado
+- API pública versionada (`/v1/*`), em paralelo ao `/api/*` interno da SPA (que
+  continua exatamente igual): fase 1 do split público/admin planejado — só o
+  lado de leitura por enquanto, a divisão do lado de escrita (edição de
+  jogadores/seleções) fica pra uma fase seguinte. `/v1/*` roda numa sub-app
+  FastAPI própria (`webapp/v1/`), com OpenAPI/Swagger isolado (`/v1/docs`) que
+  nunca lista rotas do `/api/*` nem do `/ops/metrics`. Autogeração de chave em
+  `POST /v1/keys` (retorna a chave em texto puro uma única vez; hash SHA-256 —
+  não bcrypt/argon2, é um token aleatório de alta entropia, não uma senha —
+  guardado em `analytics.api_keys`; permanente até revogação manual via SQL,
+  sem endpoint de revogação nesta fase). Rate limit por dia em
+  `analytics.api_rate_limits`: 100 req/dia sem chave (por IP), 2000 com chave
+  válida, 5 criações de chave/dia por IP (pra não virar loop de geração em
+  massa contornando o limite sem chave). Dois papéis Postgres novos e sem
+  sobreposição (`docker/postgres/migrations/002_public_api.sql`):
+  `readonly_public` (só SELECT em `gold`, único schema que a leitura pública
+  toca) e `public_api_writer` (só INSERT/UPDATE nas tabelas de tracking —
+  nunca em `gold`). Faltava isso: hoje um único usuário Postgres faz tudo
+  (leitura, escrita de métricas, pipeline).
+- Curadoria (overrides de nome/posição/foto de jogador e seleção) ganhou um
+  leitor somente-leitura (`CurationSnapshotReader`) como preparação pra fase 2:
+  a leitura pública hoje depende do SQLite de curadoria pra aplicar overrides
+  em toda resposta (`_curate_players`/`_curate_teams`) — abrir esse arquivo
+  `:ro` de dois containers seria frágil (sqlite3 abre read-write por padrão, e
+  WAL tem instabilidade documentada entre containers). Em vez de migrar pra
+  Postgres ou arriscar isso, `CurationRepository` (o único escritor, sem
+  mudança de comportamento) passou a exportar um snapshot JSON a cada
+  gravação; o novo leitor só faz `json.load()`, sem sqlite3 nenhum. Ainda não
+  está ligado no app — é só a peça que a fase 2 (split do serviço de admin)
+  vai usar.
+
 ### Corrigido
 - "Quem avançou" chamava de "avançou" a vitória na disputa de 3º lugar e (quando
   acontecer) a vitória na Final — mas ninguém avança de nenhuma das duas: a

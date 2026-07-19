@@ -175,6 +175,7 @@ class CurationRepository:
             )
         after = self.get_player_override(player_id) or {}
         self._audit("player", player_id, "upsert", before, after, updated_by)
+        self._export_snapshot()
         return after
 
     def delete_player_override(
@@ -192,6 +193,7 @@ class CurationRepository:
                 (player_id,),
             )
         self._audit("player", player_id, "delete", before, None, updated_by)
+        self._export_snapshot()
         return True
 
     def get_team_override(self, team_id: str) -> dict[str, Any] | None:
@@ -238,6 +240,7 @@ class CurationRepository:
             )
         after = self.get_team_override(team_id) or {}
         self._audit("team", team_id, "upsert", before, after, updated_by)
+        self._export_snapshot()
         return after
 
     def delete_team_override(
@@ -255,6 +258,7 @@ class CurationRepository:
                 (team_id,),
             )
         self._audit("team", team_id, "delete", before, None, updated_by)
+        self._export_snapshot()
         return True
 
     def _audit(
@@ -282,6 +286,31 @@ class CurationRepository:
                     updated_by,
                 ),
             )
+
+    def players_snapshot_path(self) -> Path:
+        return self.database_path.parent / "overrides_players.json"
+
+    def teams_snapshot_path(self) -> Path:
+        return self.database_path.parent / "overrides_teams.json"
+
+    def _export_snapshot(self) -> None:
+        """Best-effort JSON snapshot of both override maps next to the SQLite file,
+        so a process that never opens SQLite (CurationSnapshotReader, meant for a
+        future read-only api-public instance) can read overrides via plain
+        json.load() — no sqlite3, no WAL, no cross-container locking. Called after
+        every successful write; failures are swallowed since the SQLite row is
+        already the source of truth and nothing reads these files yet."""
+        try:
+            self.players_snapshot_path().write_text(
+                json.dumps(self.player_overrides_map(), ensure_ascii=False),
+                encoding="utf-8",
+            )
+            self.teams_snapshot_path().write_text(
+                json.dumps(self.team_overrides_map(), ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
 
     def audit_log(self, entity_type: str, entity_id: str) -> list[dict[str, Any]]:
         with self.connect() as connection:

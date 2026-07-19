@@ -6,8 +6,14 @@ from typing import Any
 
 
 def database_url_from_env() -> str | None:
-    explicit = os.getenv("THESTATSAPI_DATABASE_URL") or os.getenv(
-        "SERVING_DATABASE_URL"
+    # PUBLIC_DATABASE_URL is the readonly_public-role connection string (see
+    # docker/postgres/migrations/002_public_api.sql); it takes priority once set,
+    # but everything keeps working without it (local dev, or before the split is
+    # deployed) by falling back to the same shared credentials as always.
+    explicit = (
+        os.getenv("PUBLIC_DATABASE_URL")
+        or os.getenv("THESTATSAPI_DATABASE_URL")
+        or os.getenv("SERVING_DATABASE_URL")
     )
     if explicit:
         return explicit
@@ -27,6 +33,17 @@ def database_url_from_env() -> str | None:
             f"@{host}:{port}/{postgres_db}"
         )
     return None
+
+
+def writer_database_url_from_env() -> str | None:
+    # public_api_writer-role connection string, used by anything that INSERTs into
+    # analytics.* (request metrics, rate limiting, api keys) — deliberately separate
+    # from database_url_from_env() above, which is readonly_public and cannot write.
+    # Falls back the same way when the split isn't deployed yet.
+    explicit = os.getenv("PUBLIC_WRITER_DATABASE_URL")
+    if explicit:
+        return explicit
+    return database_url_from_env()
 
 
 class GoldPayloadRepository:

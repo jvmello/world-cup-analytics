@@ -19,6 +19,7 @@ from starlette.concurrency import run_in_threadpool
 from . import __version__
 from .catalog import DEFAULT_EDITION
 from .request_metrics import RequestMetricsRepository
+from .v1 import create_v1_app
 
 # ADMIN DISABLED FOR NOW (2026-07-09): the admin area must not ship to production in
 # this phase. All the code stays in the repository (admin_service.py,
@@ -78,6 +79,9 @@ def create_app(
     )
     service = DataService(data_root, admin_db_path=admin_db_path)
     metrics_repo = RequestMetricsRepository()
+    # Versioned, documented, rate-limited public API for third-party consumers —
+    # additive, parallel to /api/* below (which stays exactly as-is for the SPA).
+    app.mount("/v1", create_v1_app(service))
 
     def _record_metrics(method: str, path_template: str, status_code: int, duration_ms: float) -> None:
         # Runs in a thread pool from fire-and-forget middleware below; record() already

@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from .gold_payloads import database_url_from_env
+from .gold_payloads import writer_database_url_from_env
 
 
 class RequestMetricsRepository:
@@ -11,7 +11,7 @@ class RequestMetricsRepository:
     swallows its own errors — metrics must never break or slow down a real request."""
 
     def __init__(self, database_url: str | None = None) -> None:
-        self.database_url = database_url or database_url_from_env()
+        self.database_url = database_url or writer_database_url_from_env()
         self._unavailable = not bool(
             self.database_url and self.database_url.startswith("postgres")
         )
