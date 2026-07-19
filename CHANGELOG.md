@@ -6,6 +6,18 @@ A partir da v1.0.0, mudanças de DDL são versionadas em
 
 ## Não lançado
 
+### Corrigido
+- "Quem avançou" chamava de "avançou" a vitória na disputa de 3º lugar e (quando
+  acontecer) a vitória na Final — mas ninguém avança de nenhuma das duas: a
+  disputa de 3º lugar é o último jogo de classificação, e quem vence a Final não
+  avança, conquista o título. `homeQualifiedStory()` (o texto que a Home
+  realmente renderiza — recalculado no front, não vem do campo `narrative` do
+  backend) e o gerador equivalente em `home_pulse()` agora tratam essas duas
+  fases: "garantiu o 3º lugar" e "conquistou o título mundial". Requer rebuild
+  do gold.
+
+## v1.1.0 — 2026-07-18
+
 ### Adicionado
 - Jogadores por clube: novo bloco na tela de Jogadores mostra o clube de origem de
   cada convocado (não o clube atual — quem se transferiu no meio da Copa, como
@@ -59,7 +71,7 @@ A partir da v1.0.0, mudanças de DDL são versionadas em
   de cor simples/hifenizados e quebrava com descrições mais longas; passou a
   aceitar qualquer texto até o hex. Requer rebuild do gold.
 
-## v1.1.0 — 2026-07-18
+## v1.0.1 — 2026-07-15
 
 ### Adicionado
 - Tracking de uso: dashboard interno `/ops/metrics` (Basic Auth, 404 sem

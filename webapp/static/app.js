@@ -1549,12 +1549,17 @@
     const winner = displayTeamName(item.winner_name);
     const eliminated = teamNameWithArticle(item.eliminated_name);
     const score = item.score_label || "placar não informado";
+    // Winning the third-place match or the Final isn't "advancing" — there's nothing left
+    // to advance to. Every other knockout round genuinely feeds the next one.
+    const outcome = item.phase === "Disputa de 3º lugar" ? "garantiu o 3º lugar"
+      : item.phase === "Final" ? "conquistou o título mundial"
+      : "avançou";
     if (item.decided_by === "penalties") {
       const regulation = score.split(" (")[0];
-      return `${winner} avançou nos pênaltis após empate por ${regulation} contra ${eliminated}.`;
+      return `${winner} ${outcome} nos pênaltis após empate por ${regulation} contra ${eliminated}.`;
     }
-    if (item.decided_by === "extra_time") return `${winner} avançou na prorrogação após vencer ${eliminated} por ${score.replace(" (prorrogação)", "")}.`;
-    return `${winner} avançou após vencer ${eliminated} por ${score}.`;
+    if (item.decided_by === "extra_time") return `${winner} ${outcome} na prorrogação após vencer ${eliminated} por ${score.replace(" (prorrogação)", "")}.`;
+    return `${winner} ${outcome} após vencer ${eliminated} por ${score}.`;
   }
 
   function homeBracketMatch(match, phase = null) {

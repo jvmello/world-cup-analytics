@@ -255,9 +255,17 @@ class TheStatsApiBronzeService:
                 eliminated_name = eliminated.get("team_name")
                 if not winner_name or not eliminated_name:
                     continue
+                # Winning the third-place match or the Final isn't "advancing" — there's
+                # nothing left to advance to. Every other knockout round genuinely feeds
+                # the next one.
+                outcome = (
+                    "garantiu o 3º lugar" if round_["name"] == "Disputa de 3º lugar"
+                    else "conquistou o título mundial" if round_["name"] == "Final"
+                    else "avançou"
+                )
                 if decided_by == "penalties":
                     narrative = (
-                        f"{winner_name} avançou nos pênaltis após empate por "
+                        f"{winner_name} {outcome} nos pênaltis após empate por "
                         f"{int(home_score)}–{int(away_score)} contra {eliminated_name}."
                     )
                 else:
@@ -265,7 +273,7 @@ class TheStatsApiBronzeService:
                     eliminated_score = away_score if home_won else home_score
                     in_extra_time = str(match.get("decided_by") or "") == "extra_time"
                     narrative = (
-                        f"{winner_name} avançou {'na prorrogação ' if in_extra_time else ''}após vencer "
+                        f"{winner_name} {outcome} {'na prorrogação ' if in_extra_time else ''}após vencer "
                         f"{eliminated_name} por {int(winner_score)}–{int(eliminated_score)}."
                     )
                 classified.append(

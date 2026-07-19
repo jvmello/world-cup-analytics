@@ -3300,6 +3300,45 @@ def test_home_pulse_reports_knockout_consequences_and_next_matchups() -> None:
     assert "partida 75" not in str(pulse)
 
 
+def test_home_pulse_third_place_and_final_dont_say_advanced() -> None:
+    """Regression: "Quem avançou" narrated the third-place decider and the Final exactly like
+    any other knockout round ("X avançou após vencer Y") — but nobody "advances" from either:
+    third place is the last classification game, and the Final winner doesn't advance, they win
+    the whole thing. Root cause fixed in both home_pulse() (backend narrative field) and
+    homeQualifiedStory() (what the frontend actually renders, independently of that field)."""
+    service = TheStatsApiBronzeService()
+    fixtures = [
+        {
+            "match_id": "third", "stage": "third_place", "status": "finished",
+            "match_date": "2026-07-18T18:00:00Z",
+            "home_team": "France", "home_team_id": "fra",
+            "away_team": "England", "away_team_id": "eng",
+            "home_score": 4, "away_score": 6,
+        },
+        {
+            "match_id": "final", "stage": "final", "status": "finished",
+            "match_date": "2026-07-19T18:00:00Z",
+            "home_team": "Spain", "home_team_id": "esp",
+            "away_team": "Argentina", "away_team_id": "arg",
+            "home_score": 1, "away_score": 0,
+        },
+    ]
+
+    pulse = service.home_pulse(fixtures, now=datetime(2026, 7, 19, 22, tzinfo=timezone.utc))
+
+    third_place_result = next(item for item in pulse["classified_recent"] if item["winner_name"] == "England")
+    assert third_place_result["narrative"] == "England garantiu o 3º lugar após vencer France por 6–4."
+    final_result = next(item for item in pulse["classified_recent"] if item["winner_name"] == "Spain")
+    assert final_result["narrative"] == "Spain conquistou o título mundial após vencer Argentina por 1–0."
+    assert "avançou" not in third_place_result["narrative"]
+    assert "avançou" not in final_result["narrative"]
+
+    app_js = (Path(__file__).parents[1] / "webapp/static/app.js").read_text(encoding="utf-8")
+    story_body = app_js[app_js.index("function homeQualifiedStory("):app_js.index("function homeQualifiedStory(") + 800]
+    assert '"Disputa de 3º lugar"' in story_body and "garantiu o 3º lugar" in story_body
+    assert '"Final"' in story_body and "conquistou o título mundial" in story_body
+
+
 def test_home_pulse_resolves_winner_placeholders_in_todays_matches() -> None:
     """Regression: "Agenda de hoje" used the raw fixtures list (home_team="W73") while
     "Próximos encaixes" resolved the same knockout matches through knockout_state — so a
